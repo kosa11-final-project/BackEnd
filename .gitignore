@@ -1,0 +1,19 @@
+.gradle/
+build/
+out/
+
+.idea/
+*.iml
+.vscode/
+
+.env
+.env.*
+
+src/main/resources/application-local.yml
+
+*.log
+hs_err_pid*
+
+### macOS / Windows ###
+.DS_Store
+Thumbs.db
