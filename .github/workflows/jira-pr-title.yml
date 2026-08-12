@@ -1,0 +1,43 @@
+name: Add Jira Key to PR Title
+
+on:
+  pull_request:
+    types: [opened, edited, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  add-jira-key:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Add Jira key to PR title
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH_NAME: ${{ github.head_ref }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          JIRA_KEY=$(printf '%s' "$BRANCH_NAME" \
+            | grep -oE 'YSK-[0-9]+' \
+            | head -1)
+
+          if [ -z "$JIRA_KEY" ]; then
+            echo "브랜치명에서 Jira 키를 찾지 못했습니다: $BRANCH_NAME"
+            exit 0
+          fi
+
+          # 이미 같은 Jira 키가 제목에 있으면 수정하지 않음
+          if printf '%s' "$PR_TITLE" | grep -q "\[$JIRA_KEY\]"; then
+            echo "PR 제목에 이미 [$JIRA_KEY]가 포함되어 있습니다."
+            exit 0
+          fi
+
+          NEW_TITLE="[$JIRA_KEY] $PR_TITLE"
+
+          gh pr edit "${{ github.event.pull_request.number }}" \
+            --repo "${{ github.repository }}" \
+            --title "$NEW_TITLE"
+
+          echo "PR 제목 변경 완료: $NEW_TITLE"
