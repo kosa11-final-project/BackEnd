@@ -26,6 +26,8 @@ dependencies {
     implementation 'org.mybatis.spring.boot:mybatis-spring-boot-starter:3.0.4'
     runtimeOnly 'com.oracle.database.jdbc:ojdbc11'
 
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.17'
+
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'org.springframework.batch:spring-batch-test'
     testRuntimeOnly 'com.h2database:h2'
