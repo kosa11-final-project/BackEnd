@@ -13,6 +13,9 @@ spring:
       enabled: false
     jdbc:
       initialize-schema: never
+  flyway:
+    enabled: ${FLYWAY_ENABLED:false}
+    locations: classpath:db/migration
 
 server:
   port: ${SERVER_PORT:8080}

@@ -9,3 +9,5 @@ spring:
       enabled: false
     jdbc:
       initialize-schema: always
+  flyway:
+    enabled: false
