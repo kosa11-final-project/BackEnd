@@ -1,0 +1,30 @@
+#!/bin/sh
+
+COMMIT_MSG_FILE="$1"
+COMMIT_SOURCE="$2"
+
+# merge / squash 커밋은 제외
+if [ "$COMMIT_SOURCE" = "merge" ] || [ "$COMMIT_SOURCE" = "squash" ]; then
+  exit 0
+fi
+
+BRANCH_NAME=$(git branch --show-current)
+
+JIRA_KEY=$(printf '%s' "$BRANCH_NAME" \
+  | grep -oE 'YSK-[0-9]+' \
+  | head -1)
+
+# Jira 키 없는 브랜치는 그대로
+if [ -z "$JIRA_KEY" ]; then
+  exit 0
+fi
+
+FIRST_LINE=$(head -n 1 "$COMMIT_MSG_FILE")
+
+# 이미 키가 있으면 중복 추가 X
+if printf '%s' "$FIRST_LINE" | grep -q "$JIRA_KEY"; then
+  exit 0
+fi
+
+sed -i.bak "1s/^/[$JIRA_KEY] /" "$COMMIT_MSG_FILE"
+rm -f "$COMMIT_MSG_FILE.bak"
