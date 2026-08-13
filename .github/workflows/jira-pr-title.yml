@@ -18,26 +18,48 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           BRANCH_NAME: ${{ github.head_ref }}
           PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
         run: |
           JIRA_KEY=$(printf '%s' "$BRANCH_NAME" \
             | grep -oE 'YSK-[0-9]+' \
-            | head -1)
+            | head -1 \
+            || true)
 
           if [ -z "$JIRA_KEY" ]; then
             echo "브랜치명에서 Jira 키를 찾지 못했습니다: $BRANCH_NAME"
             exit 0
           fi
 
-          # 이미 같은 Jira 키가 제목에 있으면 수정하지 않음
+          # 제목에 Jira 키가 없을 때만 추가
           if printf '%s' "$PR_TITLE" | grep -q "\[$JIRA_KEY\]"; then
             echo "PR 제목에 이미 [$JIRA_KEY]가 포함되어 있습니다."
-            exit 0
+          else
+            NEW_TITLE="[$JIRA_KEY] $PR_TITLE"
+
+            gh pr edit "${{ github.event.pull_request.number }}" \
+              --repo "${{ github.repository }}" \
+              --title "$NEW_TITLE"
+
+            echo "PR 제목 변경 완료: $NEW_TITLE"
           fi
 
-          NEW_TITLE="[$JIRA_KEY] $PR_TITLE"
+          # PR 본문에 Jira 링크를 한 번만 추가
+          MARKER="<!-- jira-auto-link -->"
 
-          gh pr edit "${{ github.event.pull_request.number }}" \
-            --repo "${{ github.repository }}" \
-            --title "$NEW_TITLE"
+          if printf '%s' "$PR_BODY" | grep -Fq "$MARKER"; then
+            echo "PR 본문에 Jira 링크가 이미 포함되어 있습니다."
+          else
+            JIRA_LINK="${JIRA_BASE_URL%/}/browse/$JIRA_KEY"
+            NEW_BODY=$(printf '%s\n## Jira\n\n[%s](%s)\n\n%s' \
+              "$MARKER" \
+              "$JIRA_KEY" \
+              "$JIRA_LINK" \
+              "$PR_BODY")
 
-          echo "PR 제목 변경 완료: $NEW_TITLE"
+            gh pr edit "${{ github.event.pull_request.number }}" \
+              --repo "${{ github.repository }}" \
+              --body "$NEW_BODY"
+
+            echo "PR 본문에 Jira 링크 추가 완료: $JIRA_LINK"
+          fi
