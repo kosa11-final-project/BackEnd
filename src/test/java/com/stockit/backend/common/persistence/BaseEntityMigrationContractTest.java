@@ -23,8 +23,8 @@ class BaseEntityMigrationContractTest {
     void coversEveryBusinessTableWithBaseEntityColumnsAndConstraints() throws IOException {
         String baseline = readResource("db/migration/V1__baseline_schema.sql");
         String inventoryMovement = readResource("db/migration/V3__create_inventory_movement.sql");
-        String addColumns = readResource("db/migration/V4__add_base_entity_columns.sql");
-        String enforceConstraints = readResource("db/migration/V5__enforce_base_entity_constraints.sql");
+        String addColumns = readResource("db/migration/V5__add_base_entity_columns.sql");
+        String enforceConstraints = readResource("db/migration/V6__enforce_base_entity_constraints.sql");
 
         Set<String> tables = extractTables(baseline + System.lineSeparator() + inventoryMovement);
         assertThat(tables).hasSize(37);
@@ -65,7 +65,7 @@ class BaseEntityMigrationContractTest {
 
     @Test
     void createsInactiveSystemActorBeforeBackfill() throws IOException {
-        String migration = readResource("db/migration/V4__add_base_entity_columns.sql");
+        String migration = readResource("db/migration/V5__add_base_entity_columns.sql");
 
         int organizationSeed = migration.indexOf("MERGE INTO organization");
         int systemUserSeed = migration.indexOf("MERGE INTO app_user");
@@ -83,8 +83,8 @@ class BaseEntityMigrationContractTest {
 
     @Test
     void safelyResumesAfterPartiallyAppliedOracleDdl() throws IOException {
-        String addColumns = readResource("db/migration/V4__add_base_entity_columns.sql");
-        String enforceConstraints = readResource("db/migration/V5__enforce_base_entity_constraints.sql");
+        String addColumns = readResource("db/migration/V5__add_base_entity_columns.sql");
+        String enforceConstraints = readResource("db/migration/V6__enforce_base_entity_constraints.sql");
 
         assertThat(addColumns).contains(
                 "FROM user_tab_columns",
