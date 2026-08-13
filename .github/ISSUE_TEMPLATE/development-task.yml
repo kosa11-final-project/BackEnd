@@ -1,0 +1,38 @@
+name: 개발 작업
+description: Jira 하위 작업과 연동되는 개발 이슈
+title: "[Feature] "
+
+body:
+  - type: input
+    id: parent_jira
+    attributes:
+      label: 부모 Jira 작업 키
+      description: 부모 Jira 작업의 키를 입력해주세요.
+      placeholder: "예) YSK-29"
+    validations:
+      required: true
+
+  - type: input
+    id: branch_type
+    attributes:
+      label: 브랜치 타입
+      description: 브랜치 앞부분을 입력해주세요.
+      placeholder: "예) feature"
+    validations:
+      required: true
+
+  - type: input
+    id: branch_suffix
+    attributes:
+      label: 브랜치명
+      description: Jira 키 뒤에 붙을 브랜치명을 입력해주세요.
+      placeholder: "예) product-api"
+    validations:
+      required: true
+
+  - type: textarea
+    id: work_description
+    attributes:
+      label: 작업 내용
+      description: 구현할 내용을 작성해주세요.
+      placeholder: 작업 내용을 입력해주세요.

@@ -1,0 +1,400 @@
+name: Create Jira Subtask
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  create-jira-subtask:
+    runs-on: ubuntu-latest
+
+    steps:
+      # =========================================================
+      # 1. 이미 Jira와 연결된 Issue인지 확인
+      #    재실행 시 Jira 하위 작업 중복 생성을 방지
+      # =========================================================
+      - name: Check existing Jira link
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          CURRENT_TITLE=$(gh issue view "${{ github.event.issue.number }}" \
+            --repo "${{ github.repository }}" \
+            --json title \
+            --jq '.title')
+
+          EXISTING_JIRA_KEY=$(printf '%s' "$CURRENT_TITLE" \
+            | grep -oE '^\[YSK-[0-9]+\]' \
+            | tr -d '[]' \
+            || true)
+
+          if [ -n "$EXISTING_JIRA_KEY" ]; then
+            echo "already_linked=true" >> "$GITHUB_OUTPUT"
+            echo "existing_jira_key=$EXISTING_JIRA_KEY" >> "$GITHUB_OUTPUT"
+            echo "이미 Jira와 연결된 Issue입니다: $EXISTING_JIRA_KEY"
+          else
+            echo "already_linked=false" >> "$GITHUB_OUTPUT"
+            echo "existing_jira_key=" >> "$GITHUB_OUTPUT"
+          fi
+
+      # =========================================================
+      # 2. GitHub Issue Form 입력값 추출
+      # =========================================================
+      - name: Extract issue form values
+        id: form
+        env:
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: |
+          PARENT_KEY=$(printf '%s\n' "$ISSUE_BODY" \
+            | awk '/### 부모 Jira 작업 키/{getline; while ($0 == "") getline; print; exit}' \
+            | tr -d '\r' \
+            | xargs)
+
+          BRANCH_TYPE=$(printf '%s\n' "$ISSUE_BODY" \
+            | awk '/### 브랜치 타입/{getline; while ($0 == "") getline; print; exit}' \
+            | tr -d '\r' \
+            | xargs)
+
+          BRANCH_SUFFIX=$(printf '%s\n' "$ISSUE_BODY" \
+            | awk '/### 브랜치명/{getline; while ($0 == "") getline; print; exit}' \
+            | tr -d '\r' \
+            | xargs)
+
+          if ! echo "$PARENT_KEY" | grep -Eq '^YSK-[0-9]+$'; then
+            echo "올바른 Jira 부모 키가 아닙니다: $PARENT_KEY"
+            exit 1
+          fi
+
+          if [ -z "$BRANCH_TYPE" ]; then
+            echo "브랜치 타입이 비어 있습니다."
+            exit 1
+          fi
+
+          if [ -z "$BRANCH_SUFFIX" ]; then
+            echo "브랜치명이 비어 있습니다."
+            exit 1
+          fi
+
+          BRANCH_NAME="${BRANCH_TYPE}/TEST-${BRANCH_SUFFIX}"
+
+          if ! git check-ref-format --branch "$BRANCH_NAME" > /dev/null 2>&1; then
+            echo "브랜치 타입 또는 브랜치명이 올바르지 않습니다."
+            echo "입력값: $BRANCH_TYPE / $BRANCH_SUFFIX"
+            exit 1
+          fi
+
+          echo "parent_key=$PARENT_KEY" >> "$GITHUB_OUTPUT"
+          echo "branch_type=$BRANCH_TYPE" >> "$GITHUB_OUTPUT"
+          echo "branch_suffix=$BRANCH_SUFFIX" >> "$GITHUB_OUTPUT"
+
+      # =========================================================
+      # 3. GitHub 사용자 → Jira accountId 매핑
+      # =========================================================
+      - name: Map GitHub user to Jira account
+        id: assignee
+        env:
+          GITHUB_USER: ${{ github.event.issue.user.login }}
+          JIRA_ASSIGNEE_MAP: ${{ secrets.JIRA_ASSIGNEE_MAP }}
+        run: |
+          JIRA_ACCOUNT_ID=$(printf '%s' "$JIRA_ASSIGNEE_MAP" \
+            | jq -r --arg user "$GITHUB_USER" '.[$user] // empty')
+
+          if [ -z "$JIRA_ACCOUNT_ID" ]; then
+            echo "등록되지 않은 GitHub 사용자입니다: $GITHUB_USER"
+            echo "Jira 담당자 없이 진행합니다."
+          else
+            echo "GitHub 사용자와 Jira 사용자 매핑 완료"
+          fi
+
+          echo "jira_account_id=$JIRA_ACCOUNT_ID" >> "$GITHUB_OUTPUT"
+
+      # =========================================================
+      # 4. Jira 하위 작업 생성
+      #    이미 연결된 Issue라면 생성하지 않음
+      # =========================================================
+      - name: Create Jira subtask
+        if: steps.check.outputs.already_linked == 'false'
+        id: jira
+        env:
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          PARENT_KEY: ${{ steps.form.outputs.parent_key }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_URL: ${{ github.event.issue.html_url }}
+        run: |
+          PAYLOAD=$(jq -n \
+            --arg title "$ISSUE_TITLE" \
+            --arg url "$ISSUE_URL" \
+            --arg parent "$PARENT_KEY" \
+            '{
+              fields: {
+                project: {
+                  key: "YSK"
+                },
+                summary: $title,
+                issuetype: {
+                  name: "하위 작업"
+                },
+                parent: {
+                  key: $parent
+                },
+                description: {
+                  type: "doc",
+                  version: 1,
+                  content: [
+                    {
+                      type: "paragraph",
+                      content: [
+                        {
+                          type: "text",
+                          text: ("GitHub Issue: " + $url)
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }')
+
+          RESPONSE=$(curl --fail-with-body -sS \
+            -u "$JIRA_USER_EMAIL:$JIRA_API_TOKEN" \
+            -X POST \
+            -H "Accept: application/json" \
+            -H "Content-Type: application/json" \
+            "${JIRA_BASE_URL%/}/rest/api/3/issue" \
+            -d "$PAYLOAD")
+
+          JIRA_KEY=$(echo "$RESPONSE" | jq -r '.key')
+
+          if [ -z "$JIRA_KEY" ] || [ "$JIRA_KEY" = "null" ]; then
+            echo "Jira 하위 작업 생성 실패"
+            echo "$RESPONSE"
+            exit 1
+          fi
+
+          echo "jira_key=$JIRA_KEY" >> "$GITHUB_OUTPUT"
+          echo "생성된 Jira 하위 작업: $JIRA_KEY"
+
+      # =========================================================
+      # 5. 사용할 Jira Key 확정
+      #    신규 생성이면 새 key
+      #    재실행이면 기존 제목의 key 사용
+      # =========================================================
+      - name: Resolve Jira key
+        id: resolved
+        env:
+          ALREADY_LINKED: ${{ steps.check.outputs.already_linked }}
+          EXISTING_JIRA_KEY: ${{ steps.check.outputs.existing_jira_key }}
+          CREATED_JIRA_KEY: ${{ steps.jira.outputs.jira_key }}
+        run: |
+          if [ "$ALREADY_LINKED" = "true" ]; then
+            JIRA_KEY="$EXISTING_JIRA_KEY"
+          else
+            JIRA_KEY="$CREATED_JIRA_KEY"
+          fi
+
+          if [ -z "$JIRA_KEY" ]; then
+            echo "Jira Key를 확인할 수 없습니다."
+            exit 1
+          fi
+
+          echo "jira_key=$JIRA_KEY" >> "$GITHUB_OUTPUT"
+          echo "사용할 Jira Key: $JIRA_KEY"
+
+      # =========================================================
+      # 6. 신규 생성된 경우 GitHub Issue 제목에 Jira Key 추가
+      #    먼저 제목을 바꿔서 이후 실패 후 재실행해도
+      #    Jira Issue가 중복 생성되지 않게 함
+      # =========================================================
+      - name: Add Jira key to GitHub issue title
+        if: steps.check.outputs.already_linked == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JIRA_KEY: ${{ steps.resolved.outputs.jira_key }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+        run: |
+          gh issue edit "${{ github.event.issue.number }}" \
+            --repo "${{ github.repository }}" \
+            --title "[$JIRA_KEY]$ISSUE_TITLE"
+
+          echo "GitHub Issue 제목 업데이트 완료"
+
+      # =========================================================
+      # 7. Jira 담당자 자동 지정
+      # =========================================================
+      - name: Assign Jira issue
+        if: steps.assignee.outputs.jira_account_id != ''
+        env:
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          JIRA_KEY: ${{ steps.resolved.outputs.jira_key }}
+          JIRA_ACCOUNT_ID: ${{ steps.assignee.outputs.jira_account_id }}
+        run: |
+          curl --fail-with-body -sS \
+            -u "$JIRA_USER_EMAIL:$JIRA_API_TOKEN" \
+            -X PUT \
+            -H "Accept: application/json" \
+            -H "Content-Type: application/json" \
+            "${JIRA_BASE_URL%/}/rest/api/3/issue/$JIRA_KEY/assignee" \
+            -d "$(jq -n \
+              --arg accountId "$JIRA_ACCOUNT_ID" \
+              '{accountId: $accountId}')"
+
+          echo "Jira 담당자 지정 완료"
+
+      # =========================================================
+      # 8. Jira 상태를 "진행 중"으로 변경
+      #    이미 진행 중이면 아무것도 하지 않음
+      # =========================================================
+      - name: Move Jira issue to In Progress
+        env:
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          JIRA_KEY: ${{ steps.resolved.outputs.jira_key }}
+        run: |
+          CURRENT_STATUS=$(curl --fail-with-body -sS \
+            -u "$JIRA_USER_EMAIL:$JIRA_API_TOKEN" \
+            -H "Accept: application/json" \
+            "${JIRA_BASE_URL%/}/rest/api/3/issue/$JIRA_KEY?fields=status" \
+            | jq -r '.fields.status.name')
+
+          echo "현재 Jira 상태: $CURRENT_STATUS"
+
+          if [ "$CURRENT_STATUS" = "진행 중" ]; then
+            echo "이미 '진행 중' 상태입니다."
+            exit 0
+          fi
+
+          TRANSITIONS=$(curl --fail-with-body -sS \
+            -u "$JIRA_USER_EMAIL:$JIRA_API_TOKEN" \
+            -H "Accept: application/json" \
+            "${JIRA_BASE_URL%/}/rest/api/3/issue/$JIRA_KEY/transitions")
+
+          TRANSITION_ID=$(echo "$TRANSITIONS" \
+            | jq -r '.transitions[]
+              | select(.to.name == "진행 중")
+              | .id' \
+            | head -1)
+
+          if [ -z "$TRANSITION_ID" ] || [ "$TRANSITION_ID" = "null" ]; then
+            echo "'진행 중'으로 이동 가능한 transition을 찾지 못했습니다."
+            echo "$TRANSITIONS"
+            exit 1
+          fi
+
+          curl --fail-with-body -sS \
+            -u "$JIRA_USER_EMAIL:$JIRA_API_TOKEN" \
+            -X POST \
+            -H "Accept: application/json" \
+            -H "Content-Type: application/json" \
+            "${JIRA_BASE_URL%/}/rest/api/3/issue/$JIRA_KEY/transitions" \
+            -d "$(jq -n \
+              --arg id "$TRANSITION_ID" \
+              '{transition: {id: $id}}')"
+
+          echo "$JIRA_KEY 상태를 '진행 중'으로 변경 완료"
+
+      # =========================================================
+      # 9. GitHub 브랜치 자동 생성
+      #
+      # feature + YSK-41 + jira-test
+      # → feature/YSK-41-jira-test
+      #
+      # 이미 존재하면 재생성하지 않음
+      # =========================================================
+      - name: Create GitHub branch
+        id: branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JIRA_KEY: ${{ steps.resolved.outputs.jira_key }}
+          BRANCH_TYPE: ${{ steps.form.outputs.branch_type }}
+          BRANCH_SUFFIX: ${{ steps.form.outputs.branch_suffix }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          BRANCH_NAME="${BRANCH_TYPE}/${JIRA_KEY}-${BRANCH_SUFFIX}"
+
+          if ! git check-ref-format --branch "$BRANCH_NAME" > /dev/null 2>&1; then
+            echo "잘못된 브랜치명입니다: $BRANCH_NAME"
+            exit 1
+          fi
+
+          if gh api \
+            "repos/${{ github.repository }}/git/ref/heads/$BRANCH_NAME" \
+            > /dev/null 2>&1; then
+
+            echo "이미 존재하는 브랜치입니다: $BRANCH_NAME"
+          else
+            BASE_SHA=$(gh api \
+              "repos/${{ github.repository }}/git/ref/heads/$DEFAULT_BRANCH" \
+              --jq '.object.sha')
+
+            gh api \
+              --method POST \
+              "repos/${{ github.repository }}/git/refs" \
+              -f ref="refs/heads/$BRANCH_NAME" \
+              -f sha="$BASE_SHA"
+
+            echo "브랜치 생성 완료: $BRANCH_NAME"
+          fi
+
+          echo "branch_name=$BRANCH_NAME" >> "$GITHUB_OUTPUT"
+
+      # =========================================================
+      # 10. GitHub Issue 생성자를 Assignee로 지정
+      # =========================================================
+      - name: Assign GitHub issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_USER: ${{ github.event.issue.user.login }}
+        run: |
+          gh issue edit "${{ github.event.issue.number }}" \
+            --repo "${{ github.repository }}" \
+            --add-assignee "$GITHUB_USER" \
+            || echo "GitHub Issue 담당자 자동 지정 실패"
+
+      # =========================================================
+      # 11. GitHub Issue에 Jira / Branch 정보 댓글
+      #     재실행해도 같은 댓글 중복 생성하지 않음
+      # =========================================================
+      - name: Add Jira information comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_KEY: ${{ steps.resolved.outputs.jira_key }}
+          PARENT_KEY: ${{ steps.form.outputs.parent_key }}
+          BRANCH_NAME: ${{ steps.branch.outputs.branch_name }}
+        run: |
+          EXISTING_COMMENT=$(gh issue view "${{ github.event.issue.number }}" \
+            --repo "${{ github.repository }}" \
+            --json comments \
+            --jq '.comments[].body' \
+            | grep -F '<!-- jira-auto-link -->' \
+            || true)
+
+          if [ -n "$EXISTING_COMMENT" ]; then
+            echo "자동 연동 댓글이 이미 존재합니다."
+            exit 0
+          fi
+
+          COMMENT_BODY=$(cat <<EOF
+          <!-- jira-auto-link -->
+          Jira 하위 작업: ${JIRA_BASE_URL%/}/browse/$JIRA_KEY
+
+          부모 Jira 작업: ${JIRA_BASE_URL%/}/browse/$PARENT_KEY
+
+          브랜치: \`$BRANCH_NAME\`
+          EOF
+          )
+
+          gh issue comment "${{ github.event.issue.number }}" \
+            --repo "${{ github.repository }}" \
+            --body "$COMMENT_BODY"
+
+          echo "GitHub Issue 댓글 작성 완료"

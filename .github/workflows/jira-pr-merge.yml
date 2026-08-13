@@ -1,0 +1,94 @@
+name: Complete Jira Issue on PR Merge
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: read
+
+jobs:
+  complete-jira-issue:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Extract Jira key
+        id: jira
+        env:
+          BRANCH_NAME: ${{ github.event.pull_request.head.ref }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          # 우선 브랜치명에서 Jira 키 추출
+          JIRA_KEY=$(printf '%s' "$BRANCH_NAME" \
+            | grep -oE 'YSK-[0-9]+' \
+            | head -1 \
+            || true)
+
+          # 브랜치에서 못 찾으면 PR 제목에서 한 번 더 찾기
+          if [ -z "$JIRA_KEY" ]; then
+            JIRA_KEY=$(printf '%s' "$PR_TITLE" \
+              | grep -oE 'YSK-[0-9]+' \
+              | head -1 \
+              || true)
+          fi
+
+          if [ -z "$JIRA_KEY" ]; then
+            echo "Jira 키를 찾지 못했습니다."
+            echo "브랜치: $BRANCH_NAME"
+            echo "PR 제목: $PR_TITLE"
+            exit 1
+          fi
+
+          echo "jira_key=$JIRA_KEY" >> "$GITHUB_OUTPUT"
+          echo "Jira 작업: $JIRA_KEY"
+
+      - name: Move Jira issue to Done
+        env:
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          JIRA_KEY: ${{ steps.jira.outputs.jira_key }}
+        run: |
+          CURRENT_STATUS=$(curl --fail-with-body -sS \
+            -u "$JIRA_USER_EMAIL:$JIRA_API_TOKEN" \
+            -H "Accept: application/json" \
+            "${JIRA_BASE_URL%/}/rest/api/3/issue/$JIRA_KEY?fields=status" \
+            | jq -r '.fields.status.name')
+
+          echo "현재 Jira 상태: $CURRENT_STATUS"
+
+          # 이미 완료면 종료
+          if [ "$CURRENT_STATUS" = "완료" ]; then
+            echo "이미 완료 상태입니다."
+            exit 0
+          fi
+
+          TRANSITIONS=$(curl --fail-with-body -sS \
+            -u "$JIRA_USER_EMAIL:$JIRA_API_TOKEN" \
+            -H "Accept: application/json" \
+            "${JIRA_BASE_URL%/}/rest/api/3/issue/$JIRA_KEY/transitions")
+
+          TRANSITION_ID=$(echo "$TRANSITIONS" \
+            | jq -r '.transitions[]
+              | select(.to.name == "완료")
+              | .id' \
+            | head -1)
+
+          if [ -z "$TRANSITION_ID" ] || [ "$TRANSITION_ID" = "null" ]; then
+            echo "'완료' 상태로 이동할 수 있는 transition을 찾지 못했습니다."
+            echo "$TRANSITIONS"
+            exit 1
+          fi
+
+          curl --fail-with-body -sS \
+            -u "$JIRA_USER_EMAIL:$JIRA_API_TOKEN" \
+            -X POST \
+            -H "Accept: application/json" \
+            -H "Content-Type: application/json" \
+            "${JIRA_BASE_URL%/}/rest/api/3/issue/$JIRA_KEY/transitions" \
+            -d "$(jq -n \
+              --arg id "$TRANSITION_ID" \
+              '{transition: {id: $id}}')"
+
+          echo "$JIRA_KEY 상태를 '완료'로 변경했습니다."
