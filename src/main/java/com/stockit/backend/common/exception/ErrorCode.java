@@ -13,6 +13,13 @@ public enum ErrorCode {
     INVALID_PARAMETER(HttpStatus.BAD_REQUEST, "요청 파라미터가 잘못되었습니다.", "COMMON-002"),
 
     // ==============================
+    // 401 UNAUTHORIZED
+    // ==============================
+
+    // AUTH
+    AUTHENTICATION_FAILED(HttpStatus.UNAUTHORIZED, "인증에 실패했습니다.", "AUTH-001"),
+
+    // ==============================
     // 403 FORBIDDEN
     // ==============================
 

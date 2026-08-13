@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.stockit.backend.feature.auth.mapper.AuthMapper">
+
+    <!--
+        첫 인증 버전에서는 전체 총괄 역할만 로그인할 수 있음
+        삭제된 사용자, 조직, 역할 및 사용자-역할 연결은 인증 대상에서 제외함
+    -->
+    <select id="selectActiveAdminByLoginId" resultType="AuthUserVO">
+        SELECT app_user.user_id,
+               app_user.login_id,
+               app_user.password_hash,
+               app_user.user_name,
+               app_user.email,
+               app_user.organization_id,
+               organization.organization_name,
+               app_role.role_code
+        FROM app_user
+        INNER JOIN organization
+                ON organization.organization_id = app_user.organization_id
+               AND organization.is_deleted = 0
+        INNER JOIN user_role
+                ON user_role.user_id = app_user.user_id
+               AND user_role.is_deleted = 0
+        INNER JOIN app_role
+                ON app_role.role_id = user_role.role_id
+               AND app_role.is_deleted = 0
+               AND app_role.role_code = 'GREENFOOD_ADMIN'
+        WHERE app_user.login_id = #{loginId}
+          AND app_user.active_yn = 'Y'
+          AND app_user.is_deleted = 0
+    </select>
+
+    <!-- 로그인에 성공한 사용자 본인을 수정 주체로 기록 -->
+    <update id="updateLastLoginAt">
+        UPDATE app_user
+        SET last_login_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP,
+            updated_by = user_id
+        WHERE user_id = #{userId}
+          AND is_deleted = 0
+    </update>
+
+</mapper>
