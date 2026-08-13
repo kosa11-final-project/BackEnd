@@ -1,335 +1,76 @@
--- Add common audit columns in a nullable state first.
--- V5 enforces NOT NULL and foreign-key constraints after existing rows are backfilled.
+-- Oracle DDL commits statement by statement. Add only missing columns so a
+-- repaired failed migration can safely resume without raising ORA-01430.
 
-ALTER TABLE organization
-    ADD (
-    created_at  TIMESTAMP,
-    updated_at  TIMESTAMP,
-    created_by  NUMBER,
-    updated_by  NUMBER,
-    is_deleted NUMBER(1) DEFAULT 0
+DECLARE
+    TYPE table_name_list IS TABLE OF VARCHAR2(128);
+    v_tables table_name_list := table_name_list(
+        'organization',
+        'sales_channel',
+        'warehouse',
+        'app_role',
+        'supplier',
+        'ingredient',
+        'category',
+        'sales_point',
+        'app_user',
+        'user_role',
+        'user_access_scope',
+        'audit_log',
+        'sales_point_warehouse',
+        'product',
+        'product_ingredient',
+        'sku',
+        'lot',
+        'ml_model_version',
+        'ml_training_run',
+        'demand_forecast',
+        'sales_daily',
+        'sku_channel_price',
+        'inventory_balance',
+        'inventory_policy',
+        'risk_assessment',
+        'strategy_case',
+        'strategy_option',
+        'strategy_simulation',
+        'strategy_action',
+        'strategy_lot_allocation',
+        'strategy_review_request',
+        'strategy_performance',
+        'strategy_inventory_snapshot',
+        'final_strategy_selection',
+        'strategy_price_snapshot',
+        'notification',
+        'inventory_movement'
     );
 
-ALTER TABLE sales_channel
-    ADD (
-    created_at  TIMESTAMP,
-    updated_at  TIMESTAMP,
-    created_by  NUMBER,
-    updated_by  NUMBER,
-    is_deleted NUMBER(1) DEFAULT 0
-    );
+    PROCEDURE add_column_if_missing(
+        p_table_name        VARCHAR2,
+        p_column_name       VARCHAR2,
+        p_column_definition VARCHAR2
+    ) IS
+        v_column_count NUMBER;
+    BEGIN
+        SELECT COUNT(*)
+        INTO v_column_count
+        FROM user_tab_columns
+        WHERE table_name = UPPER(p_table_name)
+          AND column_name = UPPER(p_column_name);
 
-ALTER TABLE warehouse
-    ADD (
-    created_at  TIMESTAMP,
-    updated_at  TIMESTAMP,
-    created_by  NUMBER,
-    updated_by  NUMBER,
-    is_deleted NUMBER(1) DEFAULT 0
-    );
-
-ALTER TABLE app_role
-    ADD (
-    created_at  TIMESTAMP,
-    updated_at  TIMESTAMP,
-    created_by  NUMBER,
-    updated_by  NUMBER,
-    is_deleted NUMBER(1) DEFAULT 0
-    );
-
-ALTER TABLE supplier
-    ADD (
-    created_at  TIMESTAMP,
-    updated_at  TIMESTAMP,
-    created_by  NUMBER,
-    updated_by  NUMBER,
-    is_deleted NUMBER(1) DEFAULT 0
-    );
-
-ALTER TABLE ingredient
-    ADD (
-    created_at  TIMESTAMP,
-    updated_at  TIMESTAMP,
-    created_by  NUMBER,
-    updated_by  NUMBER,
-    is_deleted NUMBER(1) DEFAULT 0
-    );
-
-ALTER TABLE category
-    ADD (
-    created_at  TIMESTAMP,
-    updated_at  TIMESTAMP,
-    created_by  NUMBER,
-    updated_by  NUMBER,
-    is_deleted NUMBER(1) DEFAULT 0
-    );
-
-ALTER TABLE sales_point
-    ADD (
-    created_at  TIMESTAMP,
-    updated_at  TIMESTAMP,
-    created_by  NUMBER,
-    updated_by  NUMBER,
-    is_deleted NUMBER(1) DEFAULT 0
-    );
-
-ALTER TABLE app_user
-    ADD (
-    created_at  TIMESTAMP,
-    updated_at  TIMESTAMP,
-    created_by  NUMBER,
-    updated_by  NUMBER,
-    is_deleted NUMBER(1) DEFAULT 0
-    );
-
-ALTER TABLE user_role
-    ADD (
-    created_at  TIMESTAMP,
-    updated_at  TIMESTAMP,
-    created_by  NUMBER,
-    updated_by  NUMBER,
-    is_deleted NUMBER(1) DEFAULT 0
-    );
-
-ALTER TABLE user_access_scope
-    ADD (
-    created_at  TIMESTAMP,
-    updated_at  TIMESTAMP,
-    created_by  NUMBER,
-    updated_by  NUMBER,
-    is_deleted NUMBER(1) DEFAULT 0
-    );
-
-ALTER TABLE audit_log
-    ADD (
-    created_at  TIMESTAMP,
-    updated_at  TIMESTAMP,
-    created_by  NUMBER,
-    updated_by  NUMBER,
-    is_deleted NUMBER(1) DEFAULT 0
-    );
-
-ALTER TABLE sales_point_warehouse
-    ADD (
-    created_at  TIMESTAMP,
-    updated_at  TIMESTAMP,
-    created_by  NUMBER,
-    updated_by  NUMBER,
-    is_deleted NUMBER(1) DEFAULT 0
-    );
-
-ALTER TABLE product
-    ADD (
-    created_at  TIMESTAMP,
-    updated_at  TIMESTAMP,
-    created_by  NUMBER,
-    updated_by  NUMBER,
-    is_deleted NUMBER(1) DEFAULT 0
-    );
-
-ALTER TABLE product_ingredient
-    ADD (
-    created_at  TIMESTAMP,
-    updated_at  TIMESTAMP,
-    created_by  NUMBER,
-    updated_by  NUMBER,
-    is_deleted NUMBER(1) DEFAULT 0
-    );
-
-ALTER TABLE sku
-    ADD (
-    created_at  TIMESTAMP,
-    updated_at  TIMESTAMP,
-    created_by  NUMBER,
-    updated_by  NUMBER,
-    is_deleted NUMBER(1) DEFAULT 0
-    );
-
-ALTER TABLE lot
-    ADD (
-    created_at  TIMESTAMP,
-    updated_at  TIMESTAMP,
-    created_by  NUMBER,
-    updated_by  NUMBER,
-    is_deleted NUMBER(1) DEFAULT 0
-    );
-
-ALTER TABLE ml_model_version
-    ADD (
-    updated_at  TIMESTAMP,
-    created_by  NUMBER,
-    updated_by  NUMBER,
-    is_deleted NUMBER(1) DEFAULT 0
-    );
-
-ALTER TABLE ml_training_run
-    ADD (
-    created_at  TIMESTAMP,
-    updated_at  TIMESTAMP,
-    created_by  NUMBER,
-    updated_by  NUMBER,
-    is_deleted NUMBER(1) DEFAULT 0
-    );
-
-ALTER TABLE demand_forecast
-    ADD (
-    created_at  TIMESTAMP,
-    updated_at  TIMESTAMP,
-    created_by  NUMBER,
-    updated_by  NUMBER,
-    is_deleted NUMBER(1) DEFAULT 0
-    );
-
-ALTER TABLE sales_daily
-    ADD (
-    created_at  TIMESTAMP,
-    updated_at  TIMESTAMP,
-    created_by  NUMBER,
-    updated_by  NUMBER,
-    is_deleted NUMBER(1) DEFAULT 0
-    );
-
-ALTER TABLE sku_channel_price
-    ADD (
-    created_at  TIMESTAMP,
-    updated_at  TIMESTAMP,
-    created_by  NUMBER,
-    updated_by  NUMBER,
-    is_deleted NUMBER(1) DEFAULT 0
-    );
-
-ALTER TABLE inventory_balance
-    ADD (
-    created_at  TIMESTAMP,
-    updated_at  TIMESTAMP,
-    created_by  NUMBER,
-    updated_by  NUMBER,
-    is_deleted NUMBER(1) DEFAULT 0
-    );
-
-ALTER TABLE inventory_policy
-    ADD (
-    created_at  TIMESTAMP,
-    updated_at  TIMESTAMP,
-    created_by  NUMBER,
-    updated_by  NUMBER,
-    is_deleted NUMBER(1) DEFAULT 0
-    );
-
-ALTER TABLE risk_assessment
-    ADD (
-    created_at  TIMESTAMP,
-    updated_at  TIMESTAMP,
-    created_by  NUMBER,
-    updated_by  NUMBER,
-    is_deleted NUMBER(1) DEFAULT 0
-    );
-
-ALTER TABLE strategy_case
-    ADD (
-    created_at  TIMESTAMP,
-    updated_at  TIMESTAMP,
-    updated_by  NUMBER,
-    is_deleted NUMBER(1) DEFAULT 0
-    );
-
-ALTER TABLE strategy_option
-    ADD (
-    created_at  TIMESTAMP,
-    updated_at  TIMESTAMP,
-    created_by  NUMBER,
-    updated_by  NUMBER,
-    is_deleted NUMBER(1) DEFAULT 0
-    );
-
-ALTER TABLE strategy_simulation
-    ADD (
-    created_at  TIMESTAMP,
-    updated_at  TIMESTAMP,
-    created_by  NUMBER,
-    updated_by  NUMBER,
-    is_deleted NUMBER(1) DEFAULT 0
-    );
-
-ALTER TABLE strategy_action
-    ADD (
-    created_at  TIMESTAMP,
-    updated_at  TIMESTAMP,
-    created_by  NUMBER,
-    updated_by  NUMBER,
-    is_deleted NUMBER(1) DEFAULT 0
-    );
-
-ALTER TABLE strategy_lot_allocation
-    ADD (
-    created_at  TIMESTAMP,
-    updated_at  TIMESTAMP,
-    created_by  NUMBER,
-    updated_by  NUMBER,
-    is_deleted NUMBER(1) DEFAULT 0
-    );
-
-ALTER TABLE strategy_review_request
-    ADD (
-    created_at  TIMESTAMP,
-    updated_at  TIMESTAMP,
-    created_by  NUMBER,
-    updated_by  NUMBER,
-    is_deleted NUMBER(1) DEFAULT 0
-    );
-
-ALTER TABLE strategy_performance
-    ADD (
-    created_at  TIMESTAMP,
-    updated_at  TIMESTAMP,
-    created_by  NUMBER,
-    updated_by  NUMBER,
-    is_deleted NUMBER(1) DEFAULT 0
-    );
-
-ALTER TABLE strategy_inventory_snapshot
-    ADD (
-    created_at  TIMESTAMP,
-    updated_at  TIMESTAMP,
-    created_by  NUMBER,
-    updated_by  NUMBER,
-    is_deleted NUMBER(1) DEFAULT 0
-    );
-
-ALTER TABLE final_strategy_selection
-    ADD (
-    created_at  TIMESTAMP,
-    updated_at  TIMESTAMP,
-    updated_by  NUMBER,
-    is_deleted NUMBER(1) DEFAULT 0
-    );
-
-ALTER TABLE strategy_price_snapshot
-    ADD (
-    created_at  TIMESTAMP,
-    updated_at  TIMESTAMP,
-    created_by  NUMBER,
-    updated_by  NUMBER,
-    is_deleted NUMBER(1) DEFAULT 0
-    );
-
-ALTER TABLE notification
-    ADD (
-    created_at  TIMESTAMP,
-    updated_at  TIMESTAMP,
-    created_by  NUMBER,
-    updated_by  NUMBER,
-    is_deleted NUMBER(1) DEFAULT 0
-    );
-
-ALTER TABLE inventory_movement
-    ADD (
-    created_at  TIMESTAMP,
-    updated_at  TIMESTAMP,
-    created_by  NUMBER,
-    updated_by  NUMBER,
-    is_deleted NUMBER(1) DEFAULT 0
-    );
+        IF v_column_count = 0 THEN
+            EXECUTE IMMEDIATE 'ALTER TABLE ' || p_table_name
+                || ' ADD (' || p_column_name || ' ' || p_column_definition || ')';
+        END IF;
+    END add_column_if_missing;
+BEGIN
+    FOR i IN 1 .. v_tables.COUNT LOOP
+        add_column_if_missing(v_tables(i), 'created_at', 'TIMESTAMP');
+        add_column_if_missing(v_tables(i), 'updated_at', 'TIMESTAMP');
+        add_column_if_missing(v_tables(i), 'created_by', 'NUMBER');
+        add_column_if_missing(v_tables(i), 'updated_by', 'NUMBER');
+        add_column_if_missing(v_tables(i), 'is_deleted', 'NUMBER(1) DEFAULT 0');
+    END LOOP;
+END;
+/
 
 -- Create a technical actor for rows whose original creator cannot be identified.
 MERGE INTO organization target
@@ -619,5 +360,3 @@ SET created_at  = NVL(created_at, SYSTIMESTAMP),
     created_by  = NVL(created_by, (SELECT user_id FROM app_user WHERE login_id = '__system__')),
     updated_by  = NVL(updated_by, NVL(created_by, (SELECT user_id FROM app_user WHERE login_id = '__system__'))),
     is_deleted = NVL(is_deleted, 0);
-
-

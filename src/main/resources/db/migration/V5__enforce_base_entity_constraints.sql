@@ -52,11 +52,19 @@ DECLARE
         v_nullable user_tab_columns.nullable%TYPE;
         v_sql      VARCHAR2(1000);
     BEGIN
-        SELECT nullable
-        INTO v_nullable
-        FROM user_tab_columns
-        WHERE table_name = UPPER(p_table_name)
-          AND column_name = UPPER(p_column_name);
+        BEGIN
+            SELECT nullable
+            INTO v_nullable
+            FROM user_tab_columns
+            WHERE table_name = UPPER(p_table_name)
+              AND column_name = UPPER(p_column_name);
+        EXCEPTION
+            WHEN NO_DATA_FOUND THEN
+                RAISE_APPLICATION_ERROR(
+                    -20001,
+                    'Missing audit column: ' || p_table_name || '.' || p_column_name
+                );
+        END;
 
         -- Reapplying NOT NULL to an already NOT NULL column raises ORA-01442.
         -- Existing NOT NULL columns only need their default refreshed, if any.
@@ -348,5 +356,4 @@ COMMENT ON COLUMN inventory_movement.updated_at IS 'Row last update timestamp';
 COMMENT ON COLUMN inventory_movement.created_by IS 'User ID that created the row';
 COMMENT ON COLUMN inventory_movement.updated_by IS 'User ID that last updated the row';
 COMMENT ON COLUMN inventory_movement.is_deleted IS 'Soft delete flag: 0 active, 1 deleted';
-
 

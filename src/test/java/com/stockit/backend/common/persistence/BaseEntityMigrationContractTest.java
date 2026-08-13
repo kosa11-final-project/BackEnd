@@ -19,12 +19,6 @@ class BaseEntityMigrationContractTest {
             Pattern.CASE_INSENSITIVE
     );
 
-    private static final Set<String> EXISTING_CREATED_AT = Set.of("ml_model_version");
-    private static final Set<String> EXISTING_CREATED_BY = Set.of(
-            "strategy_case",
-            "final_strategy_selection"
-    );
-
     @Test
     void coversEveryBusinessTableWithBaseEntityColumnsAndConstraints() throws IOException {
         String baseline = readResource("db/migration/V1__baseline_schema.sql");
@@ -34,19 +28,21 @@ class BaseEntityMigrationContractTest {
 
         Set<String> tables = extractTables(baseline + System.lineSeparator() + inventoryMovement);
         assertThat(tables).hasSize(37);
+        assertThat(extractMigrationTables(addColumns)).containsExactlyElementsOf(tables);
+        assertThat(extractMigrationTables(enforceConstraints)).containsExactlyElementsOf(tables);
+
+        assertThat(addColumns).contains(
+                "add_column_if_missing(v_tables(i), 'created_at', 'TIMESTAMP')",
+                "add_column_if_missing(v_tables(i), 'updated_at', 'TIMESTAMP')",
+                "add_column_if_missing(v_tables(i), 'created_by', 'NUMBER')",
+                "add_column_if_missing(v_tables(i), 'updated_by', 'NUMBER')",
+                "add_column_if_missing(v_tables(i), 'is_deleted', 'NUMBER(1) DEFAULT 0')"
+        );
 
         for (String table : tables) {
-            String addBlock = extractAddBlock(addColumns, table);
-
-            assertThat(addBlock).contains("updated_at", "updated_by", "is_deleted");
-            if (!EXISTING_CREATED_AT.contains(table)) {
-                assertThat(addBlock).contains("created_at");
-            }
-            if (!EXISTING_CREATED_BY.contains(table)) {
-                assertThat(addBlock).contains("created_by");
-            }
-
-            assertThat(addColumns).contains("UPDATE " + table);
+            assertThat(addColumns)
+                    .as("backfill statement for %s", table)
+                    .containsPattern("(?i)UPDATE\\s+" + Pattern.quote(table) + "\\s+SET");
             assertThat(enforceConstraints).contains(
                     "'" + table + "'",
                     "COMMENT ON COLUMN " + table + ".created_at",
@@ -87,13 +83,20 @@ class BaseEntityMigrationContractTest {
 
     @Test
     void safelyResumesAfterPartiallyAppliedOracleDdl() throws IOException {
-        String migration = readResource("db/migration/V5__enforce_base_entity_constraints.sql");
+        String addColumns = readResource("db/migration/V4__add_base_entity_columns.sql");
+        String enforceConstraints = readResource("db/migration/V5__enforce_base_entity_constraints.sql");
 
-        assertThat(migration).contains(
+        assertThat(addColumns).contains(
+                "FROM user_tab_columns",
+                "IF v_column_count = 0 THEN"
+        );
+        assertThat(enforceConstraints).contains(
                 "IF v_nullable = 'N' AND p_default_value IS NULL THEN",
                 "IF v_nullable = 'Y' THEN",
                 "FROM user_constraints",
-                "IF v_constraint_count = 0 THEN"
+                "IF v_constraint_count = 0 THEN",
+                "WHEN NO_DATA_FOUND THEN",
+                "'Missing audit column: ' || p_table_name || '.' || p_column_name"
         );
     }
 
@@ -106,14 +109,21 @@ class BaseEntityMigrationContractTest {
         return tables;
     }
 
-    private static String extractAddBlock(String migration, String table) {
+    private static Set<String> extractMigrationTables(String migration) {
         Pattern pattern = Pattern.compile(
-                "ALTER TABLE " + Pattern.quote(table) + "\\s+ADD \\((.*?)\\);",
+                "v_tables\\s+table_name_list\\s*:=\\s*table_name_list\\((.*?)\\);",
                 Pattern.CASE_INSENSITIVE | Pattern.DOTALL
         );
         Matcher matcher = pattern.matcher(migration);
-        assertThat(matcher.find()).as("audit column block for %s", table).isTrue();
-        return matcher.group(1).toLowerCase();
+        assertThat(matcher.find()).as("configured migration table list").isTrue();
+
+        Matcher tableMatcher = Pattern.compile("'([a-z0-9_]+)'")
+                .matcher(matcher.group(1));
+        Set<String> tables = new LinkedHashSet<>();
+        while (tableMatcher.find()) {
+            tables.add(tableMatcher.group(1).toLowerCase());
+        }
+        return tables;
     }
 
     private static String readResource(String path) throws IOException {
