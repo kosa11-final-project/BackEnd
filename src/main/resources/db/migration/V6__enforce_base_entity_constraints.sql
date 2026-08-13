@@ -356,4 +356,3 @@ COMMENT ON COLUMN inventory_movement.updated_at IS 'Row last update timestamp';
 COMMENT ON COLUMN inventory_movement.created_by IS 'User ID that created the row';
 COMMENT ON COLUMN inventory_movement.updated_by IS 'User ID that last updated the row';
 COMMENT ON COLUMN inventory_movement.is_deleted IS 'Soft delete flag: 0 active, 1 deleted';
-
