@@ -24,7 +24,7 @@ server:
       timeout: 30m
       cookie:
         http-only: true
-        secure: ${SESSION_COOKIE_SECURE:false}
+        secure: ${SESSION_COOKIE_SECURE:true}
         same-site: lax
 
 app:
@@ -43,3 +43,15 @@ springdoc:
     path: /v3/api-docs
   swagger-ui:
     path: /swagger-ui.html
+
+---
+spring:
+  config:
+    activate:
+      on-profile: local
+
+server:
+  servlet:
+    session:
+      cookie:
+        secure: ${SESSION_COOKIE_SECURE:false}
