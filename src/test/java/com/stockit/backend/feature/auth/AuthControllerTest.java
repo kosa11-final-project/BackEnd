@@ -57,7 +57,11 @@ class AuthControllerTest {
                 "그린푸드"
         );
         jdbcTemplate.update(
-                "INSERT INTO app_role (role_id, role_code, is_deleted) VALUES (1, 'GREENFOOD_ADMIN', 0)"
+                """
+                INSERT INTO app_role (
+                    role_id, role_code, role_name, created_by, updated_by, is_deleted
+                ) VALUES (1, 'GREENFOOD_ADMIN', '그린푸드 총괄', 100, 100, 0)
+                """
         );
         jdbcTemplate.update(
                 """
