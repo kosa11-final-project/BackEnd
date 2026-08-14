@@ -47,7 +47,7 @@ jobs:
           if printf '%s' "$CURRENT_TITLE" | grep -Fq "[$JIRA_KEY]"; then
             echo "PR 제목에 이미 [$JIRA_KEY]가 포함되어 있습니다."
           else
-            NEW_TITLE="[$JIRA_KEY] $CURRENT_TITLE"
+            NEW_TITLE="[$JIRA_KEY]$CURRENT_TITLE"
 
             gh pr edit "$PR_NUMBER" \
               --repo "$REPOSITORY" \
@@ -69,7 +69,7 @@ jobs:
             echo "::warning::JIRA_BASE_URL이 없어 PR 본문 링크 추가를 건너뜁니다."
           else
             JIRA_LINK="${JIRA_BASE_URL%/}/browse/$JIRA_KEY"
-            NEW_BODY=$(printf '%s\n## Jira\n\n[%s](%s)\n\n%s' \
+            NEW_BODY=$(printf '%s\n## 🔗 Jira\n\n[%s](%s)\n\n%s' \
               "$MARKER" \
               "$JIRA_KEY" \
               "$JIRA_LINK" \
