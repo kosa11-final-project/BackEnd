@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.stockit.backend.feature.demandforecast.mapper.DemandForecastMapper">
+
+    <resultMap id="demandForecastResultMap" type="DemandForecastVO">
+        <id property="forecastId" column="forecast_id"/>
+        <result property="skuId" column="sku_id"/>
+        <result property="salesPointId" column="sales_point_id"/>
+        <result property="modelVersionId" column="model_version_id"/>
+        <result property="baseDate" column="base_date"/>
+        <result property="predictedQtyD7" column="predicted_qty_d7"/>
+        <result property="predictedQtyD14" column="predicted_qty_d14"/>
+        <result property="predictedQtyD30" column="predicted_qty_d30"/>
+        <result property="predictedQtyD60" column="predicted_qty_d60"/>
+        <result property="predictedQtyD90" column="predicted_qty_d90"/>
+        <result property="forecastSource" column="forecast_source"/>
+        <result property="confidenceLevel" column="confidence_level"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+        <result property="createdBy" column="created_by"/>
+        <result property="updatedBy" column="updated_by"/>
+        <result property="isDeleted" column="is_deleted"/>
+    </resultMap>
+
+</mapper>

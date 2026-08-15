@@ -33,6 +33,9 @@ public enum ErrorCode {
     // COMMON
     NOT_FOUND(HttpStatus.NOT_FOUND, "요청한 리소스를 찾을 수 없습니다.", "COMMON-004"),
 
+    // DEMAND_FORECAST
+    DEMAND_FORECAST_NOT_FOUND(HttpStatus.NOT_FOUND, "수요예측 정보를 찾을 수 없습니다.", "DEMAND_FORECAST-001"),
+
     // ==============================
     // 405 METHOD_NOT_ALLOWED
     // ==============================
