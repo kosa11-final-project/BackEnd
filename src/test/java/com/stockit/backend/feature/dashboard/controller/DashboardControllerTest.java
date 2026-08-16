@@ -66,12 +66,25 @@ class DashboardControllerTest {
     }
 
     @Test
+    @WithMockUser(roles = "GREENFOOD_ADMIN")
+    void returnsLiveDashboardForVerification() throws Exception {
+        when(dashboardService.getLiveDashboard()).thenReturn(dashboard());
+
+        mockMvc.perform(get("/api/v1/dashboard/live"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.summary.totalAvailableStock").value(4062));
+    }
+
+    @Test
     @WithAnonymousUser
     void publishesDashboardEndpointInOpenApiDocument() throws Exception {
         mockMvc.perform(get("/v3/api-docs"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.paths['/api/v1/dashboard'].get.summary")
                         .value("재고 운영 대시보드 조회"))
+                .andExpect(jsonPath("$.paths['/api/v1/dashboard/live'].get.summary")
+                        .value("재고 운영 대시보드 실시간 집계 조회"))
+                .andExpect(jsonPath("$.paths['/api/v1/dashboard/live'].get.deprecated").value(true))
                 .andExpect(jsonPath("$.components.schemas.DashboardResponse.properties.calculatedAt").exists())
                 .andExpect(jsonPath("$.components.schemas.UrgentSkuResponse.properties.riskScore").doesNotExist());
     }

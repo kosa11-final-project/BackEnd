@@ -17,7 +17,7 @@ public record DashboardResponse(
         List<RiskSalesPointResponse> riskSalesPointsTop10,
         @Schema(description = "긴급 처리 대상 SKU와 실제 재고 위치 TOP 5")
         List<UrgentSkuResponse> urgentSkusTop5,
-        @Schema(description = "API가 대시보드 데이터를 계산한 시각", example = "2026-08-15T01:05:00Z")
+        @Schema(description = "대시보드 스냅샷 집계 기준 시각", example = "2026-08-15T01:05:00Z")
         Instant calculatedAt
 ) {
 }

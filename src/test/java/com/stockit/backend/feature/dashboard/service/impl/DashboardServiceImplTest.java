@@ -1,6 +1,7 @@
 package com.stockit.backend.feature.dashboard.service.impl;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -8,6 +9,7 @@ import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.List;
 
@@ -17,8 +19,19 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.stockit.backend.common.exception.AppException;
+import com.stockit.backend.common.exception.ErrorCode;
+import com.stockit.backend.feature.dashboard.dto.DashboardSnapshotPayload;
 import com.stockit.backend.feature.dashboard.dto.response.DashboardResponse;
+import com.stockit.backend.feature.dashboard.dto.response.DashboardSummaryResponse;
+import com.stockit.backend.feature.dashboard.dto.response.OfflineStoreInventoryResponse;
+import com.stockit.backend.feature.dashboard.dto.response.RiskSalesPointResponse;
+import com.stockit.backend.feature.dashboard.dto.response.UrgentSkuResponse;
+import com.stockit.backend.feature.dashboard.dto.response.WarehouseInventoryResponse;
 import com.stockit.backend.feature.dashboard.mapper.DashboardMapper;
+import com.stockit.backend.feature.dashboard.mapper.DashboardSnapshotMapper;
+import com.stockit.backend.feature.dashboard.vo.DashboardSnapshotVO;
 import com.stockit.backend.feature.dashboard.vo.DashboardSummaryVO;
 import com.stockit.backend.feature.dashboard.vo.OfflineStoreInventoryVO;
 import com.stockit.backend.feature.dashboard.vo.RiskSalesPointVO;
@@ -34,24 +47,76 @@ class DashboardServiceImplTest {
     @Mock
     private DashboardMapper dashboardMapper;
 
+    @Mock
+    private DashboardSnapshotMapper snapshotMapper;
+
     private DashboardServiceImpl dashboardService;
+    private ObjectMapper objectMapper;
 
     @BeforeEach
     void setUp() {
         Clock clock = Clock.fixed(CALCULATED_AT, ZoneId.of("Asia/Seoul"));
-        dashboardService = new DashboardServiceImpl(dashboardMapper, clock);
+        objectMapper = new ObjectMapper().findAndRegisterModules();
+        dashboardService = new DashboardServiceImpl(
+                dashboardMapper,
+                snapshotMapper,
+                objectMapper,
+                clock
+        );
     }
 
     @Test
-    void combinesDashboardQueriesAndAssignsRanksWithoutExposingRiskScore() {
+    void returnsLatestCompletedSnapshot() throws Exception {
+        DashboardSnapshotVO snapshot = new DashboardSnapshotVO();
+        snapshot.setDashboardSnapshotId(11L);
+        snapshot.setPayloadVersion(1);
+        snapshot.setPayloadJson(objectMapper.writeValueAsString(new DashboardSnapshotPayload(
+                DashboardSummaryResponse.from(summary()),
+                List.of(WarehouseInventoryResponse.from(warehouse())),
+                List.of(OfflineStoreInventoryResponse.from(store())),
+                List.of(RiskSalesPointResponse.from(1, riskPoint())),
+                List.of(UrgentSkuResponse.from(1, urgentSku()))
+        )));
+        snapshot.setCreatedAt(LocalDateTime.ofInstant(CALCULATED_AT, ZoneId.of("Asia/Seoul")));
+
+        when(snapshotMapper.selectLatestSnapshot()).thenReturn(snapshot);
+
+        DashboardResponse response = dashboardService.getDashboard();
+
+        assertDashboard(response);
+        verify(snapshotMapper).selectLatestSnapshot();
+    }
+
+    @Test
+    void rejectsDashboardRequestWhenCompletedSnapshotDoesNotExist() {
+        when(snapshotMapper.selectLatestSnapshot()).thenReturn(null);
+
+        assertThatThrownBy(dashboardService::getDashboard)
+                .isInstanceOf(AppException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.DASHBOARD_SNAPSHOT_NOT_FOUND);
+    }
+
+    @Test
+    void combinesLiveDashboardQueriesAndAssignsRanksWithoutExposingRiskScore() {
         when(dashboardMapper.selectSummary(AS_OF_DATE)).thenReturn(summary());
         when(dashboardMapper.selectWarehouseInventories(AS_OF_DATE)).thenReturn(List.of(warehouse()));
         when(dashboardMapper.selectOfflineStoreInventories(AS_OF_DATE)).thenReturn(List.of(store()));
         when(dashboardMapper.selectRiskSalesPointsTop10(AS_OF_DATE)).thenReturn(List.of(riskPoint()));
         when(dashboardMapper.selectUrgentSkusTop5(AS_OF_DATE)).thenReturn(List.of(urgentSku()));
 
-        DashboardResponse response = dashboardService.getDashboard();
+        DashboardResponse response = dashboardService.getLiveDashboard();
 
+        assertDashboard(response);
+
+        verify(dashboardMapper).selectSummary(AS_OF_DATE);
+        verify(dashboardMapper).selectWarehouseInventories(AS_OF_DATE);
+        verify(dashboardMapper).selectOfflineStoreInventories(AS_OF_DATE);
+        verify(dashboardMapper).selectRiskSalesPointsTop10(AS_OF_DATE);
+        verify(dashboardMapper).selectUrgentSkusTop5(AS_OF_DATE);
+    }
+
+    private static void assertDashboard(DashboardResponse response) {
         assertThat(response.calculatedAt()).isEqualTo(CALCULATED_AT);
         assertThat(response.summary().totalAvailableStock()).isEqualByComparingTo("4062");
         assertThat(response.summary().riskAndWarningSkuCount()).isEqualTo(12);
@@ -67,12 +132,6 @@ class DashboardServiceImplTest {
                     assertThat(value.stockLocationName()).isEqualTo("성남 스마트푸드센터");
                     assertThat(value.allocatedSalesPointName()).isEqualTo("그리팅몰");
                 });
-
-        verify(dashboardMapper).selectSummary(AS_OF_DATE);
-        verify(dashboardMapper).selectWarehouseInventories(AS_OF_DATE);
-        verify(dashboardMapper).selectOfflineStoreInventories(AS_OF_DATE);
-        verify(dashboardMapper).selectRiskSalesPointsTop10(AS_OF_DATE);
-        verify(dashboardMapper).selectUrgentSkusTop5(AS_OF_DATE);
     }
 
     private static DashboardSummaryVO summary() {
