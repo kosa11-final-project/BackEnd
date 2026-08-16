@@ -1,0 +1,77 @@
+package com.stockit.backend.feature.inventory;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import java.time.LocalDate;
+import java.util.List;
+
+import org.junit.jupiter.api.Test;
+
+import com.stockit.backend.common.exception.AppException;
+import com.stockit.backend.feature.inventory.dto.request.InventoryQueryRequest;
+import com.stockit.backend.feature.inventory.vo.InventoryQuery;
+
+class InventoryQueryRequestTest {
+
+    @Test
+    void usesFrontendCompatibleDefaultsAndOneBasedPagination() {
+        InventoryQuery query = new InventoryQueryRequest().toQuery(LocalDate.of(2026, 8, 14));
+
+        assertThat(query.page()).isEqualTo(1);
+        assertThat(query.size()).isEqualTo(20);
+        assertThat(query.sortColumn()).isEqualTo("updated_at");
+        assertThat(query.sortDirection()).isEqualTo("DESC");
+        assertThat(query.asOfDate()).isEqualTo(LocalDate.of(2026, 8, 14));
+    }
+
+    @Test
+    void normalizesRepeatedFiltersAndSafeSort() {
+        InventoryQueryRequest request = new InventoryQueryRequest();
+        request.setChannelType(List.of("GREETING", "HMART"));
+        request.setSalesPointCode(List.of("SP-1", "SP-2"));
+        request.setSort("availableQuantity,asc");
+
+        InventoryQuery query = request.toQuery(LocalDate.of(2026, 8, 14));
+
+        assertThat(query.channelTypes()).containsExactly("GREETING", "HMART");
+        assertThat(query.salesPointCodes()).containsExactly("SP-1", "SP-2");
+        assertThat(query.sortColumn()).isEqualTo("available_qty");
+        assertThat(query.sortDirection()).isEqualTo("ASC");
+    }
+
+    @Test
+    void rejectsUnsupportedEnumAndSortValues() {
+        InventoryQueryRequest request = new InventoryQueryRequest();
+        request.setChannelType(List.of("NOT_A_CHANNEL"));
+
+        assertThatThrownBy(() -> request.toQuery(LocalDate.of(2026, 8, 14)))
+                .isInstanceOf(AppException.class);
+
+        request.setChannelType(List.of("GREETING"));
+        request.setSort("updatedAt;drop table inventory_balance");
+
+        assertThatThrownBy(() -> request.toQuery(LocalDate.of(2026, 8, 14)))
+                .isInstanceOf(AppException.class);
+    }
+
+    @Test
+    void rejectsLegacyRiskAliasesAndPageSizesAboveApiMaximum() {
+        InventoryQueryRequest request = new InventoryQueryRequest();
+        request.setRiskGrade(List.of("GOOD"));
+
+        assertThatThrownBy(() -> request.toQuery(LocalDate.of(2026, 8, 14)))
+                .isInstanceOf(AppException.class);
+
+        request.setRiskGrade(List.of());
+        request.setSize(101);
+
+        assertThatThrownBy(() -> request.toQuery(LocalDate.of(2026, 8, 14)))
+                .isInstanceOf(AppException.class);
+
+        request.setSize(201);
+
+        assertThatThrownBy(() -> request.toQuery(LocalDate.of(2026, 8, 14)))
+                .isInstanceOf(AppException.class);
+    }
+}
