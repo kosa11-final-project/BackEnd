@@ -1,5 +1,7 @@
 package com.stockit.backend.feature.demandforecast.controller;
 
+import static com.stockit.backend.feature.auth.security.InternalApiSecurityConstants.INTERNAL_API_KEY_HEADER;
+
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -30,7 +32,7 @@ import jakarta.validation.Valid;
         name = "internalApiKey",
         type = SecuritySchemeType.APIKEY,
         in = SecuritySchemeIn.HEADER,
-        paramName = "X-API-Key",
+        paramName = INTERNAL_API_KEY_HEADER,
         description = "FastAPI 서버 간 통신용 API Key"
 )
 @RestController

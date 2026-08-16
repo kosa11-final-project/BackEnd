@@ -32,7 +32,6 @@ app:
     allowed-origins: ${APP_CORS_ALLOWED_ORIGINS:http://localhost:5173}
   internal-api:
     key: ${STOCKIT_INTERNAL_API_KEY:}
-    header-name: ${STOCKIT_INTERNAL_API_KEY_HEADER:X-API-Key}
     user-id: ${STOCKIT_INTERNAL_API_USER_ID:0}
     principal-name: ${STOCKIT_INTERNAL_API_PRINCIPAL:ml-service}
 

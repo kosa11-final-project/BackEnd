@@ -1,5 +1,6 @@
 package com.stockit.backend.feature.demandforecast.controller;
 
+import static com.stockit.backend.feature.auth.security.InternalApiSecurityConstants.INTERNAL_API_KEY_HEADER;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
@@ -34,7 +35,6 @@ import com.stockit.backend.feature.demandforecast.service.DemandForecastService;
 @SpringBootTest(
         properties = {
                 "app.internal-api.key=test-internal-api-key",
-                "app.internal-api.header-name=X-API-Key",
                 "app.internal-api.user-id=99",
                 "app.internal-api.principal-name=ml-service"
         }
@@ -43,7 +43,6 @@ import com.stockit.backend.feature.demandforecast.service.DemandForecastService;
 @ActiveProfiles("test")
 class DemandForecastControllerTest {
 
-    private static final String API_KEY_HEADER = "X-API-Key";
     private static final String API_KEY = "test-internal-api-key";
 
     @Autowired
@@ -67,7 +66,7 @@ class DemandForecastControllerTest {
                 ));
 
         mockMvc.perform(post("/api/v1/demand-forecasts/import")
-                        .header(API_KEY_HEADER, API_KEY)
+                        .header(INTERNAL_API_KEY_HEADER, API_KEY)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(validRequestBody()))
                 .andExpect(status().isOk())
@@ -80,7 +79,7 @@ class DemandForecastControllerTest {
     @Test
     void rejectsNegativeQuantity() throws Exception {
         mockMvc.perform(post("/api/v1/demand-forecasts/import")
-                        .header(API_KEY_HEADER, API_KEY)
+                        .header(INTERNAL_API_KEY_HEADER, API_KEY)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(validRequestBody().replace("12.3", "-1")))
                 .andExpect(status().isBadRequest())
@@ -91,7 +90,7 @@ class DemandForecastControllerTest {
     @Test
     void rejectsNonCumulativeQuantities() throws Exception {
         mockMvc.perform(post("/api/v1/demand-forecasts/import")
-                        .header(API_KEY_HEADER, API_KEY)
+                        .header(INTERNAL_API_KEY_HEADER, API_KEY)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(validRequestBody().replace("24.8", "10.0")))
                 .andExpect(status().isBadRequest())
@@ -103,7 +102,7 @@ class DemandForecastControllerTest {
     @Test
     void rejectsBatchNumberGreaterThanTotalBatches() throws Exception {
         mockMvc.perform(post("/api/v1/demand-forecasts/import")
-                        .header(API_KEY_HEADER, API_KEY)
+                        .header(INTERNAL_API_KEY_HEADER, API_KEY)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(validRequestBody().replace("\"batchNumber\": 1", "\"batchNumber\": 11")))
                 .andExpect(status().isBadRequest())
@@ -126,7 +125,7 @@ class DemandForecastControllerTest {
     @Test
     void rejectsInvalidApiKey() throws Exception {
         mockMvc.perform(post("/api/v1/demand-forecasts/import")
-                        .header(API_KEY_HEADER, "wrong-api-key")
+                        .header(INTERNAL_API_KEY_HEADER, "wrong-api-key")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(validRequestBody()))
                 .andExpect(status().isUnauthorized())
@@ -149,9 +148,21 @@ class DemandForecastControllerTest {
     }
 
     @Test
+    void rejectsApiKeySentWithDifferentHeaderName() throws Exception {
+        mockMvc.perform(post("/api/v1/demand-forecasts/import")
+                        .header("X-Stockit-Key", API_KEY)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(validRequestBody()))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("AUTH-001"));
+
+        verify(demandForecastService, never()).importForecasts(any(), any());
+    }
+
+    @Test
     void doesNotUseApiKeyAuthenticationForOtherApis() throws Exception {
         mockMvc.perform(get("/api/v1/tmp/ping")
-                        .header(API_KEY_HEADER, API_KEY))
+                        .header(INTERNAL_API_KEY_HEADER, API_KEY))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("AUTH-001"));
     }

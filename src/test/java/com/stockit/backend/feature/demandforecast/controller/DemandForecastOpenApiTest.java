@@ -1,5 +1,6 @@
 package com.stockit.backend.feature.demandforecast.controller;
 
+import static com.stockit.backend.feature.auth.security.InternalApiSecurityConstants.INTERNAL_API_KEY_HEADER;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -56,6 +57,6 @@ class DemandForecastOpenApiTest {
                 .andExpect(jsonPath("$.components.securitySchemes.internalApiKey.in")
                         .value("header"))
                 .andExpect(jsonPath("$.components.securitySchemes.internalApiKey.name")
-                        .value("X-API-Key"));
+                        .value(INTERNAL_API_KEY_HEADER));
     }
 }

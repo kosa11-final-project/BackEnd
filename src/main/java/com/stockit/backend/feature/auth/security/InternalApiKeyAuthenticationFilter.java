@@ -1,5 +1,7 @@
 package com.stockit.backend.feature.auth.security;
 
+import static com.stockit.backend.feature.auth.security.InternalApiSecurityConstants.INTERNAL_API_KEY_HEADER;
+
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -48,7 +50,7 @@ public class InternalApiKeyAuthenticationFilter extends OncePerRequestFilter {
             return;
         }
 
-        String providedKey = request.getHeader(properties.headerName());
+        String providedKey = request.getHeader(INTERNAL_API_KEY_HEADER);
         if (!matches(providedKey, properties.key())) {
             rejectAuthentication(request, response);
             return;
