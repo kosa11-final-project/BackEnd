@@ -5,8 +5,10 @@ import java.util.Arrays;
 import java.util.List;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
@@ -14,6 +16,7 @@ import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.ProviderManager;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.session.SessionRegistry;
 import org.springframework.security.core.session.SessionRegistryImpl;
@@ -44,6 +47,7 @@ import com.stockit.backend.common.api.ApiResponse;
 import com.stockit.backend.common.exception.ErrorCode;
 import com.stockit.backend.feature.auth.dto.response.AuthUserResponse;
 import com.stockit.backend.feature.auth.security.AuthPrincipal;
+import com.stockit.backend.feature.auth.security.InternalApiKeyAuthenticationFilter;
 import com.stockit.backend.feature.auth.security.JsonLoginAuthenticationFilter;
 import com.stockit.backend.feature.auth.service.AuthService;
 
@@ -51,9 +55,44 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
 @Configuration
+@EnableConfigurationProperties(InternalApiProperties.class)
 public class SecurityConfiguration {
 
     private static final String ADMIN_ROLE = "GREENFOOD_ADMIN";
+    private static final String DEMAND_FORECAST_IMPORT_URL =
+            "/api/v1/demand-forecasts/import";
+
+    @Bean
+    @Order(1)
+    public SecurityFilterChain internalApiSecurityFilterChain(
+            HttpSecurity http,
+            InternalApiProperties properties,
+            ObjectMapper objectMapper
+    ) throws Exception {
+        InternalApiKeyAuthenticationFilter authenticationFilter =
+                new InternalApiKeyAuthenticationFilter(properties, objectMapper);
+
+        http
+                .securityMatcher(DEMAND_FORECAST_IMPORT_URL)
+                .cors(AbstractHttpConfigurer::disable)
+                .csrf(AbstractHttpConfigurer::disable)
+                .requestCache(AbstractHttpConfigurer::disable)
+                .formLogin(AbstractHttpConfigurer::disable)
+                .httpBasic(AbstractHttpConfigurer::disable)
+                .logout(AbstractHttpConfigurer::disable)
+                .sessionManagement(session -> session
+                        .sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .exceptionHandling(exception -> exception
+                        .authenticationEntryPoint((request, response, authenticationException) ->
+                                writeAuthenticationError(request, response, objectMapper))
+                        .accessDeniedHandler((request, response, accessDeniedException) ->
+                                writeAuthenticationError(request, response, objectMapper)))
+                .authorizeHttpRequests(authorize -> authorize
+                        .anyRequest().authenticated())
+                .addFilterBefore(authenticationFilter, UsernamePasswordAuthenticationFilter.class);
+
+        return http.build();
+    }
 
     /**
      * JSON API에서 사용할 쿠키 기반 세션 인증을 설정하는 클래스
@@ -62,6 +101,7 @@ public class SecurityConfiguration {
      * CSRF 토큰 발급과 현재 사용자 조회를 담당함</p>
      */
     @Bean
+    @Order(2)
     public SecurityFilterChain securityFilterChain(
             HttpSecurity http,
             AuthenticationManager authenticationManager,

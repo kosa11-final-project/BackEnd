@@ -1,5 +1,6 @@
 package com.stockit.backend.feature.demandforecast.controller;
 
+import static com.stockit.backend.feature.auth.security.InternalApiSecurityConstants.INTERNAL_API_KEY_HEADER;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -38,7 +39,7 @@ class DemandForecastOpenApiTest {
                 .andExpect(jsonPath(operation + ".responses['200']").exists())
                 .andExpect(jsonPath(operation + ".responses['400']").exists())
                 .andExpect(jsonPath(operation + ".responses['401']").exists())
-                .andExpect(jsonPath(operation + ".responses['403']").exists())
+                .andExpect(jsonPath(operation + ".responses['403']").doesNotExist())
                 .andExpect(jsonPath(operation + ".responses['404']").exists())
                 .andExpect(jsonPath(operation + ".responses['409']").exists())
                 .andExpect(jsonPath(operation + ".responses['500']").exists())
@@ -49,6 +50,13 @@ class DemandForecastOpenApiTest {
                 .andExpect(jsonPath("$.components.schemas.DemandForecastImportItemRequest"
                         + ".properties.historyDays").doesNotExist())
                 .andExpect(jsonPath("$.components.schemas.DemandForecastImportItemRequest"
-                        + ".properties.fallbackReason").doesNotExist());
+                        + ".properties.fallbackReason").doesNotExist())
+                .andExpect(jsonPath(operation + ".security[0].internalApiKey").exists())
+                .andExpect(jsonPath("$.components.securitySchemes.internalApiKey.type")
+                        .value("apiKey"))
+                .andExpect(jsonPath("$.components.securitySchemes.internalApiKey.in")
+                        .value("header"))
+                .andExpect(jsonPath("$.components.securitySchemes.internalApiKey.name")
+                        .value(INTERNAL_API_KEY_HEADER));
     }
 }
