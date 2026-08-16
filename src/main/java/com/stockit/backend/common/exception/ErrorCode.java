@@ -36,6 +36,9 @@ public enum ErrorCode {
     // DEMAND_FORECAST
     DEMAND_FORECAST_NOT_FOUND(HttpStatus.NOT_FOUND, "수요예측 정보를 찾을 수 없습니다.", "DEMAND_FORECAST-001"),
 
+    // DASHBOARD
+    DASHBOARD_SNAPSHOT_NOT_FOUND(HttpStatus.NOT_FOUND, "완료된 대시보드 집계 데이터를 찾을 수 없습니다.", "DASHBOARD-001"),
+
     // ==============================
     // 405 METHOD_NOT_ALLOWED
     // ==============================
