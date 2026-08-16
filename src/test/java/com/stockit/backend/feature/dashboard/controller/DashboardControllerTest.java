@@ -52,6 +52,8 @@ class DashboardControllerTest {
                 .andExpect(jsonPath("$.data.riskSalesPointsTop10[0].channelType").value("ONLINE"))
                 .andExpect(jsonPath("$.data.urgentSkusTop5[0].stockLocationName")
                         .value("성남 스마트푸드센터"))
+                .andExpect(jsonPath("$.data.urgentSkusTop5[0].allocatedSalesPointCode")
+                        .value("GREETING"))
                 .andExpect(jsonPath("$.data.urgentSkusTop5[0].riskScore").doesNotExist())
                 .andExpect(jsonPath("$.data.calculatedAt").value("2026-08-15T01:05:00Z"))
                 .andExpect(jsonPath("$.timestamp").exists());
@@ -86,6 +88,8 @@ class DashboardControllerTest {
                         .value("재고 운영 대시보드 실시간 집계 조회"))
                 .andExpect(jsonPath("$.paths['/api/v1/dashboard/live'].get.deprecated").value(true))
                 .andExpect(jsonPath("$.components.schemas.DashboardResponse.properties.calculatedAt").exists())
+                .andExpect(jsonPath("$.components.schemas.UrgentSkuResponse.properties.allocatedSalesPointCode")
+                        .exists())
                 .andExpect(jsonPath("$.components.schemas.UrgentSkuResponse.properties.riskScore").doesNotExist());
     }
 
@@ -144,6 +148,7 @@ class DashboardControllerTest {
                 "SEONGNAM",
                 "성남 스마트푸드센터",
                 1L,
+                "GREETING",
                 "그리팅몰",
                 12,
                 5,

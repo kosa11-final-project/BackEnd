@@ -130,6 +130,7 @@ class DashboardServiceImplTest {
                 .satisfies(value -> {
                     assertThat(value.rank()).isEqualTo(1);
                     assertThat(value.stockLocationName()).isEqualTo("성남 스마트푸드센터");
+                    assertThat(value.allocatedSalesPointCode()).isEqualTo("GREETING");
                     assertThat(value.allocatedSalesPointName()).isEqualTo("그리팅몰");
                 });
     }
@@ -198,6 +199,7 @@ class DashboardServiceImplTest {
         value.setStockLocationCode("SEONGNAM");
         value.setStockLocationName("성남 스마트푸드센터");
         value.setAllocatedSalesPointId(1L);
+        value.setAllocatedSalesPointCode("GREETING");
         value.setAllocatedSalesPointName("그리팅몰");
         value.setExpiryDaysLeft(12);
         value.setSaleStopDaysLeft(5);

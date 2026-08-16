@@ -17,6 +17,7 @@ public class UrgentSkuVO {
     private String stockLocationCode;
     private String stockLocationName;
     private Long allocatedSalesPointId;
+    private String allocatedSalesPointCode;
     private String allocatedSalesPointName;
     private Integer expiryDaysLeft;
     private Integer saleStopDaysLeft;
