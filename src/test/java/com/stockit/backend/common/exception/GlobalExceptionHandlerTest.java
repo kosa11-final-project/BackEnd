@@ -1,5 +1,6 @@
 package com.stockit.backend.common.exception;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.endsWith;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -8,12 +9,20 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.validation.BeanPropertyBindingResult;
+import org.springframework.validation.BindException;
+import org.springframework.validation.FieldError;
+import org.springframework.validation.ObjectError;
+
+import com.stockit.backend.common.api.ApiErrorResponse;
 
 @WebMvcTest(TestApiController.class)
 @AutoConfigureMockMvc(addFilters = false)
@@ -81,5 +90,34 @@ class GlobalExceptionHandlerTest {
         mockMvc.perform(get("/api/v1/test/validate"))
                 .andExpect(status().isMethodNotAllowed())
                 .andExpect(jsonPath("$.code").value("COMMON-005"));
+    }
+
+    @Test
+    void handlesBindExceptionWithGlobalAndFieldErrors() {
+        GlobalExceptionHandler handler = new GlobalExceptionHandler();
+        BeanPropertyBindingResult bindingResult =
+                new BeanPropertyBindingResult(new Object(), "target");
+        bindingResult.addError(new FieldError("target", "name", "이름은 필수입니다."));
+        bindingResult.addError(new ObjectError("target", "글로벌 검증 오류입니다."));
+        bindingResult.addError(new ObjectError("target", ""));
+
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setRequestURI("/api/v1/test/bind");
+
+        ResponseEntity<ApiErrorResponse> response = handler.handleBindException(
+                new BindException(bindingResult),
+                request
+        );
+
+        assertThat(response.getStatusCode().value()).isEqualTo(400);
+        ApiErrorResponse body = java.util.Objects.requireNonNull(response.getBody());
+        assertThat(body.code()).isEqualTo("COMMON-002");
+        assertThat(body.fieldErrors()).hasSize(3);
+        assertThat(body.fieldErrors().get(0).field()).isEqualTo("name");
+        assertThat(body.fieldErrors().get(0).message()).isEqualTo("이름은 필수입니다.");
+        assertThat(body.fieldErrors().get(1).field()).isEqualTo("_global");
+        assertThat(body.fieldErrors().get(1).message()).isEqualTo("글로벌 검증 오류입니다.");
+        assertThat(body.fieldErrors().get(2).field()).isEqualTo("_global");
+        assertThat(body.fieldErrors().get(2).message()).isEqualTo(ErrorCode.INVALID_PARAMETER.getMessage());
     }
 }
