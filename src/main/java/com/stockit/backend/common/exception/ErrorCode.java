@@ -35,6 +35,9 @@ public enum ErrorCode {
 
     // DEMAND_FORECAST
     DEMAND_FORECAST_NOT_FOUND(HttpStatus.NOT_FOUND, "수요예측 정보를 찾을 수 없습니다.", "DEMAND_FORECAST-001"),
+    DEMAND_FORECAST_MODEL_NOT_FOUND(HttpStatus.NOT_FOUND, "요청한 수요예측 모델 버전을 찾을 수 없습니다.", "DEMAND_FORECAST-002"),
+    DEMAND_FORECAST_SKU_NOT_FOUND(HttpStatus.NOT_FOUND, "존재하지 않는 SKU가 포함되어 있습니다.", "DEMAND_FORECAST-003"),
+    DEMAND_FORECAST_SALES_POINT_NOT_FOUND(HttpStatus.NOT_FOUND, "존재하지 않는 판매처가 포함되어 있습니다.", "DEMAND_FORECAST-004"),
 
     // ==============================
     // 405 METHOD_NOT_ALLOWED
@@ -46,6 +49,9 @@ public enum ErrorCode {
     // ==============================
     // 409 CONFLICT
     // ==============================
+
+    // DEMAND_FORECAST
+    DEMAND_FORECAST_DUPLICATE_TARGET(HttpStatus.CONFLICT, "요청 내 SKU와 판매처 조합이 중복되었습니다.", "DEMAND_FORECAST-005"),
 
     // TMP - 구조 확인 후 실제 기능과 함께 제거
     TMP_CONFLICT(HttpStatus.CONFLICT, "테스트 요청이 충돌했습니다.", "TMP-001"),
