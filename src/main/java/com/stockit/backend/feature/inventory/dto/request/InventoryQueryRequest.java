@@ -1,0 +1,276 @@
+package com.stockit.backend.feature.inventory.dto.request;
+
+import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
+
+import org.springframework.util.StringUtils;
+
+import com.stockit.backend.common.exception.AppException;
+import com.stockit.backend.common.exception.ErrorCode;
+import com.stockit.backend.feature.inventory.vo.InventoryQuery;
+
+import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.Size;
+
+/**
+ * 통합 재고 목록과 요약 조회에 공통으로 사용하는 HTTP query parameter입니다.
+ * 목록 화면의 URL 상태를 그대로 바인딩하되, DB 조회에는 {@link InventoryQuery}만 전달합니다.
+ */
+public class InventoryQueryRequest {
+
+    private static final List<String> CHANNEL_TYPES = List.of("GREETING", "ECOMMERCE", "HYUNDAI_DEPT", "HMART");
+    private static final List<String> STORAGE_TYPES = List.of("FROZEN", "COLD", "ROOM_TEMP");
+    private static final List<String> RISK_GRADES = List.of("SAFE", "NORMAL", "CAUTION", "DANGER");
+    private static final List<String> ASSESSMENT_STATUSES = List.of(
+            "ASSESSED", "UNASSESSED", "STALE", "FAILED", "REASSESSING"
+    );
+
+    @Schema(description = "상품·SKU·판매처 검색어", example = "만두")
+    @Size(max = 100, message = "검색어는 100자 이내여야 합니다.")
+    private String q;
+
+    @Schema(description = "정규화된 판매 채널", allowableValues = {"GREETING", "ECOMMERCE", "HYUNDAI_DEPT", "HMART"})
+    private List<String> channelType = new ArrayList<>();
+    @Schema(description = "소유 판매처 업무 코드, 반복 가능", example = "GREETING")
+    private List<String> salesPointCode = new ArrayList<>();
+    @Schema(description = "물류센터 업무 코드, 반복 가능", example = "GYEONGIN_1")
+    private List<String> warehouseCode = new ArrayList<>();
+    @Schema(description = "판매처 지역 코드, 반복 가능", example = "CAPITAL")
+    private List<String> regionCode = new ArrayList<>();
+    @Schema(description = "카테고리 ID", example = "12")
+    private String categoryId;
+    @Schema(description = "보관 유형", allowableValues = {"FROZEN", "COLD", "ROOM_TEMP"})
+    private List<String> storageType = new ArrayList<>();
+    @Schema(description = "위험 등급", allowableValues = {"SAFE", "NORMAL", "CAUTION", "DANGER"})
+    private List<String> riskGrade = new ArrayList<>();
+    @Schema(description = "위험 판정 상태", allowableValues = {"ASSESSED", "UNASSESSED", "STALE", "FAILED", "REASSESSING"})
+    private List<String> assessmentStatus = new ArrayList<>();
+
+    @Schema(description = "1부터 시작하는 페이지 번호", example = "1", defaultValue = "1", minimum = "1")
+    @Min(value = 1, message = "page는 1 이상이어야 합니다.")
+    private Integer page = 1;
+
+    @Schema(description = "페이지 크기", example = "20", defaultValue = "20", minimum = "1", maximum = "100")
+    @Min(value = 1, message = "size는 1 이상이어야 합니다.")
+    @Max(value = 100, message = "size는 100 이하이어야 합니다.")
+    private Integer size = 20;
+
+    @Schema(description = "허용 정렬 field,direction", example = "updatedAt,desc", defaultValue = "updatedAt,desc")
+    private String sort = "updatedAt,desc";
+
+    public InventoryQuery toQuery(LocalDate asOfDate) {
+        if (asOfDate == null) {
+            throw new IllegalArgumentException("asOfDate must not be null");
+        }
+        validatePagination();
+
+        return new InventoryQuery(
+                trimToNull(q),
+                normalize(channelType, CHANNEL_TYPES, "channelType"),
+                normalize(salesPointCode, null, "salesPointCode"),
+                normalize(warehouseCode, null, "warehouseCode"),
+                normalize(regionCode, null, "regionCode"),
+                parseCategoryId(),
+                normalize(storageType, STORAGE_TYPES, "storageType"),
+                normalize(riskGrade, RISK_GRADES, "riskGrade"),
+                normalize(assessmentStatus, ASSESSMENT_STATUSES, "assessmentStatus"),
+                page == null ? 1 : page,
+                size == null ? 20 : size,
+                sortColumn(sort),
+                sortDirection(sort),
+                asOfDate
+        );
+    }
+
+    private void validatePagination() {
+        if ((page != null && page < 1) || (size != null && (size < 1 || size > 100))) {
+            throw new AppException(ErrorCode.INVALID_PARAMETER);
+        }
+    }
+
+    private Long parseCategoryId() {
+        String normalized = trimToNull(categoryId);
+        if (normalized == null) {
+            return null;
+        }
+
+        try {
+            long value = Long.parseLong(normalized);
+            if (value < 1) {
+                throw new NumberFormatException();
+            }
+            return value;
+        } catch (NumberFormatException exception) {
+            throw new AppException(ErrorCode.INVALID_PARAMETER);
+        }
+    }
+
+    private static List<String> normalize(List<String> values, List<String> allowed, String field) {
+        if (values == null) {
+            return List.of();
+        }
+
+        List<String> normalized = values.stream()
+                .map(InventoryQueryRequest::trimToNull)
+                .filter(value -> value != null)
+                .distinct()
+                .toList();
+
+        if (allowed != null && normalized.stream().anyMatch(value -> !allowed.contains(value))) {
+            throw new AppException(ErrorCode.INVALID_PARAMETER);
+        }
+
+        if (normalized.size() > 50) {
+            throw new AppException(ErrorCode.INVALID_PARAMETER);
+        }
+
+        return normalized;
+    }
+
+    private static String sortColumn(String sort) {
+        String field = sortPart(sort, 0, "updatedAt");
+        return switch (field) {
+            case "updatedAt" -> "updated_at";
+            case "productName" -> "product_name";
+            case "skuCode" -> "sku_code";
+            case "currentQuantity", "currentQty" -> "current_qty";
+            case "availableQuantity", "availableQty" -> "available_qty";
+            case "reservedQuantity", "reservedQty" -> "reserved_qty";
+            case "riskGrade" -> "risk_grade";
+            case "nearestExpiryDays", "expiryDate", "nearestExpiryDate", "expiryDays" -> "nearest_expiry_days";
+            default -> throw new AppException(ErrorCode.INVALID_PARAMETER);
+        };
+    }
+
+    private static String sortDirection(String sort) {
+        String direction = sortPart(sort, 1, "desc").toLowerCase();
+        return switch (direction) {
+            case "asc" -> "ASC";
+            case "desc" -> "DESC";
+            default -> throw new AppException(ErrorCode.INVALID_PARAMETER);
+        };
+    }
+
+    private static String sortPart(String sort, int index, String fallback) {
+        if (!StringUtils.hasText(sort)) {
+            return fallback;
+        }
+        String[] parts = sort.split(",", -1);
+        if (parts.length > 2 || index >= parts.length) {
+            if (index == 1 && parts.length == 1) {
+                return fallback;
+            }
+            throw new AppException(ErrorCode.INVALID_PARAMETER);
+        }
+        if (!StringUtils.hasText(parts[index])) {
+            throw new AppException(ErrorCode.INVALID_PARAMETER);
+        }
+        return parts[index].trim();
+    }
+
+    private static String trimToNull(String value) {
+        if (!StringUtils.hasText(value)) {
+            return null;
+        }
+        return value.trim();
+    }
+
+    public String getQ() {
+        return q;
+    }
+
+    public void setQ(String q) {
+        this.q = q;
+    }
+
+    public List<String> getChannelType() {
+        return channelType;
+    }
+
+    public void setChannelType(List<String> channelType) {
+        this.channelType = channelType;
+    }
+
+    public List<String> getSalesPointCode() {
+        return salesPointCode;
+    }
+
+    public void setSalesPointCode(List<String> salesPointCode) {
+        this.salesPointCode = salesPointCode;
+    }
+
+    public List<String> getWarehouseCode() {
+        return warehouseCode;
+    }
+
+    public void setWarehouseCode(List<String> warehouseCode) {
+        this.warehouseCode = warehouseCode;
+    }
+
+    public List<String> getRegionCode() {
+        return regionCode;
+    }
+
+    public void setRegionCode(List<String> regionCode) {
+        this.regionCode = regionCode;
+    }
+
+    public String getCategoryId() {
+        return categoryId;
+    }
+
+    public void setCategoryId(String categoryId) {
+        this.categoryId = categoryId;
+    }
+
+    public List<String> getStorageType() {
+        return storageType;
+    }
+
+    public void setStorageType(List<String> storageType) {
+        this.storageType = storageType;
+    }
+
+    public List<String> getRiskGrade() {
+        return riskGrade;
+    }
+
+    public void setRiskGrade(List<String> riskGrade) {
+        this.riskGrade = riskGrade;
+    }
+
+    public List<String> getAssessmentStatus() {
+        return assessmentStatus;
+    }
+
+    public void setAssessmentStatus(List<String> assessmentStatus) {
+        this.assessmentStatus = assessmentStatus;
+    }
+
+    public Integer getPage() {
+        return page;
+    }
+
+    public void setPage(Integer page) {
+        this.page = page;
+    }
+
+    public Integer getSize() {
+        return size;
+    }
+
+    public void setSize(Integer size) {
+        this.size = size;
+    }
+
+    public String getSort() {
+        return sort;
+    }
+
+    public void setSort(String sort) {
+        this.sort = sort;
+    }
+}

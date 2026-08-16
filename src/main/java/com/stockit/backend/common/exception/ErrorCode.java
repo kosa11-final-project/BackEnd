@@ -39,6 +39,9 @@ public enum ErrorCode {
     DEMAND_FORECAST_SKU_NOT_FOUND(HttpStatus.NOT_FOUND, "존재하지 않는 SKU가 포함되어 있습니다.", "DEMAND_FORECAST-003"),
     DEMAND_FORECAST_SALES_POINT_NOT_FOUND(HttpStatus.NOT_FOUND, "존재하지 않는 판매처가 포함되어 있습니다.", "DEMAND_FORECAST-004"),
 
+    // DASHBOARD
+    DASHBOARD_SNAPSHOT_NOT_FOUND(HttpStatus.NOT_FOUND, "완료된 대시보드 집계 데이터를 찾을 수 없습니다.", "DASHBOARD-001"),
+
     // ==============================
     // 405 METHOD_NOT_ALLOWED
     // ==============================

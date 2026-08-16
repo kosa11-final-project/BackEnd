@@ -11,6 +11,9 @@ out/
 
 src/main/resources/application-local.yml
 
+# Local planning and API notes are not committed from this repository.
+docs/
+
 *.log
 hs_err_pid*
 
