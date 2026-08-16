@@ -23,4 +23,82 @@
         <result property="isDeleted" column="is_deleted"/>
     </resultMap>
 
+    <select id="selectModelVersionId" resultType="long">
+        SELECT model_version_id
+        FROM ml_model_version
+        WHERE model_name = #{modelName}
+          AND model_version = #{modelVersion}
+          AND is_deleted = 0
+    </select>
+
+    <select id="countExistingSkus" resultType="int">
+        SELECT COUNT(*)
+        FROM sku
+        WHERE is_deleted = 0
+          AND sku_id IN
+        <foreach collection="skuIds" item="skuId" open="(" separator="," close=")">
+            #{skuId}
+        </foreach>
+    </select>
+
+    <select id="countExistingSalesPoints" resultType="int">
+        SELECT COUNT(*)
+        FROM sales_point
+        WHERE is_deleted = 0
+          AND sales_point_id IN
+        <foreach collection="salesPointIds" item="salesPointId" open="(" separator="," close=")">
+            #{salesPointId}
+        </foreach>
+    </select>
+
+    <update id="mergeDemandForecasts">
+        MERGE INTO demand_forecast target
+        USING (
+            <foreach collection="forecasts" item="forecast" separator=" UNION ALL ">
+                SELECT CAST(#{forecast.skuId} AS NUMBER) AS sku_id,
+                       CAST(#{forecast.salesPointId} AS NUMBER) AS sales_point_id,
+                       CAST(#{forecast.modelVersionId} AS NUMBER) AS model_version_id,
+                       CAST(#{forecast.baseDate} AS DATE) AS base_date,
+                       CAST(#{forecast.predictedQtyD7} AS NUMBER(15,3)) AS predicted_qty_d7,
+                       CAST(#{forecast.predictedQtyD14} AS NUMBER(15,3)) AS predicted_qty_d14,
+                       CAST(#{forecast.predictedQtyD30} AS NUMBER(15,3)) AS predicted_qty_d30,
+                       CAST(#{forecast.predictedQtyD60} AS NUMBER(15,3)) AS predicted_qty_d60,
+                       CAST(#{forecast.predictedQtyD90} AS NUMBER(15,3)) AS predicted_qty_d90,
+                       CAST(#{forecast.forecastSource} AS VARCHAR2(40)) AS forecast_source,
+                       CAST(#{forecast.confidenceLevel} AS VARCHAR2(10)) AS confidence_level,
+                       CAST(#{forecast.createdBy} AS NUMBER) AS created_by,
+                       CAST(#{forecast.updatedBy} AS NUMBER) AS updated_by
+                FROM dual
+            </foreach>
+        ) source
+        ON (target.sku_id = source.sku_id
+            AND target.sales_point_id = source.sales_point_id
+            AND target.model_version_id = source.model_version_id
+            AND target.base_date = source.base_date)
+        WHEN MATCHED THEN
+            UPDATE SET target.predicted_qty_d7 = source.predicted_qty_d7,
+                       target.predicted_qty_d14 = source.predicted_qty_d14,
+                       target.predicted_qty_d30 = source.predicted_qty_d30,
+                       target.predicted_qty_d60 = source.predicted_qty_d60,
+                       target.predicted_qty_d90 = source.predicted_qty_d90,
+                       target.forecast_source = source.forecast_source,
+                       target.confidence_level = source.confidence_level,
+                       target.updated_at = CURRENT_TIMESTAMP,
+                       target.updated_by = source.updated_by,
+                       target.is_deleted = 0
+        WHEN NOT MATCHED THEN
+            INSERT (sku_id, sales_point_id, model_version_id, base_date,
+                    predicted_qty_d7, predicted_qty_d14, predicted_qty_d30,
+                    predicted_qty_d60, predicted_qty_d90, forecast_source,
+                    confidence_level, created_at, updated_at, created_by,
+                    updated_by, is_deleted)
+            VALUES (source.sku_id, source.sales_point_id, source.model_version_id,
+                    source.base_date, source.predicted_qty_d7,
+                    source.predicted_qty_d14, source.predicted_qty_d30,
+                    source.predicted_qty_d60, source.predicted_qty_d90,
+                    source.forecast_source, source.confidence_level,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, source.created_by,
+                    source.updated_by, 0)
+    </update>
+
 </mapper>
