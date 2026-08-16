@@ -14,14 +14,25 @@ import com.stockit.backend.feature.demandforecast.dto.response.DemandForecastImp
 import com.stockit.backend.feature.demandforecast.service.DemandForecastService;
 
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.enums.SecuritySchemeIn;
+import io.swagger.v3.oas.annotations.enums.SecuritySchemeType;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.ExampleObject;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.security.SecurityScheme;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 
 @Tag(name = "수요 예측", description = "SKU당 판매처별 수요 예측 API")
+@SecurityScheme(
+        name = "internalApiKey",
+        type = SecuritySchemeType.APIKEY,
+        in = SecuritySchemeIn.HEADER,
+        paramName = "X-API-Key",
+        description = "FastAPI 서버 간 통신용 API Key"
+)
 @RestController
 @RequestMapping("/api/v1/demand-forecasts")
 public class DemandForecastController {
@@ -78,7 +89,8 @@ public class DemandForecastController {
                     FastAPI가 Azure ML의 demand_forecast.csv를 파싱한 뒤 전달한 예측 결과를 적재합니다.
                     요청 하나는 최대 1,000건이며, 모델·SKU·판매처와 예측값을 검증한 후 배치 전체를
                     단일 트랜잭션으로 DEMAND_FORECAST에 MERGE합니다.
-                    """
+                    """,
+            security = @SecurityRequirement(name = "internalApiKey")
     )
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
@@ -97,12 +109,7 @@ public class DemandForecastController {
             ),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "401",
-                    description = "인증 실패 (AUTH-001)",
-                    content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))
-            ),
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(
-                    responseCode = "403",
-                    description = "접근 권한 또는 CSRF 검증 실패 (COMMON-003)",
+                    description = "X-API-Key 누락 또는 불일치 (AUTH-001)",
                     content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))
             ),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
