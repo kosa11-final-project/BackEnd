@@ -6,11 +6,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.validation.BindException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import com.stockit.backend.common.api.ApiErrorResponse;
@@ -68,6 +71,43 @@ public class GlobalExceptionHandler {
                 request.getRequestURI()
         );
         return ResponseEntity.status(errorCode.getHttpStatus()).body(response);
+    }
+
+    @ExceptionHandler(BindException.class)
+    public ResponseEntity<ApiErrorResponse> handleBindException(
+            BindException exception,
+            HttpServletRequest request
+    ) {
+        List<FieldErrorDetail> fieldErrors = exception.getBindingResult()
+                .getFieldErrors()
+                .stream()
+                .map(error -> new FieldErrorDetail(
+                        error.getField(),
+                        error.getDefaultMessage() == null || error.getDefaultMessage().isBlank()
+                                ? ErrorCode.INVALID_PARAMETER.getMessage()
+                                : error.getDefaultMessage()
+                ))
+                .toList();
+        ErrorCode errorCode = ErrorCode.INVALID_PARAMETER;
+        return ResponseEntity.status(errorCode.getHttpStatus()).body(ApiErrorResponse.of(
+                errorCode,
+                errorCode.getMessage(),
+                fieldErrors,
+                request.getRequestURI()
+        ));
+    }
+
+    @ExceptionHandler({
+            MethodArgumentTypeMismatchException.class,
+            MissingServletRequestParameterException.class
+    })
+    public ResponseEntity<ApiErrorResponse> handleRequestParameterException(
+            Exception exception,
+            HttpServletRequest request
+    ) {
+        ErrorCode errorCode = ErrorCode.INVALID_PARAMETER;
+        return ResponseEntity.status(errorCode.getHttpStatus())
+                .body(ApiErrorResponse.of(errorCode, request.getRequestURI()));
     }
 
     @ExceptionHandler(HttpMessageNotReadableException.class)
