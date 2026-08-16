@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.BindException;
+import org.springframework.validation.BindingResult;
 import org.springframework.validation.FieldError;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -49,19 +50,7 @@ public class GlobalExceptionHandler {
             MethodArgumentNotValidException exception,
             HttpServletRequest request
     ) {
-        List<FieldErrorDetail> fieldErrors = exception.getBindingResult()
-                .getAllErrors()
-                .stream()
-                .map(error -> {
-                    String field = error instanceof FieldError fieldError
-                            ? fieldError.getField()
-                            : "_global";
-                    String message = error.getDefaultMessage() == null || error.getDefaultMessage().isBlank()
-                            ? ErrorCode.INVALID_PARAMETER.getMessage()
-                            : error.getDefaultMessage();
-                    return new FieldErrorDetail(field, message);
-                })
-                .toList();
+        List<FieldErrorDetail> fieldErrors = toFieldErrorDetails(exception.getBindingResult());
 
         ErrorCode errorCode = ErrorCode.INVALID_PARAMETER;
         ApiErrorResponse response = ApiErrorResponse.of(
@@ -78,16 +67,7 @@ public class GlobalExceptionHandler {
             BindException exception,
             HttpServletRequest request
     ) {
-        List<FieldErrorDetail> fieldErrors = exception.getBindingResult()
-                .getFieldErrors()
-                .stream()
-                .map(error -> new FieldErrorDetail(
-                        error.getField(),
-                        error.getDefaultMessage() == null || error.getDefaultMessage().isBlank()
-                                ? ErrorCode.INVALID_PARAMETER.getMessage()
-                                : error.getDefaultMessage()
-                ))
-                .toList();
+        List<FieldErrorDetail> fieldErrors = toFieldErrorDetails(exception.getBindingResult());
         ErrorCode errorCode = ErrorCode.INVALID_PARAMETER;
         return ResponseEntity.status(errorCode.getHttpStatus()).body(ApiErrorResponse.of(
                 errorCode,
@@ -95,6 +75,21 @@ public class GlobalExceptionHandler {
                 fieldErrors,
                 request.getRequestURI()
         ));
+    }
+
+    private List<FieldErrorDetail> toFieldErrorDetails(BindingResult bindingResult) {
+        return bindingResult.getAllErrors()
+                .stream()
+                .map(error -> {
+                    String field = error instanceof FieldError fieldError
+                            ? fieldError.getField()
+                            : "_global";
+                    String message = error.getDefaultMessage() == null || error.getDefaultMessage().isBlank()
+                            ? ErrorCode.INVALID_PARAMETER.getMessage()
+                            : error.getDefaultMessage();
+                    return new FieldErrorDetail(field, message);
+                })
+                .toList();
     }
 
     @ExceptionHandler({

@@ -74,4 +74,17 @@ class InventoryQueryRequestTest {
         assertThatThrownBy(() -> request.toQuery(LocalDate.of(2026, 8, 14)))
                 .isInstanceOf(AppException.class);
     }
+
+    @Test
+    void calculatesLongOffsetWithoutIntegerOverflow() {
+        InventoryQuery query = new InventoryQuery(
+                null, List.of(), List.of(), List.of(), List.of(),
+                null, List.of(), List.of(), List.of(),
+                100_000_000, 50, "updated_at", "DESC", LocalDate.of(2026, 8, 14)
+        );
+
+        long expectedOffset = (100_000_000L - 1) * 50L;
+        assertThat(query.offset()).isEqualTo(expectedOffset);
+        assertThat(query.getOffset()).isEqualTo(expectedOffset);
+    }
 }

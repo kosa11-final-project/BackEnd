@@ -504,6 +504,10 @@
                    l.sale_stop_date
             FROM inventory_balance ib
             INNER JOIN candidate_keys ck ON ck.sku_id = ib.sku_id AND ck.sales_point_id = ib.stock_sales_point_id
+            INNER JOIN warehouse active_w
+                    ON active_w.warehouse_id = ib.warehouse_id
+                   AND active_w.is_deleted = 0
+                   AND active_w.active_yn = 'Y'
             LEFT JOIN lot l ON l.lot_id = ib.lot_id AND l.is_deleted = 0
             WHERE ib.is_deleted = 0
         ),
@@ -921,7 +925,9 @@
             INNER JOIN sales_point sp ON sp.sales_point_id = ib.stock_sales_point_id
                                      AND sp.is_deleted = 0
                                      AND sp.active_yn = 'Y'
-            LEFT JOIN warehouse w ON w.warehouse_id = ib.warehouse_id AND w.is_deleted = 0 AND w.active_yn = 'Y'
+            INNER JOIN warehouse w ON w.warehouse_id = ib.warehouse_id
+                                  AND w.is_deleted = 0
+                                  AND w.active_yn = 'Y'
             WHERE ib.is_deleted = 0
               AND s.sku_code = #{skuCode}
               AND sp.sales_point_code = #{salesPointCode}
