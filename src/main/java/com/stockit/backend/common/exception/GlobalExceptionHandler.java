@@ -4,6 +4,7 @@ import java.util.List;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.BindException;
@@ -41,7 +42,11 @@ public class GlobalExceptionHandler {
                 request.getRequestURI()
         );
 
-        ApiErrorResponse response = ApiErrorResponse.of(errorCode, request.getRequestURI());
+        ApiErrorResponse response = ApiErrorResponse.of(
+                errorCode,
+                safeMessage(exception.getMessage(), errorCode.getMessage()),
+                request.getRequestURI()
+        );
         return ResponseEntity.status(errorCode.getHttpStatus()).body(response);
     }
 
@@ -147,5 +152,29 @@ public class GlobalExceptionHandler {
         ErrorCode errorCode = ErrorCode.INTERNAL_SERVER_ERROR;
         return ResponseEntity.status(errorCode.getHttpStatus())
                 .body(ApiErrorResponse.of(errorCode, request.getRequestURI()));
+    }
+
+    @ExceptionHandler(DataAccessException.class)
+    public ResponseEntity<ApiErrorResponse> handleDatabaseException(
+            DataAccessException exception,
+            HttpServletRequest request
+    ) {
+        log.error(
+                "Database exception: method={}, path={}",
+                request.getMethod(),
+                request.getRequestURI(),
+                exception
+        );
+        ErrorCode errorCode = ErrorCode.DATABASE_ERROR;
+        return ResponseEntity.status(errorCode.getHttpStatus())
+                .body(ApiErrorResponse.of(errorCode, request.getRequestURI()));
+    }
+
+    private static String safeMessage(String message, String fallback) {
+        if (message == null || message.isBlank()) {
+            return fallback;
+        }
+        // AppException의 사용자용 메시지만 응답으로 사용하고, 예외 체인의 내부 메시지는 노출하지 않습니다.
+        return message;
     }
 }

@@ -4,15 +4,19 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 
+import org.slf4j.MDC;
+
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import com.stockit.backend.common.exception.ErrorCode;
+import com.stockit.backend.common.logging.RequestLoggingFilter;
 
-@JsonPropertyOrder({"code", "message", "fieldErrors", "path", "timestamp"})
+@JsonPropertyOrder({"code", "message", "fieldErrors", "path", "requestId", "timestamp"})
 public record ApiErrorResponse(
         String code,
         String message,
         List<FieldErrorDetail> fieldErrors,
         String path,
+        String requestId,
         Instant timestamp
 ) {
 
@@ -43,6 +47,7 @@ public record ApiErrorResponse(
                 message,
                 fieldErrors,
                 path,
+                MDC.get(RequestLoggingFilter.REQUEST_ID_MDC_KEY),
                 Instant.now()
         );
     }

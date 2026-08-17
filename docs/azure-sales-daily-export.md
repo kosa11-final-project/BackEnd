@@ -23,6 +23,24 @@ Oracle SALES_DAILY
 `AZURE_BLOB`에서도 `SALES_DAILY_EXPORT_PATH`는 Blob URL이 아니라 로컬 staging 및
 최종 파일 경로입니다. `https://...blob.core.windows.net/...` URL을 이 값에 넣지 않습니다.
 
+## 로컬 통합 재고 조회 기동값
+
+통합 재고 조회와 수요예측 조회를 로컬에서 확인할 때는 공유 Oracle 스키마에 migration이나
+Spring Batch 메타데이터 DDL을 실행하지 않도록 다음 값을 Run Configuration에 설정합니다.
+
+```env
+FLYWAY_ENABLED=false
+SPRING_BATCH_JDBC_INITIALIZE_SCHEMA=never
+SPRING_BATCH_JOB_ENABLED=false
+SALES_DAILY_EXPORT_DESTINATION=LOCAL
+SALES_DAILY_EXPORT_PATH=./build/exports/sales_daily.csv
+```
+
+`FLYWAY_ENABLED=true` 또는 `SPRING_BATCH_JDBC_INITIALIZE_SCHEMA=always`가 IDE 환경변수에
+남아 있으면 `application.yml`의 안전한 기본값보다 환경변수가 우선하므로, 로컬 read-only
+검증 전에 반드시 제거하거나 위 값으로 바꿉니다. Azure Blob export를 실행하는 별도 작업에서만
+destination과 Azure 인증 환경변수를 추가합니다.
+
 ## Azure 리소스 준비
 
 1. StorageV2 Storage Account를 생성하고 Blob public access를 비활성화합니다.

@@ -67,7 +67,10 @@ public enum ErrorCode {
     // ==============================
 
     // COMMON
-    INTERNAL_SERVER_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "서버 내부 오류가 발생했습니다.", "COMMON-006");
+    INTERNAL_SERVER_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "서버 내부 오류가 발생했습니다.", "COMMON-006"),
+
+    // DATABASE
+    DATABASE_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "데이터베이스 처리 중 오류가 발생했습니다.", "DATABASE-001");
 
     private final HttpStatus httpStatus;
     private final String message;
