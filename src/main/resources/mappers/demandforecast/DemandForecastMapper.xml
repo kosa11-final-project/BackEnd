@@ -3,11 +3,14 @@
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.stockit.backend.feature.demandforecast.mapper.DemandForecastMapper">
 
-    <resultMap id="demandForecastResultMap" type="DemandForecastVO">
+    <resultMap id="demandForecastResultMap" type="com.stockit.backend.feature.demandforecast.vo.DemandForecastVO">
         <id property="forecastId" column="forecast_id"/>
         <result property="skuId" column="sku_id"/>
+        <result property="skuName" column="sku_name"/>
         <result property="salesPointId" column="sales_point_id"/>
+        <result property="salesPointName" column="sales_point_name"/>
         <result property="modelVersionId" column="model_version_id"/>
+        <result property="modelVersion" column="model_version"/>
         <result property="baseDate" column="base_date"/>
         <result property="predictedQtyD7" column="predicted_qty_d7"/>
         <result property="predictedQtyD14" column="predicted_qty_d14"/>
@@ -100,5 +103,171 @@
                     CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, source.created_by,
                     source.updated_by, 0)
     </update>
+    <select id="selectDemandForecast" resultMap="demandForecastResultMap">
+        SELECT *
+        FROM (
+            SELECT df.forecast_id,
+                   df.sku_id,
+                   s.sku_name,
+                   df.sales_point_id,
+                   sp.sales_point_name,
+                   df.model_version_id,
+                   model.model_version,
+                   df.base_date,
+                   df.predicted_qty_d7,
+                   df.predicted_qty_d14,
+                   df.predicted_qty_d30,
+                   df.predicted_qty_d60,
+                   df.predicted_qty_d90,
+                   df.forecast_source,
+                   df.confidence_level,
+                   df.created_at,
+                   df.updated_at,
+                   df.created_by,
+                   df.updated_by,
+                   df.is_deleted
+            FROM demand_forecast df
+            INNER JOIN sku s ON s.sku_id = df.sku_id AND s.is_deleted = 0
+            INNER JOIN sales_point sp ON sp.sales_point_id = df.sales_point_id AND sp.is_deleted = 0
+            LEFT JOIN ml_model_version model ON model.model_version_id = df.model_version_id
+                                             AND model.is_deleted = 0
+            WHERE s.sku_code = #{skuCode}
+              AND sp.sales_point_code = #{salesPointCode}
+              AND df.is_deleted = 0
+            ORDER BY df.base_date DESC, df.forecast_id DESC
+        )
+        WHERE ROWNUM = 1
+    </select>
+
+    <select id="selectSafetyStockQty" resultType="java.math.BigDecimal">
+        SELECT *
+        FROM (
+            SELECT ip.safety_stock_qty
+            FROM inventory_policy ip
+            INNER JOIN sku s ON s.sku_id = ip.sku_id AND s.is_deleted = 0
+            LEFT JOIN sales_point sp
+                   ON sp.sales_point_id = COALESCE(ip.stock_sales_point_id, ip.allocated_sales_point_id)
+                  AND sp.is_deleted = 0
+            WHERE s.sku_code = #{skuCode}
+              AND (
+                  (#{salesPointCode} != 'UNASSIGNED' AND sp.sales_point_code = #{salesPointCode})
+                  OR (#{salesPointCode} = 'UNASSIGNED'
+                      AND ip.stock_sales_point_id IS NULL
+                      AND ip.allocated_sales_point_id IS NULL)
+              )
+              AND ip.is_deleted = 0
+              AND (ip.effective_from IS NULL OR ip.effective_from &lt;= #{asOfDate})
+              AND (ip.effective_to IS NULL OR ip.effective_to &gt;= #{asOfDate})
+            ORDER BY CASE WHEN sp.sales_point_code = #{salesPointCode} THEN 0 ELSE 1 END,
+                     ip.effective_from DESC,
+                     ip.inventory_policy_id DESC
+        )
+        WHERE ROWNUM = 1
+    </select>
+
+    <select id="selectAvailableQty" resultType="java.math.BigDecimal">
+        SELECT NVL(SUM(ib.on_hand_qty), 0)
+        FROM inventory_balance ib
+        INNER JOIN sku s ON s.sku_id = ib.sku_id AND s.is_deleted = 0
+        LEFT JOIN sales_point sp ON sp.sales_point_id = COALESCE(ib.stock_sales_point_id, ib.allocated_sales_point_id)
+                                 AND sp.is_deleted = 0
+        WHERE s.sku_code = #{skuCode}
+          AND (
+              (#{salesPointCode} != 'UNASSIGNED' AND sp.sales_point_code = #{salesPointCode})
+              OR (#{salesPointCode} = 'UNASSIGNED'
+                  AND ib.stock_sales_point_id IS NULL
+                  AND ib.allocated_sales_point_id IS NULL)
+          )
+          AND ib.is_deleted = 0
+    </select>
+
+    <select id="selectSkuAggregateSafetyStockQty" resultType="java.math.BigDecimal">
+        SELECT SUM(policy.safety_stock_qty)
+        FROM (
+            SELECT ip.safety_stock_qty,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY ip.sku_id, COALESCE(ip.stock_sales_point_id, ip.allocated_sales_point_id, -1)
+                       ORDER BY ip.effective_from DESC, ip.inventory_policy_id DESC
+                   ) AS rn
+            FROM inventory_policy ip
+            INNER JOIN sku s ON s.sku_id = ip.sku_id AND s.is_deleted = 0
+            WHERE s.sku_code = #{skuCode}
+              AND ip.is_deleted = 0
+              AND (ip.effective_from IS NULL OR ip.effective_from &lt;= #{asOfDate})
+              AND (ip.effective_to IS NULL OR ip.effective_to &gt;= #{asOfDate})
+        ) policy
+        WHERE policy.rn = 1
+    </select>
+
+    <select id="selectSkuAggregateAvailableQty" resultType="java.math.BigDecimal">
+        SELECT NVL(SUM(ib.on_hand_qty), 0)
+        FROM inventory_balance ib
+        INNER JOIN sku s ON s.sku_id = ib.sku_id AND s.is_deleted = 0
+        WHERE s.sku_code = #{skuCode}
+          AND ib.is_deleted = 0
+    </select>
+
+    <select id="selectSkuAggregateDemandForecast" resultMap="demandForecastResultMap">
+        WITH latest_by_sales_point AS (
+            SELECT df.*,
+                   s.sku_name,
+                   model.model_version,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY df.sku_id, df.sales_point_id
+                       ORDER BY df.base_date DESC, df.forecast_id DESC
+                   ) AS rn
+            FROM demand_forecast df
+            INNER JOIN sku s ON s.sku_id = df.sku_id AND s.is_deleted = 0
+            LEFT JOIN ml_model_version model ON model.model_version_id = df.model_version_id
+                                             AND model.is_deleted = 0
+            WHERE s.sku_code = #{skuCode}
+              AND df.is_deleted = 0
+        ), selected AS (
+            SELECT *
+            FROM latest_by_sales_point
+            WHERE rn = 1
+        )
+        SELECT NULL AS forecast_id,
+               MAX(sku_id) AS sku_id,
+               MAX(sku_name) AS sku_name,
+               NULL AS sales_point_id,
+               '전체 판매처' AS sales_point_name,
+               CASE WHEN COUNT(DISTINCT model_version_id) = 1
+                          AND COUNT(DISTINCT base_date) = 1
+                          AND COUNT(DISTINCT forecast_source) = 1
+                    THEN MAX(model_version_id) END AS model_version_id,
+               CASE WHEN COUNT(DISTINCT model_version_id) = 1
+                          AND COUNT(DISTINCT base_date) = 1
+                          AND COUNT(DISTINCT forecast_source) = 1
+                    THEN MAX(model_version) END AS model_version,
+               CASE WHEN COUNT(DISTINCT model_version_id) = 1
+                          AND COUNT(DISTINCT base_date) = 1
+                          AND COUNT(DISTINCT forecast_source) = 1
+                    THEN MAX(base_date) END AS base_date,
+               CASE WHEN COUNT(DISTINCT model_version_id) = 1 AND COUNT(DISTINCT base_date) = 1
+                          AND COUNT(DISTINCT forecast_source) = 1
+                    THEN SUM(predicted_qty_d7) END AS predicted_qty_d7,
+               CASE WHEN COUNT(DISTINCT model_version_id) = 1 AND COUNT(DISTINCT base_date) = 1
+                          AND COUNT(DISTINCT forecast_source) = 1
+                    THEN SUM(predicted_qty_d14) END AS predicted_qty_d14,
+               CASE WHEN COUNT(DISTINCT model_version_id) = 1 AND COUNT(DISTINCT base_date) = 1
+                          AND COUNT(DISTINCT forecast_source) = 1
+                    THEN SUM(predicted_qty_d30) END AS predicted_qty_d30,
+               CASE WHEN COUNT(DISTINCT model_version_id) = 1 AND COUNT(DISTINCT base_date) = 1
+                          AND COUNT(DISTINCT forecast_source) = 1
+                    THEN SUM(predicted_qty_d60) END AS predicted_qty_d60,
+               CASE WHEN COUNT(DISTINCT model_version_id) = 1 AND COUNT(DISTINCT base_date) = 1
+                          AND COUNT(DISTINCT forecast_source) = 1
+                    THEN SUM(predicted_qty_d90) END AS predicted_qty_d90,
+               CASE WHEN COUNT(DISTINCT forecast_source) = 1 THEN MAX(forecast_source) END AS forecast_source,
+               CASE WHEN COUNT(DISTINCT confidence_level) = 1 THEN MAX(confidence_level) END AS confidence_level,
+               MAX(created_at) AS created_at,
+               MAX(updated_at) AS updated_at,
+               NULL AS created_by,
+               NULL AS updated_by,
+               0 AS is_deleted
+        FROM selected
+        HAVING COUNT(*) > 0
+    </select>
 
 </mapper>
