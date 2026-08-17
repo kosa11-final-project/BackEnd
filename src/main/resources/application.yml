@@ -34,6 +34,9 @@ app:
     key: ${STOCKIT_INTERNAL_API_KEY:}
     user-id: ${STOCKIT_INTERNAL_API_USER_ID:0}
     principal-name: ${STOCKIT_INTERNAL_API_PRINCIPAL:ml-service}
+  sales-daily-export:
+    output-path: ${SALES_DAILY_EXPORT_PATH:../dummy-data/ml/data/raw/sales_daily.csv}
+    destination: ${SALES_DAILY_EXPORT_DESTINATION:LOCAL}
 
 mybatis:
   mapper-locations: classpath:mappers/**/*.xml
