@@ -45,7 +45,7 @@
              AND mv.status = 'ACTIVE'
              AND mv.is_deleted = 0
             WHERE df.is_deleted = 0
-              AND df.base_date &lt;= TRUNC(#{asOfDate,jdbcType=DATE})
+              AND df.base_date &lt;= TRUNC(CAST(#{asOfDate,jdbcType=DATE} AS DATE))
               AND df.forecast_source &lt;&gt; 'DUMMY_BASELINE'
         ),
         latest_forecast AS (
@@ -67,9 +67,9 @@
                    ) AS row_no
             FROM sku_cost sc
             WHERE sc.is_deleted = 0
-              AND sc.effective_from &lt;= TRUNC(#{asOfDate,jdbcType=DATE})
+              AND sc.effective_from &lt;= TRUNC(CAST(#{asOfDate,jdbcType=DATE} AS DATE))
               AND (sc.effective_to IS NULL
-                   OR sc.effective_to &gt;= TRUNC(#{asOfDate,jdbcType=DATE}))
+                   OR sc.effective_to &gt;= TRUNC(CAST(#{asOfDate,jdbcType=DATE} AS DATE)))
         ),
         latest_cost AS (
             SELECT sku_id,
@@ -96,7 +96,7 @@
                    CASE
                        WHEN l.lot_status = 'AVAILABLE'
                         AND COALESCE(l.sale_stop_date, l.expiry_date) IS NOT NULL
-                        AND TRUNC(#{asOfDate,jdbcType=DATE})
+                        AND TRUNC(CAST(#{asOfDate,jdbcType=DATE} AS DATE))
                             &lt; TRUNC(COALESCE(l.sale_stop_date, l.expiry_date))
                        THEN ib.on_hand_qty
                        ELSE 0
@@ -143,7 +143,7 @@
             LEFT JOIN demand_forecast linked_df
               ON linked_df.forecast_id = lr.forecast_id
              AND linked_df.is_deleted = 0
-             AND linked_df.base_date &lt;= TRUNC(#{asOfDate,jdbcType=DATE})
+             AND linked_df.base_date &lt;= TRUNC(CAST(#{asOfDate,jdbcType=DATE} AS DATE))
              AND linked_df.forecast_source &lt;&gt; 'DUMMY_BASELINE'
              AND EXISTS (
                     SELECT 1
@@ -419,34 +419,26 @@
             SELECT scope_type,
                    scope_code,
                    sku_id,
-                   CASE
-                       WHEN stock_sales_point_id IS NOT NULL THEN 'SALES_POINT'
-                       ELSE 'WAREHOUSE'
-                   END AS stock_location_type,
-                   CASE
-                       WHEN stock_sales_point_id IS NOT NULL THEN stock_sales_point_id
-                       ELSE warehouse_id
-                   END AS stock_location_id,
                    demand_sales_point_id,
                    selected_forecast_id,
                    SUM(
                        CASE
-                           WHEN effective_sale_stop_date &gt; TRUNC(#{asOfDate,jdbcType=DATE})
-                            AND effective_sale_stop_date &lt;= TRUNC(#{asOfDate,jdbcType=DATE}) + 7
+                           WHEN effective_sale_stop_date &gt; TRUNC(CAST(#{asOfDate,jdbcType=DATE} AS DATE))
+                            AND effective_sale_stop_date &lt;= TRUNC(CAST(#{asOfDate,jdbcType=DATE} AS DATE)) + 7
                            THEN available_qty ELSE 0
                        END
                    ) AS expiring_qty_d7,
                    SUM(
                        CASE
-                           WHEN effective_sale_stop_date &gt; TRUNC(#{asOfDate,jdbcType=DATE})
-                            AND effective_sale_stop_date &lt;= TRUNC(#{asOfDate,jdbcType=DATE}) + 14
+                           WHEN effective_sale_stop_date &gt; TRUNC(CAST(#{asOfDate,jdbcType=DATE} AS DATE))
+                            AND effective_sale_stop_date &lt;= TRUNC(CAST(#{asOfDate,jdbcType=DATE} AS DATE)) + 14
                            THEN available_qty ELSE 0
                        END
                    ) AS expiring_qty_d14,
                    SUM(
                        CASE
-                           WHEN effective_sale_stop_date &gt; TRUNC(#{asOfDate,jdbcType=DATE})
-                            AND effective_sale_stop_date &lt;= TRUNC(#{asOfDate,jdbcType=DATE}) + 30
+                           WHEN effective_sale_stop_date &gt; TRUNC(CAST(#{asOfDate,jdbcType=DATE} AS DATE))
+                            AND effective_sale_stop_date &lt;= TRUNC(CAST(#{asOfDate,jdbcType=DATE} AS DATE)) + 30
                            THEN available_qty ELSE 0
                        END
                    ) AS expiring_qty_d30,
@@ -459,14 +451,6 @@
             GROUP BY scope_type,
                      scope_code,
                      sku_id,
-                     CASE
-                         WHEN stock_sales_point_id IS NOT NULL THEN 'SALES_POINT'
-                         ELSE 'WAREHOUSE'
-                     END,
-                     CASE
-                         WHEN stock_sales_point_id IS NOT NULL THEN stock_sales_point_id
-                         ELSE warehouse_id
-                     END,
                      demand_sales_point_id,
                      selected_forecast_id
         ),
@@ -504,8 +488,8 @@
             FROM scope_inventory
             WHERE selected_forecast_id IS NULL
               AND available_qty &gt; 0
-              AND effective_sale_stop_date &gt; TRUNC(#{asOfDate,jdbcType=DATE})
-              AND effective_sale_stop_date &lt;= TRUNC(#{asOfDate,jdbcType=DATE}) + 30
+              AND effective_sale_stop_date &gt; TRUNC(CAST(#{asOfDate,jdbcType=DATE} AS DATE))
+              AND effective_sale_stop_date &lt;= TRUNC(CAST(#{asOfDate,jdbcType=DATE} AS DATE)) + 30
             GROUP BY scope_type, scope_code
         )
         SELECT definition.scope_type,
