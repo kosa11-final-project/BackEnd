@@ -37,6 +37,10 @@ app:
   sales-daily-export:
     output-path: ${SALES_DAILY_EXPORT_PATH:../dummy-data/ml/data/raw/sales_daily.csv}
     destination: ${SALES_DAILY_EXPORT_DESTINATION:LOCAL}
+    azure:
+      account-url: ${AZURE_STORAGE_ACCOUNT_URL:}
+      container-name: ${AZURE_STORAGE_CONTAINER:}
+      blob-prefix: ${AZURE_STORAGE_BLOB_PREFIX:sales-daily}
 
 mybatis:
   mapper-locations: classpath:mappers/**/*.xml
