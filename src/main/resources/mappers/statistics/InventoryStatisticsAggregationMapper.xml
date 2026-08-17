@@ -1,0 +1,566 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.stockit.backend.feature.statistics.mapper.InventoryStatisticsAggregationMapper">
+
+    <select id="selectScopeAggregates"
+            resultType="com.stockit.backend.feature.statistics.vo.InventoryStatisticsAggregateVO">
+        WITH latest_risk_ranked AS (
+            SELECT ra.risk_assessment_id,
+                   ra.inventory_balance_id,
+                   ra.forecast_id,
+                   ra.risk_grade,
+                   ra.shortage_yn,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY ra.inventory_balance_id
+                       ORDER BY ra.updated_at DESC, ra.risk_assessment_id DESC
+                   ) AS row_no
+            FROM risk_assessment ra
+            WHERE ra.is_deleted = 0
+        ),
+        latest_risk AS (
+            SELECT risk_assessment_id,
+                   inventory_balance_id,
+                   forecast_id,
+                   risk_grade,
+                   shortage_yn
+            FROM latest_risk_ranked
+            WHERE row_no = 1
+        ),
+        latest_forecast_ranked AS (
+            SELECT df.forecast_id,
+                   df.sku_id,
+                   df.sales_point_id,
+                   df.predicted_qty_d7,
+                   df.predicted_qty_d14,
+                   df.predicted_qty_d30,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY df.sku_id, df.sales_point_id
+                       ORDER BY df.base_date DESC, df.updated_at DESC, df.forecast_id DESC
+                   ) AS row_no
+            FROM demand_forecast df
+            JOIN ml_model_version mv
+              ON mv.model_version_id = df.model_version_id
+             AND mv.status = 'ACTIVE'
+             AND mv.is_deleted = 0
+            WHERE df.is_deleted = 0
+              AND df.base_date &lt;= TRUNC(#{asOfDate,jdbcType=DATE})
+              AND df.forecast_source &lt;&gt; 'DUMMY_BASELINE'
+        ),
+        latest_forecast AS (
+            SELECT forecast_id,
+                   sku_id,
+                   sales_point_id,
+                   predicted_qty_d7,
+                   predicted_qty_d14,
+                   predicted_qty_d30
+            FROM latest_forecast_ranked
+            WHERE row_no = 1
+        ),
+        latest_cost_ranked AS (
+            SELECT sc.sku_id,
+                   sc.unit_cost,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY sc.sku_id
+                       ORDER BY sc.effective_from DESC, sc.updated_at DESC, sc.sku_cost_id DESC
+                   ) AS row_no
+            FROM sku_cost sc
+            WHERE sc.is_deleted = 0
+              AND sc.effective_from &lt;= TRUNC(#{asOfDate,jdbcType=DATE})
+              AND (sc.effective_to IS NULL
+                   OR sc.effective_to &gt;= TRUNC(#{asOfDate,jdbcType=DATE}))
+        ),
+        latest_cost AS (
+            SELECT sku_id,
+                   unit_cost
+            FROM latest_cost_ranked
+            WHERE row_no = 1
+        ),
+        inventory_base AS (
+            SELECT ib.inventory_balance_id,
+                   ib.sku_id,
+                   ib.warehouse_id,
+                   ib.stock_sales_point_id,
+                   COALESCE(ib.allocated_sales_point_id, ib.stock_sales_point_id) AS demand_sales_point_id,
+                   w.warehouse_code,
+                   w.warehouse_name,
+                   w.region_code AS warehouse_region_code,
+                   demand_sp.sales_point_code AS demand_sales_point_code,
+                   demand_sp.sales_point_name AS demand_sales_point_name,
+                   demand_sp.region_code AS demand_sales_point_region_code,
+                   demand_ch.channel_type AS demand_channel_type,
+                   COALESCE(l.sale_stop_date, l.expiry_date) AS effective_sale_stop_date,
+                   ib.on_hand_qty,
+                   ib.total_qty AS current_qty,
+                   CASE
+                       WHEN l.lot_status = 'AVAILABLE'
+                        AND COALESCE(l.sale_stop_date, l.expiry_date) IS NOT NULL
+                        AND TRUNC(#{asOfDate,jdbcType=DATE})
+                            &lt; TRUNC(COALESCE(l.sale_stop_date, l.expiry_date))
+                       THEN ib.on_hand_qty
+                       ELSE 0
+                   END AS available_qty,
+                   lr.risk_assessment_id,
+                   lr.risk_grade,
+                   lr.shortage_yn,
+                   COALESCE(linked_df.forecast_id, fallback_df.forecast_id) AS selected_forecast_id,
+                   COALESCE(linked_df.predicted_qty_d7, fallback_df.predicted_qty_d7) AS predicted_qty_d7,
+                   COALESCE(linked_df.predicted_qty_d14, fallback_df.predicted_qty_d14) AS predicted_qty_d14,
+                   COALESCE(linked_df.predicted_qty_d30, fallback_df.predicted_qty_d30) AS predicted_qty_d30,
+                   lc.unit_cost
+            FROM inventory_balance ib
+            JOIN sku s
+              ON s.sku_id = ib.sku_id
+             AND s.active_yn = 'Y'
+             AND s.is_deleted = 0
+            JOIN product p
+              ON p.product_id = s.product_id
+             AND p.product_status = 'ACTIVE'
+             AND p.is_deleted = 0
+            LEFT JOIN lot l
+              ON l.lot_id = ib.lot_id
+             AND l.is_deleted = 0
+            LEFT JOIN warehouse w
+              ON w.warehouse_id = ib.warehouse_id
+             AND w.is_deleted = 0
+            LEFT JOIN sales_point stock_sp
+              ON stock_sp.sales_point_id = ib.stock_sales_point_id
+             AND stock_sp.is_deleted = 0
+            LEFT JOIN sales_channel stock_ch
+              ON stock_ch.sales_channel_id = stock_sp.sales_channel_id
+             AND stock_ch.is_deleted = 0
+            LEFT JOIN sales_point demand_sp
+              ON demand_sp.sales_point_id = COALESCE(ib.allocated_sales_point_id, ib.stock_sales_point_id)
+             AND demand_sp.active_yn = 'Y'
+             AND demand_sp.is_deleted = 0
+            LEFT JOIN sales_channel demand_ch
+              ON demand_ch.sales_channel_id = demand_sp.sales_channel_id
+             AND demand_ch.active_yn = 'Y'
+             AND demand_ch.is_deleted = 0
+            LEFT JOIN latest_risk lr
+              ON lr.inventory_balance_id = ib.inventory_balance_id
+            LEFT JOIN demand_forecast linked_df
+              ON linked_df.forecast_id = lr.forecast_id
+             AND linked_df.is_deleted = 0
+             AND linked_df.base_date &lt;= TRUNC(#{asOfDate,jdbcType=DATE})
+             AND linked_df.forecast_source &lt;&gt; 'DUMMY_BASELINE'
+             AND EXISTS (
+                    SELECT 1
+                    FROM ml_model_version linked_mv
+                    WHERE linked_mv.model_version_id = linked_df.model_version_id
+                      AND linked_mv.status = 'ACTIVE'
+                      AND linked_mv.is_deleted = 0
+             )
+            LEFT JOIN latest_forecast fallback_df
+              ON fallback_df.sku_id = ib.sku_id
+             AND fallback_df.sales_point_id = COALESCE(ib.allocated_sales_point_id, ib.stock_sales_point_id)
+            LEFT JOIN latest_cost lc
+              ON lc.sku_id = ib.sku_id
+            WHERE ib.is_deleted = 0
+              AND (
+                    ib.lot_id IS NULL
+                    OR (l.lot_id IS NOT NULL AND l.lot_status &lt;&gt; 'DEPLETED')
+              )
+              AND (
+                    (ib.stock_sales_point_id IS NOT NULL
+                     AND stock_sp.active_yn = 'Y'
+                     AND stock_ch.active_yn = 'Y')
+                    OR (ib.stock_sales_point_id IS NULL
+                        AND ib.warehouse_id IS NOT NULL
+                        AND w.active_yn = 'Y')
+              )
+        ),
+        scope_inventory AS (
+            SELECT 'NATIONAL' AS scope_type,
+                   CAST(NULL AS NUMBER) AS scope_warehouse_id,
+                   CAST(NULL AS NUMBER) AS scope_sales_point_id,
+                   'ALL' AS scope_code,
+                   '전국' AS scope_name,
+                   '전국' AS scope_region_code,
+                   ib.*
+            FROM inventory_base ib
+
+            UNION ALL
+
+            SELECT 'WAREHOUSE',
+                   CAST(NULL AS NUMBER),
+                   CAST(NULL AS NUMBER),
+                   'ALL',
+                   '전체 물류센터',
+                   '전국',
+                   ib.*
+            FROM inventory_base ib
+            WHERE ib.stock_sales_point_id IS NULL
+
+            UNION ALL
+
+            SELECT 'WAREHOUSE',
+                   ib.warehouse_id,
+                   CAST(NULL AS NUMBER),
+                   ib.warehouse_code,
+                   ib.warehouse_name,
+                   ib.warehouse_region_code,
+                   ib.*
+            FROM inventory_base ib
+            WHERE ib.stock_sales_point_id IS NULL
+
+            UNION ALL
+
+            SELECT CASE ib.demand_channel_type
+                       WHEN 'OFFLINE' THEN 'OFFLINE_STORE'
+                       ELSE 'ONLINE_STORE'
+                   END,
+                   CAST(NULL AS NUMBER),
+                   CAST(NULL AS NUMBER),
+                   'ALL',
+                   CASE ib.demand_channel_type
+                       WHEN 'OFFLINE' THEN '전체 오프라인 매장'
+                       ELSE '전체 온라인 판매처'
+                   END,
+                   CASE ib.demand_channel_type
+                       WHEN 'OFFLINE' THEN '전국'
+                       ELSE '온라인'
+                   END,
+                   ib.*
+            FROM inventory_base ib
+            WHERE ib.demand_sales_point_id IS NOT NULL
+              AND ib.demand_channel_type IN ('OFFLINE', 'ONLINE')
+
+            UNION ALL
+
+            SELECT CASE ib.demand_channel_type
+                       WHEN 'OFFLINE' THEN 'OFFLINE_STORE'
+                       ELSE 'ONLINE_STORE'
+                   END,
+                   CAST(NULL AS NUMBER),
+                   ib.demand_sales_point_id,
+                   ib.demand_sales_point_code,
+                   ib.demand_sales_point_name,
+                   ib.demand_sales_point_region_code,
+                   ib.*
+            FROM inventory_base ib
+            WHERE ib.demand_sales_point_id IS NOT NULL
+              AND ib.demand_channel_type IN ('OFFLINE', 'ONLINE')
+
+            UNION ALL
+
+            SELECT 'UNASSIGNED',
+                   CAST(NULL AS NUMBER),
+                   CAST(NULL AS NUMBER),
+                   'UNASSIGNED',
+                   '공용 미할당',
+                   '전국 물류센터',
+                   ib.*
+            FROM inventory_base ib
+            WHERE ib.demand_sales_point_id IS NULL
+        ),
+        scope_definitions AS (
+            SELECT 'NATIONAL' AS scope_type,
+                   CAST(NULL AS NUMBER) AS warehouse_id,
+                   CAST(NULL AS NUMBER) AS sales_point_id,
+                   'ALL' AS scope_code,
+                   '전국' AS scope_name,
+                   '전국' AS region_code
+            FROM dual
+
+            UNION ALL
+
+            SELECT 'WAREHOUSE',
+                   CAST(NULL AS NUMBER),
+                   CAST(NULL AS NUMBER),
+                   'ALL',
+                   '전체 물류센터',
+                   '전국'
+            FROM dual
+
+            UNION ALL
+
+            SELECT 'WAREHOUSE',
+                   w.warehouse_id,
+                   CAST(NULL AS NUMBER),
+                   w.warehouse_code,
+                   w.warehouse_name,
+                   w.region_code
+            FROM warehouse w
+            WHERE w.active_yn = 'Y'
+              AND w.is_deleted = 0
+
+            UNION ALL
+
+            SELECT 'OFFLINE_STORE',
+                   CAST(NULL AS NUMBER),
+                   CAST(NULL AS NUMBER),
+                   'ALL',
+                   '전체 오프라인 매장',
+                   '전국'
+            FROM dual
+
+            UNION ALL
+
+            SELECT 'ONLINE_STORE',
+                   CAST(NULL AS NUMBER),
+                   CAST(NULL AS NUMBER),
+                   'ALL',
+                   '전체 온라인 판매처',
+                   '온라인'
+            FROM dual
+
+            UNION ALL
+
+            SELECT CASE sc.channel_type
+                       WHEN 'OFFLINE' THEN 'OFFLINE_STORE'
+                       ELSE 'ONLINE_STORE'
+                   END,
+                   CAST(NULL AS NUMBER),
+                   sp.sales_point_id,
+                   sp.sales_point_code,
+                   sp.sales_point_name,
+                   sp.region_code
+            FROM sales_point sp
+            JOIN sales_channel sc
+              ON sc.sales_channel_id = sp.sales_channel_id
+             AND sc.channel_type IN ('OFFLINE', 'ONLINE')
+             AND sc.active_yn = 'Y'
+             AND sc.is_deleted = 0
+            WHERE sp.active_yn = 'Y'
+              AND sp.is_deleted = 0
+
+            UNION ALL
+
+            SELECT 'UNASSIGNED',
+                   CAST(NULL AS NUMBER),
+                   CAST(NULL AS NUMBER),
+                   'UNASSIGNED',
+                   '공용 미할당',
+                   '전국 물류센터'
+            FROM dual
+        ),
+        scope_sku_risk AS (
+            SELECT scope_type,
+                   scope_code,
+                   sku_id,
+                   MAX(
+                       CASE risk_grade
+                           WHEN 'CRITICAL' THEN 4
+                           WHEN 'WARNING' THEN 3
+                           WHEN 'NORMAL' THEN 2
+                           WHEN 'GOOD' THEN 1
+                           ELSE 0
+                       END
+                   ) AS risk_severity
+            FROM scope_inventory
+            WHERE current_qty &gt; 0
+            GROUP BY scope_type, scope_code, sku_id
+        ),
+        scope_risk_counts AS (
+            SELECT scope_type,
+                   scope_code,
+                   SUM(CASE WHEN risk_severity = 4 THEN 1 ELSE 0 END) AS critical_sku_count,
+                   SUM(CASE WHEN risk_severity = 3 THEN 1 ELSE 0 END) AS warning_sku_count,
+                   SUM(CASE WHEN risk_severity = 2 THEN 1 ELSE 0 END) AS normal_sku_count,
+                   SUM(CASE WHEN risk_severity = 1 THEN 1 ELSE 0 END) AS good_sku_count,
+                   SUM(CASE WHEN risk_severity = 0 THEN 1 ELSE 0 END) AS unassessed_sku_count
+            FROM scope_sku_risk
+            GROUP BY scope_type, scope_code
+        ),
+        scope_summary AS (
+            SELECT scope_type,
+                   scope_warehouse_id AS warehouse_id,
+                   scope_sales_point_id AS sales_point_id,
+                   scope_code,
+                   scope_name,
+                   scope_region_code AS region_code,
+                   COUNT(DISTINCT CASE WHEN current_qty &gt; 0 THEN sku_id END) AS total_sku_count,
+                   SUM(current_qty) AS total_stock_qty,
+                   SUM(available_qty) AS available_stock_qty,
+                   SUM(CASE WHEN risk_grade = 'CRITICAL' THEN current_qty ELSE 0 END)
+                       AS critical_stock_qty,
+                   SUM(CASE WHEN risk_grade = 'WARNING' THEN current_qty ELSE 0 END)
+                       AS warning_stock_qty,
+                   SUM(CASE WHEN risk_grade = 'NORMAL' THEN current_qty ELSE 0 END)
+                       AS normal_stock_qty,
+                   SUM(CASE WHEN risk_grade = 'GOOD' THEN current_qty ELSE 0 END)
+                       AS good_stock_qty,
+                   SUM(CASE WHEN risk_grade IS NULL THEN current_qty ELSE 0 END)
+                       AS unassessed_stock_qty,
+                   COUNT(DISTINCT CASE WHEN shortage_yn = 'Y' THEN sku_id END)
+                       AS shortage_sku_count,
+                   SUM(CASE WHEN unit_cost IS NOT NULL THEN current_qty * unit_cost ELSE 0 END)
+                       AS total_inventory_cost_amount,
+                   SUM(
+                       CASE
+                           WHEN risk_grade = 'CRITICAL' AND unit_cost IS NOT NULL
+                           THEN current_qty * unit_cost
+                           ELSE 0
+                       END
+                   ) AS critical_inventory_cost_amount,
+                   COUNT(
+                       DISTINCT CASE
+                           WHEN current_qty &gt; 0 AND unit_cost IS NULL THEN sku_id
+                       END
+                   ) AS missing_cost_sku_count,
+                   SUM(CASE WHEN unit_cost IS NULL THEN current_qty ELSE 0 END)
+                       AS missing_cost_stock_qty,
+                   COUNT(
+                       DISTINCT CASE
+                           WHEN current_qty &gt; 0 AND risk_assessment_id IS NULL THEN sku_id
+                       END
+                   ) AS unassessed_quality_sku_count
+            FROM scope_inventory
+            GROUP BY scope_type,
+                     scope_warehouse_id,
+                     scope_sales_point_id,
+                     scope_code,
+                     scope_name,
+                     scope_region_code
+        ),
+        scope_disposal_groups AS (
+            SELECT scope_type,
+                   scope_code,
+                   sku_id,
+                   CASE
+                       WHEN stock_sales_point_id IS NOT NULL THEN 'SALES_POINT'
+                       ELSE 'WAREHOUSE'
+                   END AS stock_location_type,
+                   CASE
+                       WHEN stock_sales_point_id IS NOT NULL THEN stock_sales_point_id
+                       ELSE warehouse_id
+                   END AS stock_location_id,
+                   demand_sales_point_id,
+                   selected_forecast_id,
+                   SUM(
+                       CASE
+                           WHEN effective_sale_stop_date &gt; TRUNC(#{asOfDate,jdbcType=DATE})
+                            AND effective_sale_stop_date &lt;= TRUNC(#{asOfDate,jdbcType=DATE}) + 7
+                           THEN available_qty ELSE 0
+                       END
+                   ) AS expiring_qty_d7,
+                   SUM(
+                       CASE
+                           WHEN effective_sale_stop_date &gt; TRUNC(#{asOfDate,jdbcType=DATE})
+                            AND effective_sale_stop_date &lt;= TRUNC(#{asOfDate,jdbcType=DATE}) + 14
+                           THEN available_qty ELSE 0
+                       END
+                   ) AS expiring_qty_d14,
+                   SUM(
+                       CASE
+                           WHEN effective_sale_stop_date &gt; TRUNC(#{asOfDate,jdbcType=DATE})
+                            AND effective_sale_stop_date &lt;= TRUNC(#{asOfDate,jdbcType=DATE}) + 30
+                           THEN available_qty ELSE 0
+                       END
+                   ) AS expiring_qty_d30,
+                   MAX(predicted_qty_d7) AS predicted_qty_d7,
+                   MAX(predicted_qty_d14) AS predicted_qty_d14,
+                   MAX(predicted_qty_d30) AS predicted_qty_d30,
+                   MAX(unit_cost) AS unit_cost
+            FROM scope_inventory
+            WHERE selected_forecast_id IS NOT NULL
+            GROUP BY scope_type,
+                     scope_code,
+                     sku_id,
+                     CASE
+                         WHEN stock_sales_point_id IS NOT NULL THEN 'SALES_POINT'
+                         ELSE 'WAREHOUSE'
+                     END,
+                     CASE
+                         WHEN stock_sales_point_id IS NOT NULL THEN stock_sales_point_id
+                         ELSE warehouse_id
+                     END,
+                     demand_sales_point_id,
+                     selected_forecast_id
+        ),
+        scope_expected_disposal AS (
+            SELECT scope_type,
+                   scope_code,
+                   sku_id,
+                   GREATEST(
+                       0,
+                       expiring_qty_d7 - predicted_qty_d7,
+                       expiring_qty_d14 - predicted_qty_d14,
+                       expiring_qty_d30 - predicted_qty_d30
+                   ) AS expected_disposal_qty,
+                   unit_cost
+            FROM scope_disposal_groups
+        ),
+        scope_disposal_summary AS (
+            SELECT scope_type,
+                   scope_code,
+                   SUM(expected_disposal_qty) AS expected_disposal_qty_30d,
+                   SUM(
+                       CASE
+                           WHEN unit_cost IS NOT NULL THEN expected_disposal_qty * unit_cost
+                           ELSE 0
+                       END
+                   ) AS expected_disposal_loss_amount_30d
+            FROM scope_expected_disposal
+            GROUP BY scope_type, scope_code
+        ),
+        scope_missing_forecast AS (
+            SELECT scope_type,
+                   scope_code,
+                   COUNT(DISTINCT sku_id) AS missing_forecast_sku_count,
+                   SUM(available_qty) AS missing_forecast_stock_qty
+            FROM scope_inventory
+            WHERE selected_forecast_id IS NULL
+              AND available_qty &gt; 0
+              AND effective_sale_stop_date &gt; TRUNC(#{asOfDate,jdbcType=DATE})
+              AND effective_sale_stop_date &lt;= TRUNC(#{asOfDate,jdbcType=DATE}) + 30
+            GROUP BY scope_type, scope_code
+        )
+        SELECT definition.scope_type,
+               definition.warehouse_id,
+               definition.sales_point_id,
+               definition.scope_code,
+               definition.scope_name,
+               definition.region_code,
+               COALESCE(summary.total_sku_count, 0) AS total_sku_count,
+               COALESCE(summary.total_stock_qty, 0) AS total_stock_qty,
+               COALESCE(summary.available_stock_qty, 0) AS available_stock_qty,
+               COALESCE(risk.critical_sku_count, 0) AS critical_sku_count,
+               COALESCE(risk.warning_sku_count, 0) AS warning_sku_count,
+               COALESCE(risk.normal_sku_count, 0) AS normal_sku_count,
+               COALESCE(risk.good_sku_count, 0) AS good_sku_count,
+               COALESCE(risk.unassessed_sku_count, 0) AS unassessed_distribution_sku_count,
+               COALESCE(summary.critical_stock_qty, 0) AS critical_stock_qty,
+               COALESCE(summary.warning_stock_qty, 0) AS warning_stock_qty,
+               COALESCE(summary.normal_stock_qty, 0) AS normal_stock_qty,
+               COALESCE(summary.good_stock_qty, 0) AS good_stock_qty,
+               COALESCE(summary.unassessed_stock_qty, 0) AS unassessed_distribution_stock_qty,
+               COALESCE(summary.shortage_sku_count, 0) AS shortage_sku_count,
+               COALESCE(disposal.expected_disposal_qty_30d, 0) AS expected_disposal_qty_30d,
+               COALESCE(summary.total_inventory_cost_amount, 0) AS total_inventory_cost_amount,
+               COALESCE(summary.critical_inventory_cost_amount, 0) AS critical_inventory_cost_amount,
+               COALESCE(disposal.expected_disposal_loss_amount_30d, 0)
+                   AS expected_disposal_loss_amount_30d,
+               COALESCE(summary.missing_cost_sku_count, 0) AS missing_cost_sku_count,
+               COALESCE(summary.missing_cost_stock_qty, 0) AS missing_cost_stock_qty,
+               COALESCE(summary.unassessed_quality_sku_count, 0) AS unassessed_sku_count,
+               COALESCE(summary.unassessed_stock_qty, 0) AS unassessed_stock_qty,
+               COALESCE(forecast.missing_forecast_sku_count, 0) AS missing_forecast_sku_count,
+               COALESCE(forecast.missing_forecast_stock_qty, 0) AS missing_forecast_stock_qty
+        FROM scope_definitions definition
+        LEFT JOIN scope_summary summary
+          ON summary.scope_type = definition.scope_type
+         AND summary.scope_code = definition.scope_code
+        LEFT JOIN scope_risk_counts risk
+          ON risk.scope_type = definition.scope_type
+         AND risk.scope_code = definition.scope_code
+        LEFT JOIN scope_disposal_summary disposal
+          ON disposal.scope_type = definition.scope_type
+         AND disposal.scope_code = definition.scope_code
+        LEFT JOIN scope_missing_forecast forecast
+          ON forecast.scope_type = definition.scope_type
+         AND forecast.scope_code = definition.scope_code
+        ORDER BY CASE definition.scope_type
+                     WHEN 'NATIONAL' THEN 1
+                     WHEN 'WAREHOUSE' THEN 2
+                     WHEN 'OFFLINE_STORE' THEN 3
+                     WHEN 'ONLINE_STORE' THEN 4
+                     WHEN 'UNASSIGNED' THEN 5
+                     ELSE 6
+                 END,
+                 CASE WHEN definition.scope_code = 'ALL' THEN 0 ELSE 1 END,
+                 definition.scope_name
+    </select>
+</mapper>
