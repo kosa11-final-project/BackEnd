@@ -12,7 +12,8 @@ out/
 src/main/resources/application-local.yml
 
 # Local planning and API notes are not committed from this repository.
-docs/
+docs/*
+!docs/azure-sales-daily-export.md
 
 *.log
 hs_err_pid*
