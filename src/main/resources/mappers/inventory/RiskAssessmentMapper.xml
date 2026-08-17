@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.stockit.backend.feature.inventory.mapper.RiskAssessmentMapper">
+
+    <select id="selectInventoryQuantities" resultType="com.stockit.backend.feature.inventory.risk.InventoryQuantityVO">
+        SELECT SUM(ib.on_hand_qty) AS on_hand_qty
+        FROM inventory_balance ib
+        INNER JOIN sku s ON s.sku_id = ib.sku_id AND s.is_deleted = 0
+        LEFT JOIN sales_point sp
+               ON sp.sales_point_id = COALESCE(ib.stock_sales_point_id, ib.allocated_sales_point_id)
+              AND sp.is_deleted = 0
+        WHERE s.sku_code = #{skuCode}
+          AND (
+              (#{salesPointCode} != 'UNASSIGNED' AND sp.sales_point_code = #{salesPointCode})
+              OR (#{salesPointCode} = 'UNASSIGNED'
+                  AND ib.stock_sales_point_id IS NULL
+                  AND ib.allocated_sales_point_id IS NULL)
+          )
+          AND ib.is_deleted = 0
+    </select>
+
+    <select id="selectSafetyStock" resultType="java.math.BigDecimal">
+        SELECT *
+        FROM (
+            SELECT ip.safety_stock_qty
+            FROM inventory_policy ip
+            INNER JOIN sku s ON s.sku_id = ip.sku_id AND s.is_deleted = 0
+            LEFT JOIN sales_point sp ON sp.sales_point_id = COALESCE(ip.stock_sales_point_id, ip.allocated_sales_point_id)
+                                     AND sp.is_deleted = 0
+            WHERE s.sku_code = #{skuCode}
+              AND (
+                  (#{salesPointCode} != 'UNASSIGNED' AND sp.sales_point_code = #{salesPointCode})
+                  OR (#{salesPointCode} = 'UNASSIGNED'
+                      AND ip.stock_sales_point_id IS NULL
+                      AND ip.allocated_sales_point_id IS NULL)
+              )
+              AND ip.is_deleted = 0
+              AND (ip.effective_from IS NULL OR ip.effective_from &lt;= #{asOfDate})
+              AND (ip.effective_to IS NULL OR ip.effective_to &gt;= #{asOfDate})
+            ORDER BY CASE WHEN sp.sales_point_code = #{salesPointCode} THEN 0 ELSE 1 END,
+                     ip.effective_from DESC,
+                     ip.inventory_policy_id DESC
+        )
+        WHERE ROWNUM = 1
+    </select>
+
+    <select id="selectLatestForecast" resultType="com.stockit.backend.feature.inventory.risk.RiskForecastVO">
+        SELECT *
+        FROM (
+            SELECT df.base_date,
+                   df.predicted_qty_d7,
+                   df.predicted_qty_d30
+            FROM demand_forecast df
+            INNER JOIN sku s ON s.sku_id = df.sku_id AND s.is_deleted = 0
+            INNER JOIN sales_point sp ON sp.sales_point_id = df.sales_point_id AND sp.is_deleted = 0
+            WHERE s.sku_code = #{skuCode}
+              AND sp.sales_point_code = #{salesPointCode}
+              AND df.is_deleted = 0
+            ORDER BY df.base_date DESC, df.forecast_id DESC
+        )
+        WHERE ROWNUM = 1
+    </select>
+
+    <select id="selectLotRiskItems" resultType="com.stockit.backend.feature.inventory.risk.RiskAssessmentInput$LotRiskItem">
+        SELECT TO_CHAR(l.lot_id) AS lotId,
+               l.lot_no AS lotNumber,
+               l.expiry_date AS expiryDate,
+               l.sale_stop_date AS saleStopDate,
+               l.received_date AS receivedDate,
+               SUM(ib.on_hand_qty) AS quantity
+        FROM lot l
+        INNER JOIN inventory_balance ib ON ib.lot_id = l.lot_id AND ib.is_deleted = 0
+        INNER JOIN sku s ON s.sku_id = ib.sku_id AND s.is_deleted = 0
+        LEFT JOIN sales_point sp ON sp.sales_point_id = COALESCE(ib.stock_sales_point_id, ib.allocated_sales_point_id)
+                                 AND sp.is_deleted = 0
+        WHERE s.sku_code = #{skuCode}
+          AND (
+              (#{salesPointCode} != 'UNASSIGNED' AND sp.sales_point_code = #{salesPointCode})
+              OR (#{salesPointCode} = 'UNASSIGNED'
+                  AND ib.stock_sales_point_id IS NULL
+                  AND ib.allocated_sales_point_id IS NULL)
+          )
+          AND l.is_deleted = 0
+        GROUP BY l.lot_id, l.lot_no, l.expiry_date, l.sale_stop_date, l.received_date
+        ORDER BY l.expiry_date ASC NULLS LAST
+    </select>
+
+</mapper>

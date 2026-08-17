@@ -33,8 +33,6 @@ public record InventoryItemResponse(
         Integer lotCount,
         Integer nearestExpiryDays,
         LocalDate nearestExpiryDate,
-        BigDecimal dailySales,
-        BigDecimal forecast14Days,
         Instant updatedAt
 ) {
 
@@ -67,10 +65,8 @@ public record InventoryItemResponse(
             Integer lotCount,
             Integer nearestExpiryDays,
             LocalDate nearestExpiryDate,
-            BigDecimal dailySales,
-            BigDecimal forecast14Days,
             Instant updatedAt
     ) {
-        this(rowId, productCode, productName, skuCode, skuName, imageUrl, null, null, null, channelType, salesPointCode, salesPointName, storageType, sellingPrice, currentQuantity, availableQuantity, reservedQuantity, safetyQuantity, inventoryFactState, risk, locations, locationCount, salesPoints, salesPoints == null ? 0 : salesPoints.size(), lotCount, nearestExpiryDays, nearestExpiryDate, dailySales, forecast14Days, updatedAt);
+        this(rowId, productCode, productName, skuCode, skuName, imageUrl, null, null, null, channelType, salesPointCode, salesPointName, storageType, sellingPrice, currentQuantity, availableQuantity, reservedQuantity, safetyQuantity, inventoryFactState, risk, locations, locationCount, salesPoints, salesPoints == null ? 0 : salesPoints.size(), lotCount, nearestExpiryDays, nearestExpiryDate, updatedAt);
     }
 }
