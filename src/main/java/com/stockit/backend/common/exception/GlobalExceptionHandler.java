@@ -23,11 +23,24 @@ import com.stockit.backend.common.api.FieldErrorDetail;
 
 import jakarta.servlet.http.HttpServletRequest;
 
+/**
+ * 전역 예외 처리 핸들러입니다.
+ * <p>
+ * 애플리케이션 전반에서 발생하는 예외를 가로채어 일관된 {@link ApiErrorResponse} 형태로 변환합니다.
+ * </p>
+ */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
+    /**
+     * 비즈니스 예외({@link AppException})를 처리합니다.
+     *
+     * @param exception 비즈니스 예외
+     * @param request HTTP 요청 객체
+     * @return 에러 응답 엔티티
+     */
     @ExceptionHandler(AppException.class)
     public ResponseEntity<ApiErrorResponse> handleAppException(
             AppException exception,
@@ -50,6 +63,13 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(errorCode.getHttpStatus()).body(response);
     }
 
+    /**
+     * `@Valid` 유효성 검증 실패 예외({@link MethodArgumentNotValidException})를 처리합니다.
+     *
+     * @param exception 유효성 검증 실패 예외
+     * @param request HTTP 요청 객체
+     * @return 필드 에러 목록이 포함된 에러 응답 엔티티
+     */
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ApiErrorResponse> handleValidationException(
             MethodArgumentNotValidException exception,
@@ -67,6 +87,13 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(errorCode.getHttpStatus()).body(response);
     }
 
+    /**
+     * 바인딩 예외({@link BindException})를 처리합니다.
+     *
+     * @param exception 바인딩 예외
+     * @param request HTTP 요청 객체
+     * @return 필드 에러 목록이 포함된 에러 응답 엔티티
+     */
     @ExceptionHandler(BindException.class)
     public ResponseEntity<ApiErrorResponse> handleBindException(
             BindException exception,
@@ -82,6 +109,12 @@ public class GlobalExceptionHandler {
         ));
     }
 
+    /**
+     * {@link BindingResult}에서 필드별 에러 상세 목록을 추출합니다.
+     *
+     * @param bindingResult 바인딩 결과
+     * @return 필드 에러 목록
+     */
     private List<FieldErrorDetail> toFieldErrorDetails(BindingResult bindingResult) {
         return bindingResult.getAllErrors()
                 .stream()
@@ -97,6 +130,13 @@ public class GlobalExceptionHandler {
                 .toList();
     }
 
+    /**
+     * 요청 파라미터 타입 불일치 및 누락 예외를 처리합니다.
+     *
+     * @param exception 파라미터 관련 예외
+     * @param request HTTP 요청 객체
+     * @return 에러 응답 엔티티
+     */
     @ExceptionHandler({
             MethodArgumentTypeMismatchException.class,
             MissingServletRequestParameterException.class
@@ -110,6 +150,12 @@ public class GlobalExceptionHandler {
                 .body(ApiErrorResponse.of(errorCode, request.getRequestURI()));
     }
 
+    /**
+     * HTTP 메시지 바디 파싱 실패 예외({@link HttpMessageNotReadableException})를 처리합니다.
+     *
+     * @param request HTTP 요청 객체
+     * @return 에러 응답 엔티티
+     */
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<ApiErrorResponse> handleHttpMessageNotReadableException(
             HttpServletRequest request
@@ -119,6 +165,12 @@ public class GlobalExceptionHandler {
                 .body(ApiErrorResponse.of(errorCode, request.getRequestURI()));
     }
 
+    /**
+     * 리소스를 찾을 수 없는 예외({@link NoResourceFoundException})를 처리합니다.
+     *
+     * @param request HTTP 요청 객체
+     * @return 에러 응답 엔티티
+     */
     @ExceptionHandler(NoResourceFoundException.class)
     public ResponseEntity<ApiErrorResponse> handleNoResourceFoundException(
             HttpServletRequest request
@@ -128,6 +180,12 @@ public class GlobalExceptionHandler {
                 .body(ApiErrorResponse.of(errorCode, request.getRequestURI()));
     }
 
+    /**
+     * 지원하지 않는 HTTP 메서드 요청 예외({@link HttpRequestMethodNotSupportedException})를 처리합니다.
+     *
+     * @param request HTTP 요청 객체
+     * @return 에러 응답 엔티티
+     */
     @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
     public ResponseEntity<ApiErrorResponse> handleHttpRequestMethodNotSupportedException(
             HttpServletRequest request
@@ -137,6 +195,13 @@ public class GlobalExceptionHandler {
                 .body(ApiErrorResponse.of(errorCode, request.getRequestURI()));
     }
 
+    /**
+     * 처리되지 않은 모든 일반 예외({@link Exception})를 처리합니다.
+     *
+     * @param exception 발생 예외
+     * @param request HTTP 요청 객체
+     * @return 서버 에러 응답 엔티티
+     */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiErrorResponse> handleAllException(
             Exception exception,
@@ -154,6 +219,13 @@ public class GlobalExceptionHandler {
                 .body(ApiErrorResponse.of(errorCode, request.getRequestURI()));
     }
 
+    /**
+     * 데이터베이스 접근 오류({@link DataAccessException})를 처리합니다.
+     *
+     * @param exception 데이터베이스 예외
+     * @param request HTTP 요청 객체
+     * @return 데이터베이스 에러 응답 엔티티
+     */
     @ExceptionHandler(DataAccessException.class)
     public ResponseEntity<ApiErrorResponse> handleDatabaseException(
             DataAccessException exception,
@@ -170,6 +242,13 @@ public class GlobalExceptionHandler {
                 .body(ApiErrorResponse.of(errorCode, request.getRequestURI()));
     }
 
+    /**
+     * 메시지가 비어있을 경우 대체 메시지를 반환합니다.
+     *
+     * @param message 원본 메시지
+     * @param fallback 대체 메시지
+     * @return 안전한 메시지 문자열
+     */
     private static String safeMessage(String message, String fallback) {
         if (message == null || message.isBlank()) {
             return fallback;

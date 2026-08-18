@@ -34,6 +34,9 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 
+/**
+ * 수요 예측 결과 적재 및 조회 컨트롤러입니다.
+ */
 @Tag(name = "수요 예측", description = "SKU당 판매처별 수요 예측 API")
 @SecurityScheme(
         name = "internalApiKey",
@@ -58,13 +61,11 @@ public class DemandForecastController {
                 {
                   "skuId": 101,
                   "salesPointId": 10,
-                  "predictedQtyD7": 12.3,
-                  "predictedQtyD14": 24.8,
-                  "predictedQtyD30": 51.2,
-                  "predictedQtyD60": 103.7,
-                  "predictedQtyD90": 157.1,
-                  "forecastSource": "LIGHTGBM",
-                  "confidenceLevel": "HIGH"
+                  "d7CumulativeQty": 28.5,
+                  "d14CumulativeQty": 55.0,
+                  "d30CumulativeQty": 120.0,
+                  "d60CumulativeQty": 240.0,
+                  "d90CumulativeQty": 360.0
                 }
               ]
             }
@@ -73,14 +74,11 @@ public class DemandForecastController {
     private static final String IMPORT_RESPONSE_EXAMPLE = """
             {
               "data": {
-                "azureJobId": "purple_monkey_gyk4m5yyxr",
-                "modelName": "stockit-demand-lightgbm",
-                "modelVersion": "1",
-                "modelVersionId": 7,
                 "forecastBaseDate": "2026-07-31",
+                "processedCount": 1,
                 "batchNumber": 1,
                 "totalBatches": 10,
-                "importedCount": 1
+                "modelVersion": "1"
               },
               "timestamp": "2026-08-15T13:00:00Z"
             }
@@ -88,10 +86,22 @@ public class DemandForecastController {
 
     private final DemandForecastService demandForecastService;
 
+    /**
+     * 수요 예측 컨트롤러 생성자입니다.
+     *
+     * @param demandForecastService 수요 예측 서비스
+     */
     public DemandForecastController(DemandForecastService demandForecastService) {
         this.demandForecastService = demandForecastService;
     }
 
+    /**
+     * FastAPI 서버로부터 전달받은 수요예측 배치 결과를 일괄 적재합니다.
+     *
+     * @param request 수요예측 적재 요청 DTO
+     * @param principal 인증 주체
+     * @return 적재 결과 응답
+     */
     @Operation(
             summary = "수요예측 결과 일괄 적재",
             description = """
@@ -157,6 +167,13 @@ public class DemandForecastController {
         return ApiResponse.of(demandForecastService.importForecasts(request, principal.getUserId()));
     }
 
+    /**
+     * 특정 SKU와 판매처에 대한 수요예측 정보 및 예상 재고를 조회합니다.
+     *
+     * @param skuCode 상품 SKU 코드
+     * @param salesPointCode 판매처 코드
+     * @return 수요예측 응답 DTO
+     */
     @GetMapping("/api/v1/inventories/{skuCode}/sales-points/{salesPointCode}/forecast")
     @Operation(
             summary = "SKU×판매처 수요예측 조회",
@@ -171,6 +188,13 @@ public class DemandForecastController {
         return ApiResponse.of(demandForecastService.getForecast(skuCode, salesPointCode));
     }
 
+    /**
+     * SKU 전체에 대한 통합 수요예측 정보 및 예상 재고를 조회합니다.
+     *
+     * @param skuCode 상품 SKU 코드
+     * @param scope 조회 범위 (SKU_AGGREGATE)
+     * @return 수요예측 응답 DTO
+     */
     @GetMapping("/api/v1/inventories/{skuCode}/forecast")
     @Operation(
             summary = "SKU 전체 합계 수요예측 조회",

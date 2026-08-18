@@ -4,6 +4,15 @@ import java.time.Instant;
 import java.time.LocalDate;
 import io.swagger.v3.oas.annotations.media.Schema;
 
+/**
+ * 데이터 최신성 및 품질 메타데이터 DTO입니다.
+ *
+ * @param lastUpdatedAt 데이터 최종 갱신 시각
+ * @param isStale 데이터 만료/지연 여부
+ * @param dataQualityState 데이터 품질 상태 (AVAILABLE, NO_DATA, STALE, ERROR 등)
+ * @param message 상태 설명 메시지
+ * @param forecastAsOf 예측 기준일
+ */
 @Schema(description = "데이터 최신성 및 품질 메타데이터")
 public record FreshnessDto(
         @Schema(description = "데이터 최종 갱신 시각")
@@ -21,6 +30,14 @@ public record FreshnessDto(
         @Schema(description = "예측 기준일")
         LocalDate forecastAsOf
 ) {
+    /**
+     * 예측 기준일이 없는 이전 버전 호환용 생성자입니다.
+     *
+     * @param lastUpdatedAt 데이터 최종 갱신 시각
+     * @param isStale 데이터 만료 여부
+     * @param dataQualityState 데이터 품질 상태
+     * @param message 설명 메시지
+     */
     public FreshnessDto(Instant lastUpdatedAt, boolean isStale, String dataQualityState, String message) {
         this(lastUpdatedAt, isStale, dataQualityState, message, null);
     }

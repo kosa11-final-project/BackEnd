@@ -4,6 +4,15 @@ import java.math.BigDecimal;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 
+/**
+ * 구간별 누적 수요예측 수량 DTO입니다.
+ *
+ * @param predictedQtyD7 D+7 누적 예측 수량
+ * @param predictedQtyD14 D+14 누적 예측 수량
+ * @param predictedQtyD30 D+30 누적 예측 수량
+ * @param predictedQtyD60 D+60 누적 예측 수량
+ * @param predictedQtyD90 D+90 누적 예측 수량
+ */
 @Schema(description = "구간별 누적 수요예측 수량")
 public record CumulativeForecastDto(
         @Schema(description = "D+7 누적 예측 수량", example = "50")

@@ -30,6 +30,15 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
     private static final Logger log = LoggerFactory.getLogger(RequestLoggingFilter.class);
     private static final Pattern SAFE_REQUEST_ID = Pattern.compile("[A-Za-z0-9._-]{1,64}");
 
+    /**
+     * 요청마다 Request ID를 MDC 및 응답 헤더에 설정하고 요청 처리 시간을 측정하여 로깅합니다.
+     *
+     * @param request HTTP 요청 객체
+     * @param response HTTP 응답 객체
+     * @param filterChain 필터 체인
+     * @throws ServletException 서블릿 예외
+     * @throws IOException 입출력 예외
+     */
     @Override
     protected void doFilterInternal(
             HttpServletRequest request,
@@ -60,6 +69,12 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
         }
     }
 
+    /**
+     * 헤더의 Request ID 유효성을 검증하고, 없을 경우 새로운 UUID를 생성합니다.
+     *
+     * @param candidate 후보 Request ID 문자열
+     * @return 정규화된 Request ID
+     */
     private static String normalizeRequestId(String candidate) {
         if (candidate != null && SAFE_REQUEST_ID.matcher(candidate).matches()) {
             return candidate;

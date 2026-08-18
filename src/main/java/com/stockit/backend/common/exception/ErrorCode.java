@@ -2,6 +2,9 @@ package com.stockit.backend.common.exception;
 
 import org.springframework.http.HttpStatus;
 
+/**
+ * 애플리케이션 표준 에러 코드 정의 열거형입니다.
+ */
 public enum ErrorCode {
 
     // ==============================
@@ -76,20 +79,42 @@ public enum ErrorCode {
     private final String message;
     private final String code;
 
+    /**
+     * 에러 코드 항목을 생성합니다.
+     *
+     * @param httpStatus 매핑될 HTTP 상태 코드
+     * @param message 기본 에러 메시지
+     * @param code 비즈니스 에러 코드 문자열
+     */
     ErrorCode(HttpStatus httpStatus, String message, String code) {
         this.httpStatus = httpStatus;
         this.message = message;
         this.code = code;
     }
 
+    /**
+     * HTTP 상태 코드를 반환합니다.
+     *
+     * @return HTTP 상태 코드
+     */
     public HttpStatus getHttpStatus() {
         return httpStatus;
     }
 
+    /**
+     * 기본 에러 메시지를 반환합니다.
+     *
+     * @return 기본 에러 메시지
+     */
     public String getMessage() {
         return message;
     }
 
+    /**
+     * 비즈니스 에러 코드 문자열을 반환합니다.
+     *
+     * @return 비즈니스 에러 코드
+     */
     public String getCode() {
         return code;
     }
