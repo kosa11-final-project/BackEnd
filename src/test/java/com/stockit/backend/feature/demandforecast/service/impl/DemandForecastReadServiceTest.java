@@ -86,7 +86,7 @@ class DemandForecastReadServiceTest {
     }
 
     @Test
-    void missingSafetyPolicyDoesNotClaimForecastIsAvailable() {
+    void missingSafetyPolicyStillReturnsForecastWithoutSafetyBaseline() {
         DemandForecastVO forecast = forecast(FORECAST_BASE_DATE);
         when(mapper.selectDemandForecast("SKU-1", "GREETING")).thenReturn(forecast);
         when(mapper.selectAvailableQty("SKU-1", "GREETING")).thenReturn(BigDecimal.TEN);
@@ -94,8 +94,25 @@ class DemandForecastReadServiceTest {
 
         DemandForecastResponse response = service.getForecast("SKU-1", "GREETING");
 
-        assertThat(response.status()).isEqualTo("ERROR");
+        assertThat(response.status()).isEqualTo("AVAILABLE");
+        assertThat(response.safetyStockQty()).isNull();
+        assertThat(response.cumulativeForecast().predictedQtyD7()).isEqualByComparingTo("7");
+        assertThat(response.projectedInventories().projectedD7()).isEqualByComparingTo("3");
         assertThat(response.freshness().message()).contains("안전재고 기준");
+    }
+
+    @Test
+    void negativeSafetyPolicyStillRejectsForecastBaseline() {
+        DemandForecastVO forecast = forecast(FORECAST_BASE_DATE);
+        when(mapper.selectDemandForecast("SKU-1", "GREETING")).thenReturn(forecast);
+        when(mapper.selectAvailableQty("SKU-1", "GREETING")).thenReturn(BigDecimal.TEN);
+        when(mapper.selectSafetyStockQty("SKU-1", "GREETING", FORECAST_BASE_DATE))
+                .thenReturn(new BigDecimal("-1"));
+
+        DemandForecastResponse response = service.getForecast("SKU-1", "GREETING");
+
+        assertThat(response.status()).isEqualTo("ERROR");
+        assertThat(response.freshness().message()).contains("음수");
     }
 
     private static DemandForecastVO forecast(LocalDate baseDate) {

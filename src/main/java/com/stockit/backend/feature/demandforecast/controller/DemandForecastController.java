@@ -160,7 +160,7 @@ public class DemandForecastController {
     @GetMapping("/api/v1/inventories/{skuCode}/sales-points/{salesPointCode}/forecast")
     @Operation(
             summary = "SKU×판매처 수요예측 조회",
-            description = "선택한 SKU와 판매처의 D+7~D+90 누적 수요예측, 현재 가용재고, 예상 잔고 및 안전재고 기준선을 조회합니다."
+            description = "선택한 SKU와 판매처의 D+7~D+90 누적 수요예측과 현재 가용재고·예상 잔고를 조회합니다. 적용 가능한 안전재고 정책이 있을 때만 기준선이 함께 반환됩니다."
     )
     public ApiResponse<DemandForecastResponse> getForecast(
             @Parameter(description = "상품 SKU 업무 코드", example = "SKU-4D82A9F1")
@@ -174,7 +174,7 @@ public class DemandForecastController {
     @GetMapping("/api/v1/inventories/{skuCode}/forecast")
     @Operation(
             summary = "SKU 전체 합계 수요예측 조회",
-            description = "선택한 SKU의 모든 판매처에서 동일한 기준일·모델·원천을 사용하는 예측만 합산하고, 현재 가용재고와 안전재고 기준선을 함께 조회합니다."
+            description = "선택한 SKU의 모든 판매처에서 동일한 기준일·모델·원천을 사용하는 예측만 합산하고, 현재 가용재고·예상 잔고를 조회합니다. 적용 가능한 안전재고 정책이 있을 때만 기준선이 함께 반환됩니다."
     )
     public ApiResponse<DemandForecastResponse> getSkuAggregateForecast(
             @Parameter(description = "상품 SKU 업무 코드", example = "SKU-4D82A9F1")

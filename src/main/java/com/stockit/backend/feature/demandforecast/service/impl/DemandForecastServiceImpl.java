@@ -135,8 +135,12 @@ public class DemandForecastServiceImpl implements DemandForecastService {
         boolean hasForecastData = forecastVO != null && hasAllForecastHorizons(d7, d14, d30, d60, d90);
         boolean invalidSafetyStock = safetyStockQty != null && safetyStockQty.signum() < 0;
 
+        // 안전재고 정책은 기준선·위험판정에 필요한 선택 데이터입니다.
+        // 유효한 forecast가 있으면 정책이 없어도 예측·예상 잔고는 먼저 제공합니다.
         String status = "AVAILABLE";
-        String qualityMsg = "수요예측과 안전재고 기준이 정상적으로 조회되었습니다.";
+        String qualityMsg = safetyStockQty == null
+                ? "수요예측은 정상 조회되었지만 안전재고 기준이 아직 적재되지 않아 기준선은 표시되지 않습니다."
+                : "수요예측과 안전재고 기준이 정상적으로 조회되었습니다.";
 
         if (invalidForecast) {
             status = "ERROR";
@@ -144,11 +148,9 @@ public class DemandForecastServiceImpl implements DemandForecastService {
         } else if (!hasForecastData) {
             status = "NO_DATA";
             qualityMsg = "해당 상품 및 판매처의 수요예측 데이터가 없습니다.";
-        } else if (invalidSafetyStock || safetyStockQty == null) {
+        } else if (invalidSafetyStock) {
             status = "ERROR";
-            qualityMsg = invalidSafetyStock
-                    ? "안전재고 기준이 음수여서 수요예측을 표시할 수 없습니다."
-                    : "안전재고 기준이 없어 수요예측 기준선을 표시할 수 없습니다.";
+            qualityMsg = "안전재고 기준이 음수여서 수요예측 기준선을 표시할 수 없습니다.";
         } else if (isStale) {
             status = "STALE";
             qualityMsg = "수요예측 데이터가 기준일로부터 오래되었습니다 (Stale).";

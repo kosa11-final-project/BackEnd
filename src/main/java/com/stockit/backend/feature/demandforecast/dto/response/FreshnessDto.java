@@ -12,10 +12,10 @@ public record FreshnessDto(
         @Schema(description = "데이터가 오래되었는지 여부 (Stale)", example = "false")
         boolean isStale,
 
-        @Schema(description = "데이터 품질 상태 (AVAILABLE, NO_DATA, STALE, ERROR)", example = "AVAILABLE")
+        @Schema(description = "데이터 품질 상태 (AVAILABLE, NO_DATA, STALE, ERROR). 안전재고 정책 미적재만으로 ERROR가 되지 않습니다.", example = "AVAILABLE")
         String dataQualityState,
 
-        @Schema(description = "설명 메시지", example = "정상적으로 최신 수요예측과 안전재고 기준이 조회되었습니다.")
+        @Schema(description = "설명 메시지", example = "수요예측은 정상 조회되었지만 안전재고 기준이 아직 적재되지 않아 기준선은 표시되지 않습니다.")
         String message,
 
         @Schema(description = "예측 기준일")

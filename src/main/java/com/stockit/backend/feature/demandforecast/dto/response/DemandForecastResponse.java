@@ -42,7 +42,7 @@ public record DemandForecastResponse(
         @Schema(description = "현재 가용재고", example = "110")
         BigDecimal availableQty,
 
-        @Schema(description = "안전재고 목표치", example = "30")
+        @Schema(description = "적용 중인 안전재고 목표치. 정책이 없으면 null이며 forecast 조회는 계속 제공됩니다.", example = "30", nullable = true)
         BigDecimal safetyStockQty,
 
         @Schema(description = "구간별 누적 수요예측")
