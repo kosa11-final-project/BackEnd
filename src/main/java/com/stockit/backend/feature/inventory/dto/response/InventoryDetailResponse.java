@@ -8,7 +8,7 @@ import java.util.List;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 /**
- * 목록 DTO와 같은 flat field를 유지하면서 선택 행의 LOT 상세를 함께 제공하는 응답입니다.
+ * 목록 DTO와 같은 flat field를 유지하면서 선택 행의 LOT 상세 및 판매처별 판매가 목록을 함께 제공하는 응답입니다.
  * FrontEnd mapper가 목록/상세 응답을 같은 방식으로 정규화할 수 있도록 중첩 item을 두지 않습니다.
  */
 @Schema(description = "선택한 SKU × 판매처 상세")
@@ -39,19 +39,57 @@ public record InventoryDetailResponse(
         Integer lotCount,
         Integer nearestExpiryDays,
         LocalDate nearestExpiryDate,
-        BigDecimal dailySales,
-        BigDecimal forecast14Days,
         Instant updatedAt,
-        List<InventoryLotResponse> lots
+        List<InventoryLotResponse> lots,
+        List<SkuChannelPriceResponse> channelPrices
 ) {
 
     public InventoryDetailResponse {
         locations = List.copyOf(locations == null ? List.of() : locations);
         salesPoints = List.copyOf(salesPoints == null ? List.of() : salesPoints);
         lots = List.copyOf(lots == null ? List.of() : lots);
+        channelPrices = List.copyOf(channelPrices == null ? List.of() : channelPrices);
     }
 
-    /** 기존 상세 응답 생성부와의 하위 호환용 생성자입니다. */
+    /** channelPrices가 없는 기존 상세 응답 생성부와의 하위 호환용 생성자입니다. */
+    public InventoryDetailResponse(
+            String rowId,
+            String productCode,
+            String productName,
+            String skuCode,
+            String skuName,
+            String imageUrl,
+            Long categoryId,
+            String categoryName,
+            InventoryCategoryResponse category,
+            String channelType,
+            String salesPointCode,
+            String salesPointName,
+            String storageType,
+            BigDecimal sellingPrice,
+            BigDecimal currentQuantity,
+            BigDecimal availableQuantity,
+            BigDecimal reservedQuantity,
+            BigDecimal safetyQuantity,
+            String inventoryFactState,
+            RiskResponse risk,
+            List<LocationResponse> locations,
+            int locationCount,
+            List<SalesPointResponse> salesPoints,
+            Integer lotCount,
+            Integer nearestExpiryDays,
+            LocalDate nearestExpiryDate,
+            Instant updatedAt,
+            List<InventoryLotResponse> lots
+    ) {
+        this(rowId, productCode, productName, skuCode, skuName, imageUrl, categoryId, categoryName, category,
+                channelType, salesPointCode, salesPointName, storageType, sellingPrice, currentQuantity,
+                availableQuantity, reservedQuantity, safetyQuantity, inventoryFactState, risk, locations,
+                locationCount, salesPoints, lotCount, nearestExpiryDays, nearestExpiryDate,
+                updatedAt, lots, List.of());
+    }
+
+    /** 레거시 테스트 및 코드 호환용 생성자입니다. */
     public InventoryDetailResponse(
             String rowId,
             String productCode,
@@ -76,14 +114,12 @@ public record InventoryDetailResponse(
             Integer lotCount,
             Integer nearestExpiryDays,
             LocalDate nearestExpiryDate,
-            BigDecimal dailySales,
-            BigDecimal forecast14Days,
             Instant updatedAt,
             List<InventoryLotResponse> lots
     ) {
         this(rowId, productCode, productName, skuCode, skuName, imageUrl, null, null, null, channelType,
                 salesPointCode, salesPointName, storageType, sellingPrice, currentQuantity, availableQuantity,
                 reservedQuantity, safetyQuantity, inventoryFactState, risk, locations, locationCount, salesPoints,
-                lotCount, nearestExpiryDays, nearestExpiryDate, dailySales, forecast14Days, updatedAt, lots);
+                lotCount, nearestExpiryDays, nearestExpiryDate, updatedAt, lots, List.of());
     }
 }

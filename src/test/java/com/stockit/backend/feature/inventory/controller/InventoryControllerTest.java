@@ -70,8 +70,6 @@ class InventoryControllerTest {
                 null,
                 null,
                 null,
-                null,
-                null,
                 null
         );
         given(inventoryQueryService.find(any(InventoryQuery.class)))
@@ -153,7 +151,7 @@ class InventoryControllerTest {
                 "GREETING", "GREETING", "그리팅", "FROZEN", null,
                 new BigDecimal("10"), new BigDecimal("8"), new BigDecimal("2"), null,
                 "AVAILABLE", new RiskResponse("UNASSESSED", null, null), List.of(), 0,
-                List.of(), 1, 10, null, null, null, null, List.of(lot)
+                List.of(), 1, 10, null, null, List.of(lot)
         ));
         given(inventoryQueryService.lots("SKU-1", "GREETING"))
                 .willReturn(new InventoryLotsResponse(List.of(lot), 1));

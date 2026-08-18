@@ -1,7 +1,6 @@
 package com.stockit.backend.feature.inventory.service;
 
 import java.io.IOException;
-import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -22,9 +21,11 @@ import com.stockit.backend.feature.inventory.dto.response.InventoryOptionRespons
 import com.stockit.backend.feature.inventory.dto.response.LocationResponse;
 import com.stockit.backend.feature.inventory.dto.response.RiskResponse;
 import com.stockit.backend.feature.inventory.dto.response.SalesPointResponse;
+import com.stockit.backend.feature.inventory.dto.response.SkuChannelPriceResponse;
 import com.stockit.backend.feature.inventory.vo.InventoryItemVO;
 import com.stockit.backend.feature.inventory.vo.InventoryLotVO;
 import com.stockit.backend.feature.inventory.vo.InventoryOptionVO;
+import com.stockit.backend.feature.inventory.vo.SkuChannelPriceVO;
 
 /**
  * DB 조회 결과인 VO 객체를 클라이언트 반환용 DTO/Response 객체로 변환하는 전용 매퍼 컴포넌트
@@ -79,13 +80,19 @@ public class InventoryResponseMapper {
                 item.getLotCount(),
                 item.getNearestExpiryDays(),
                 item.getNearestExpiryDate() == null ? null : item.getNearestExpiryDate().toLocalDate(),
-                item.getDailySales(),
-                item.getForecast14Days(),
                 item.getUpdatedAt() == null ? null : item.getUpdatedAt().toInstant()
         );
     }
 
     public InventoryDetailResponse toDetailResponse(InventoryItemVO item, List<InventoryLotResponse> lots) {
+        return toDetailResponse(item, lots, List.of());
+    }
+
+    public InventoryDetailResponse toDetailResponse(
+            InventoryItemVO item,
+            List<InventoryLotResponse> lots,
+            List<SkuChannelPriceResponse> channelPrices
+    ) {
         List<LocationResponse> locations = readJson(item.getLocationsJson(), LOCATIONS_TYPE);
         List<SalesPointResponse> salesPoints = readJson(item.getSalesPointsJson(), SALES_POINTS_TYPE);
         String rowId = item.getSkuCode() + ":" + item.getSalesPointCode();
@@ -121,10 +128,23 @@ public class InventoryResponseMapper {
                 item.getLotCount(),
                 item.getNearestExpiryDays(),
                 item.getNearestExpiryDate() == null ? null : item.getNearestExpiryDate().toLocalDate(),
-                item.getDailySales(),
-                item.getForecast14Days(),
                 item.getUpdatedAt() == null ? null : item.getUpdatedAt().toInstant(),
-                lots
+                lots,
+                channelPrices
+        );
+    }
+
+    public SkuChannelPriceResponse toSkuChannelPriceResponse(SkuChannelPriceVO vo) {
+        if (vo == null) return null;
+        return new SkuChannelPriceResponse(
+                vo.getSalesPointCode(),
+                vo.getSalesPointName(),
+                vo.getSellingPrice(),
+                vo.getActualPrice(),
+                vo.getMinimumSellingPrice(),
+                vo.getEffectiveFrom() != null ? vo.getEffectiveFrom().toLocalDate() : null,
+                vo.getEffectiveTo() != null ? vo.getEffectiveTo().toLocalDate() : null,
+                vo.getPriceStatus()
         );
     }
 
@@ -152,10 +172,10 @@ public class InventoryResponseMapper {
                 lot.getQuantity(),
                 lot.getAvailableQuantity(),
                 lot.getReservedQuantity(),
-                toLocalDate(lot.getManufacturedDate()),
-                toLocalDate(lot.getReceivedDate()),
-                toLocalDate(lot.getExpiryDate()),
-                toLocalDate(lot.getSaleStopDate()),
+                lot.getManufacturedDate() == null ? null : lot.getManufacturedDate().toLocalDate(),
+                lot.getReceivedDate() == null ? null : lot.getReceivedDate().toLocalDate(),
+                lot.getExpiryDate() == null ? null : lot.getExpiryDate().toLocalDate(),
+                lot.getSaleStopDate() == null ? null : lot.getSaleStopDate().toLocalDate(),
                 lot.getExpiryDays(),
                 lot.getFefoPriority(),
                 lot.getWarehouseCode(),
@@ -164,55 +184,47 @@ public class InventoryResponseMapper {
     }
 
     public List<InventoryOptionResponse> mapOptions(List<InventoryOptionVO> options) {
+        if (options == null) return List.of();
         return options.stream()
-                .map(option -> new InventoryOptionResponse(
-                        option.getCode(),
-                        option.getName(),
-                        option.getParentCode(),
-                        option.getRegionCode(),
-                        option.getChannelType(),
-                        option.getAvailability(),
-                        option.getCurrentSkuCount(),
-                        option.getCurrentBalanceRowCount(),
-                        option.getCurrentOnHandQty(),
-                        option.getCategoryLevel()
-                ))
+                .map(this::toOptionResponse)
                 .toList();
     }
 
-    public InventoryOptionResponse constantOption(String code, String name) {
-        return new InventoryOptionResponse(code, name, null, null, null, null, null, null, null, null);
+    public InventoryOptionResponse constantOption(String value, String label) {
+        return new InventoryOptionResponse(value, label, null, null, null, "ACTIVE", null, null, null, null);
     }
 
-    private static void addCategoryPathItem(
-            List<CategoryPathItemResponse> path,
-            Long id,
-            String name,
-            Integer level
-    ) {
-        if (id == null || name == null || name.isBlank() || path.stream().anyMatch(item -> id.equals(item.id()))) {
-            return;
+    private InventoryOptionResponse toOptionResponse(InventoryOptionVO option) {
+        return new InventoryOptionResponse(
+                option.getCode(),
+                option.getName(),
+                option.getParentCode(),
+                option.getRegionCode(),
+                option.getChannelType(),
+                option.getAvailability(),
+                option.getCurrentSkuCount(),
+                option.getCurrentBalanceRowCount(),
+                option.getCurrentOnHandQty(),
+                option.getCategoryLevel()
+        );
+    }
+
+    private void addCategoryPathItem(List<CategoryPathItemResponse> path, Long id, String name, Integer level) {
+        if (id != null && name != null && !name.isBlank()
+                && path.stream().noneMatch(item -> id.equals(item.id()))) {
+            path.add(new CategoryPathItemResponse(id, name, level));
         }
-        path.add(new CategoryPathItemResponse(id, name, level));
     }
 
-    private static LocalDate toLocalDate(java.sql.Date value) {
-        return value == null ? null : value.toLocalDate();
-    }
-
-    private <T> List<T> readJson(String json, TypeReference<List<T>> type) {
+    private <T> List<T> readJson(String json, TypeReference<List<T>> typeRef) {
         if (json == null || json.isBlank()) {
             return List.of();
         }
         try {
-            return objectMapper.readValue(json, type);
-        } catch (IOException exception) {
-            log.error(
-                    "Failed to parse inventory JSON aggregation: type={}, payloadLength={}",
-                    type.getType(),
-                    json.length(),
-                    exception
-            );
+            return objectMapper.readValue(json, typeRef);
+        } catch (IOException e) {
+            log.error("inventory aggregation JSON parsing failed: type={}, payloadLength={}",
+                    typeRef.getType(), json.length(), e);
             throw new AppException(ErrorCode.INTERNAL_SERVER_ERROR);
         }
     }

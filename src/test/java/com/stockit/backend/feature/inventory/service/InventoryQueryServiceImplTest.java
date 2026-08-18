@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -59,6 +61,20 @@ class InventoryQueryServiceImplTest {
         assertThat(response.category().path()).extracting(path -> path.name())
                 .containsExactly("식품", "베이커리/간식", "베이커리");
         assertThat(response.lots()).isEmpty();
+    }
+
+    @Test
+    void unassignedInventoryDoesNotCopySalesPointPrices() {
+        InventoryItemVO item = createItemVO("SKU-1", "UNASSIGNED");
+        item.setSalesPointName("판매처 미할당");
+        item.setChannelType("CENTER");
+        given(inventoryMapper.selectInventoryDetail(eq("SKU-1"), eq("UNASSIGNED"), any(LocalDate.class)))
+                .willReturn(item);
+
+        InventoryDetailResponse response = inventoryQueryService.detail("SKU-1", "UNASSIGNED");
+
+        assertThat(response.channelPrices()).isEmpty();
+        verify(inventoryMapper, never()).selectSkuChannelPrices(eq("SKU-1"), any(LocalDate.class));
     }
 
     @Test

@@ -23,10 +23,11 @@ import org.springframework.validation.FieldError;
 import org.springframework.validation.ObjectError;
 
 import com.stockit.backend.common.api.ApiErrorResponse;
+import com.stockit.backend.common.logging.RequestLoggingFilter;
 
 @WebMvcTest(TestApiController.class)
 @AutoConfigureMockMvc(addFilters = false)
-@Import(GlobalExceptionHandler.class)
+@Import({GlobalExceptionHandler.class, RequestLoggingFilter.class})
 @ActiveProfiles("test")
 class GlobalExceptionHandlerTest {
 
@@ -68,6 +69,24 @@ class GlobalExceptionHandlerTest {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("TMP-001"))
                 .andExpect(jsonPath("$.message").value("테스트 요청이 충돌했습니다."));
+    }
+
+    @Test
+    void preservesSafeCustomAppExceptionMessage() throws Exception {
+        mockMvc.perform(get("/api/v1/test/app-error-custom"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON-002"))
+                .andExpect(jsonPath("$.message").value("지원하지 않는 테스트 파라미터입니다."))
+                .andExpect(jsonPath("$.path").value("/api/v1/test/app-error-custom"));
+    }
+
+    @Test
+    void hidesDatabaseExceptionDetailsBehindDedicatedErrorCode() throws Exception {
+        mockMvc.perform(get("/api/v1/test/database-error"))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.code").value("DATABASE-001"))
+                .andExpect(jsonPath("$.message").value("데이터베이스 처리 중 오류가 발생했습니다."))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("DB 내부"))));
     }
 
     @Test
