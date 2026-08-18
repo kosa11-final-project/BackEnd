@@ -12,8 +12,11 @@ Oracle SALES_DAILY
   -> 성공 시 로컬 최종 CSV 원자적 교체
 ```
 
-- `BOOTSTRAP` 조회 조건: `is_deleted = 0`, `sales_date <= baseDate`
-- `DAILY` 조회 조건: `is_deleted = 0`, `sales_date = baseDate`
+- 조합 집합: `baseDate`까지 유효한 `sku_id + sales_point_id` 전체 조합
+- `BOOTSTRAP`: 최초 유효 판매일부터 `baseDate`까지 날짜와 전체 조합의 완전 패널
+- `DAILY`: `baseDate` 하루와 전체 조합의 완전 패널
+- 실제 판매 행이 없거나 삭제된 행만 있으면 `net_sales_qty=0`
+- Export 이후 `날짜 수 × 조합 수`와 실제 CSV 행 수를 검증하고 불일치하면 업로드 전에 실패
 - `exportMode` 생략 시 안전한 기본값은 `DAILY`
 - CSV 컬럼: `sales_date,sku_id,sales_point_id,net_sales_qty`
 - 인코딩: UTF-8
