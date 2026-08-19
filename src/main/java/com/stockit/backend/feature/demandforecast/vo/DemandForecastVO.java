@@ -14,8 +14,11 @@ public class DemandForecastVO extends BaseEntity {
 
     private Long forecastId;
     private Long skuId;
+    private String skuName;
     private Long salesPointId;
+    private String salesPointName;
     private Long modelVersionId;
+    private String modelVersion;
     private LocalDate baseDate;
     private BigDecimal predictedQtyD7;
     private BigDecimal predictedQtyD14;

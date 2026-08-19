@@ -17,12 +17,14 @@ import com.stockit.backend.feature.inventory.dto.response.InventoryListResponse;
 import com.stockit.backend.feature.inventory.dto.response.InventoryLotResponse;
 import com.stockit.backend.feature.inventory.dto.response.InventoryLotsResponse;
 import com.stockit.backend.feature.inventory.dto.response.InventorySummaryResponse;
+import com.stockit.backend.feature.inventory.dto.response.SkuChannelPriceResponse;
 import com.stockit.backend.feature.inventory.mapper.InventoryMapper;
 import com.stockit.backend.feature.inventory.service.InventoryQueryService;
 import com.stockit.backend.feature.inventory.service.InventoryResponseMapper;
 import com.stockit.backend.feature.inventory.vo.InventoryItemVO;
 import com.stockit.backend.feature.inventory.vo.InventoryQuery;
 import com.stockit.backend.feature.inventory.vo.InventorySummaryVO;
+import com.stockit.backend.feature.inventory.vo.SkuChannelPriceVO;
 
 @Service
 @Transactional(readOnly = true)
@@ -114,16 +116,25 @@ public class InventoryQueryServiceImpl implements InventoryQueryService {
     public InventoryDetailResponse detail(String skuCode, String salesPointCode) {
         String normalizedSkuCode = requiredCode(skuCode, "skuCode");
         String normalizedSalesPointCode = requiredCode(salesPointCode, "salesPointCode");
+        LocalDate asOfDate = LocalDate.now(BUSINESS_ZONE);
+
         InventoryItemVO item = inventoryMapper.selectInventoryDetail(
                 normalizedSkuCode,
                 normalizedSalesPointCode,
-                LocalDate.now(BUSINESS_ZONE)
+                asOfDate
         );
         if (item == null) {
             throw new AppException(ErrorCode.NOT_FOUND);
         }
 
-        return responseMapper.toDetailResponse(item, List.of());
+        List<SkuChannelPriceVO> priceVOs = "UNASSIGNED".equals(normalizedSalesPointCode)
+                ? List.of()
+                : inventoryMapper.selectSkuChannelPrices(normalizedSkuCode, asOfDate);
+        List<SkuChannelPriceResponse> channelPrices = priceVOs != null
+                ? priceVOs.stream().map(responseMapper::toSkuChannelPriceResponse).toList()
+                : List.of();
+
+        return responseMapper.toDetailResponse(item, List.of(), channelPrices);
     }
 
     @Override

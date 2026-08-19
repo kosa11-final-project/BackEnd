@@ -4,25 +4,26 @@
 <mapper namespace="com.stockit.backend.feature.inventory.mapper.InventoryMapper">
 
     <!--
-        목록 grain은 SKU다. candidate_keys는 필터에 맞는 SKU × 판매처를 고정하고,
+        목록 grain은 SKU다. candidate_keys는 필터에 맞는 SKU × 판매처(또는 센터 미할당)를 고정하고,
         최종 select에서 SKU 집계 1행과 판매처별 salesPoints JSON을 함께 반환한다.
         warehouse filter는 EXISTS로만 적용해 center/LOT 1:N join이 row를 복제하지 않게 한다.
     -->
     <sql id="candidateWhere">
         WHERE ib.is_deleted = 0
-          AND ib.stock_sales_point_id IS NOT NULL
           AND s.is_deleted = 0
           AND s.active_yn = 'Y'
           AND p.is_deleted = 0
-          AND sp.is_deleted = 0
-          AND sc.is_deleted = 0
-          AND sp.active_yn = 'Y'
-          AND EXISTS (
-              SELECT 1
-              FROM warehouse active_w
-              WHERE active_w.warehouse_id = ib.warehouse_id
-                AND active_w.is_deleted = 0
-                AND active_w.active_yn = 'Y'
+          AND (sp.sales_point_id IS NULL OR (sp.is_deleted = 0 AND sp.active_yn = 'Y'))
+          AND (sc.sales_channel_id IS NULL OR (sc.is_deleted = 0 AND sc.active_yn = 'Y'))
+          AND (
+              ib.warehouse_id IS NULL
+              OR EXISTS (
+                  SELECT 1
+                  FROM warehouse active_w
+                  WHERE active_w.warehouse_id = ib.warehouse_id
+                    AND active_w.is_deleted = 0
+                    AND active_w.active_yn = 'Y'
+              )
           )
         <if test="q != null and q != ''">
           AND (
@@ -30,11 +31,12 @@
                 OR LOWER(p.product_name) LIKE '%' || LOWER(#{q}) || '%'
                 OR LOWER(s.sku_code) LIKE '%' || LOWER(#{q}) || '%'
                 OR LOWER(s.sku_name) LIKE '%' || LOWER(#{q}) || '%'
-                OR LOWER(sp.sales_point_code) LIKE '%' || LOWER(#{q}) || '%'
-                OR LOWER(sp.sales_point_name) LIKE '%' || LOWER(#{q}) || '%'
+                OR (sp.sales_point_code IS NOT NULL AND LOWER(sp.sales_point_code) LIKE '%' || LOWER(#{q}) || '%')
+                OR (sp.sales_point_name IS NOT NULL AND LOWER(sp.sales_point_name) LIKE '%' || LOWER(#{q}) || '%')
           )
         </if>
         <if test="channelTypes != null and channelTypes.size() > 0">
+          AND sp.sales_point_code IS NOT NULL
           AND
           <foreach collection="channelTypes" item="channelType" open="(" separator=" OR " close=")">
               (
@@ -91,7 +93,8 @@
                      AND filtered_w.active_yn = 'Y'
               WHERE filtered_ib.is_deleted = 0
                 AND filtered_ib.sku_id = ib.sku_id
-                AND filtered_ib.stock_sales_point_id = ib.stock_sales_point_id
+                AND NVL(filtered_ib.stock_sales_point_id, NVL(filtered_ib.allocated_sales_point_id, -1))
+                    = NVL(ib.stock_sales_point_id, NVL(ib.allocated_sales_point_id, -1))
                 AND filtered_w.warehouse_code IN
                 <foreach collection="warehouseCodes" item="warehouseCode" open="(" separator="," close=")">
                     #{warehouseCode}
@@ -126,13 +129,21 @@
     <select id="selectInventoryList" resultType="InventoryItemVO">
         WITH risk_rows AS (
             SELECT ib.sku_id,
-                   ib.stock_sales_point_id AS sales_point_id,
+                   NVL(ib.stock_sales_point_id, NVL(ib.allocated_sales_point_id, -1)) AS sales_point_id,
                    ra.risk_grade,
                    ra.reason_message,
                    ra.updated_at,
                    ROW_NUMBER() OVER (
-                       PARTITION BY ib.sku_id, ib.stock_sales_point_id
-                       ORDER BY ra.updated_at DESC, ra.risk_assessment_id DESC
+                       PARTITION BY ib.sku_id, NVL(ib.stock_sales_point_id, NVL(ib.allocated_sales_point_id, -1))
+                       ORDER BY CASE ra.risk_grade
+                                    WHEN 'CRITICAL' THEN 1
+                                    WHEN 'WARNING' THEN 2
+                                    WHEN 'NORMAL' THEN 3
+                                    WHEN 'GOOD' THEN 4
+                                    ELSE 5
+                                END,
+                                ra.updated_at DESC,
+                                ra.risk_assessment_id DESC
                    ) AS rn
             FROM risk_assessment ra
             INNER JOIN inventory_balance ib ON ib.inventory_balance_id = ra.inventory_balance_id
@@ -154,30 +165,38 @@
             WHERE rn = 1
         ),
         candidate_keys AS (
-            SELECT DISTINCT ib.sku_id, ib.stock_sales_point_id AS sales_point_id
+            SELECT DISTINCT ib.sku_id,
+                   NVL(ib.stock_sales_point_id, NVL(ib.allocated_sales_point_id, -1)) AS sales_point_id
             FROM inventory_balance ib
             INNER JOIN sku s ON s.sku_id = ib.sku_id
             INNER JOIN product p ON p.product_id = s.product_id
-            INNER JOIN sales_point sp ON sp.sales_point_id = ib.stock_sales_point_id
-            INNER JOIN sales_channel sc ON sc.sales_channel_id = sp.sales_channel_id
-            LEFT JOIN risk_latest r ON r.sku_id = ib.sku_id AND r.sales_point_id = ib.stock_sales_point_id
+            LEFT JOIN sales_point sp ON sp.sales_point_id = NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id)
+            LEFT JOIN sales_channel sc ON sc.sales_channel_id = sp.sales_channel_id
+            LEFT JOIN risk_latest r ON r.sku_id = ib.sku_id
+                                    AND r.sales_point_id = NVL(ib.stock_sales_point_id, NVL(ib.allocated_sales_point_id, -1))
             <include refid="candidateWhere"/>
             <include refid="riskWhere"/>
         ),
         owner_sales_point_counts AS (
             SELECT ib.sku_id,
-                   COUNT(DISTINCT ib.stock_sales_point_id) AS owner_sales_point_count
+                   COUNT(DISTINCT CASE
+                       WHEN NVL(ib.stock_sales_point_id, NVL(ib.allocated_sales_point_id, -1)) &lt;&gt; -1
+                       THEN NVL(ib.stock_sales_point_id, NVL(ib.allocated_sales_point_id, -1))
+                   END) AS owner_sales_point_count
             FROM inventory_balance ib
-            INNER JOIN sales_point sp ON sp.sales_point_id = ib.stock_sales_point_id
+            LEFT JOIN sales_point sp ON sp.sales_point_id = NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id)
             WHERE ib.is_deleted = 0
-              AND ib.stock_sales_point_id IS NOT NULL
-              AND sp.is_deleted = 0
-              AND sp.active_yn = 'Y'
+              AND (sp.sales_point_id IS NULL OR (sp.is_deleted = 0 AND sp.active_yn = 'Y'))
             GROUP BY ib.sku_id
         ),
         balance_base AS (
             SELECT ib.sku_id,
-                   ib.stock_sales_point_id AS sales_point_id,
+                   NVL(ib.stock_sales_point_id, NVL(ib.allocated_sales_point_id, -1)) AS sales_point_id,
+                   CASE
+                       WHEN ib.stock_sales_point_id IS NOT NULL THEN 'OWNED'
+                       WHEN ib.allocated_sales_point_id IS NOT NULL THEN 'ALLOCATED_ONLY'
+                       ELSE 'CENTER_ONLY'
+                   END AS sales_point_state,
                    ib.warehouse_id,
                    ib.lot_id,
                    ib.on_hand_qty,
@@ -187,8 +206,9 @@
                    l.expiry_date,
                    l.sale_stop_date
             FROM inventory_balance ib
-            INNER JOIN candidate_keys ck ON ck.sku_id = ib.sku_id AND ck.sales_point_id = ib.stock_sales_point_id
-            INNER JOIN warehouse active_w
+            INNER JOIN candidate_keys ck ON ck.sku_id = ib.sku_id
+                                        AND ck.sales_point_id = NVL(ib.stock_sales_point_id, NVL(ib.allocated_sales_point_id, -1))
+            LEFT JOIN warehouse active_w
                     ON active_w.warehouse_id = ib.warehouse_id
                    AND active_w.is_deleted = 0
                    AND active_w.active_yn = 'Y'
@@ -198,12 +218,14 @@
         row_agg AS (
             SELECT sku_id,
                    sales_point_id,
-                   SUM(on_hand_qty) AS current_qty,
+                   SUM(on_hand_qty + reserved_qty) AS current_qty,
                    SUM(reserved_qty) AS reserved_qty,
-                   SUM(CASE WHEN lot_status = 'AVAILABLE'
-                                  AND (sale_stop_date IS NULL OR sale_stop_date &gt; #{asOfDate})
-                                  AND (expiry_date IS NULL OR expiry_date &gt;= #{asOfDate})
-                            THEN GREATEST(on_hand_qty - reserved_qty, 0) ELSE 0 END) AS available_qty,
+                   SUM(on_hand_qty) AS available_qty,
+                   CASE
+                       WHEN SUM(CASE WHEN sales_point_state = 'OWNED' THEN 1 ELSE 0 END) > 0 THEN 'OWNED'
+                       WHEN SUM(CASE WHEN sales_point_state = 'ALLOCATED_ONLY' THEN 1 ELSE 0 END) > 0 THEN 'ALLOCATED_ONLY'
+                       ELSE 'CENTER_ONLY'
+                   END AS sales_point_state,
                    COUNT(DISTINCT lot_id) AS lot_count,
                    TRUNC(MIN(CASE WHEN expiry_date IS NOT NULL THEN TRUNC(expiry_date) - TRUNC(CAST(#{asOfDate} AS DATE)) END)) AS nearest_expiry_days,
                    MIN(expiry_date) AS nearest_expiry_date,
@@ -211,10 +233,7 @@
                      WHEN SUM(CASE WHEN lot_status = 'EXPIRED' OR (expiry_date IS NOT NULL AND expiry_date &lt; #{asOfDate}) THEN 1 ELSE 0 END) &gt; 0 THEN 'EXPIRED_INCLUDED'
                      WHEN SUM(CASE WHEN lot_status = 'SALE_STOPPED' OR (sale_stop_date IS NOT NULL AND sale_stop_date &lt;= #{asOfDate}) THEN 1 ELSE 0 END) &gt; 0 THEN 'SALE_STOPPED_INCLUDED'
                      WHEN SUM(CASE WHEN lot_status = 'DEPLETED' THEN 1 ELSE 0 END) = COUNT(*) THEN 'DEPLETED_ONLY'
-                     WHEN SUM(CASE WHEN lot_status = 'AVAILABLE'
-                                        AND (sale_stop_date IS NULL OR sale_stop_date &gt; #{asOfDate})
-                                        AND (expiry_date IS NULL OR expiry_date &gt;= #{asOfDate})
-                                   THEN GREATEST(on_hand_qty - reserved_qty, 0) ELSE 0 END) = 0 THEN 'OUT_OF_STOCK'
+                     WHEN SUM(on_hand_qty) = 0 THEN 'OUT_OF_STOCK'
                      ELSE 'AVAILABLE'
                    END AS inventory_fact_state,
                    MAX(updated_at) AS updated_at
@@ -222,10 +241,14 @@
             GROUP BY sku_id, sales_point_id
         ),
         warehouse_rows AS (
-            SELECT sku_id, sales_point_id, w.warehouse_code, w.warehouse_name, SUM(on_hand_qty) AS quantity
+            SELECT sku_id,
+                   sales_point_id,
+                   COALESCE(w.warehouse_code, 'UNKNOWN') AS warehouse_code,
+                   COALESCE(w.warehouse_name, '보관센터 미지정') AS warehouse_name,
+                   SUM(on_hand_qty + reserved_qty) AS quantity
             FROM balance_base bb
-            INNER JOIN warehouse w ON w.warehouse_id = bb.warehouse_id AND w.is_deleted = 0 AND w.active_yn = 'Y'
-            GROUP BY sku_id, sales_point_id, w.warehouse_code, w.warehouse_name
+            LEFT JOIN warehouse w ON w.warehouse_id = bb.warehouse_id AND w.is_deleted = 0 AND w.active_yn = 'Y'
+            GROUP BY sku_id, sales_point_id, COALESCE(w.warehouse_code, 'UNKNOWN'), COALESCE(w.warehouse_name, '보관센터 미지정')
         ),
         warehouse_agg AS (
             SELECT sku_id,
@@ -241,10 +264,13 @@
             GROUP BY sku_id, sales_point_id
         ),
         sku_warehouse_rows AS (
-            SELECT sku_id, w.warehouse_code, w.warehouse_name, SUM(on_hand_qty) AS quantity
+            SELECT sku_id,
+                   COALESCE(w.warehouse_code, 'UNKNOWN') AS warehouse_code,
+                   COALESCE(w.warehouse_name, '보관센터 미지정') AS warehouse_name,
+                   SUM(on_hand_qty + reserved_qty) AS quantity
             FROM balance_base bb
-            INNER JOIN warehouse w ON w.warehouse_id = bb.warehouse_id AND w.is_deleted = 0 AND w.active_yn = 'Y'
-            GROUP BY sku_id, w.warehouse_code, w.warehouse_name
+            LEFT JOIN warehouse w ON w.warehouse_id = bb.warehouse_id AND w.is_deleted = 0 AND w.active_yn = 'Y'
+            GROUP BY sku_id, COALESCE(w.warehouse_code, 'UNKNOWN'), COALESCE(w.warehouse_name, '보관센터 미지정')
         ),
         sku_warehouse_agg AS (
             SELECT sku_id,
@@ -260,13 +286,13 @@
         ),
         policy_agg AS (
             SELECT sku_id,
-                    COALESCE(stock_sales_point_id, allocated_sales_point_id) AS sales_point_id,
+                    COALESCE(stock_sales_point_id, allocated_sales_point_id, -1) AS sales_point_id,
                     SUM(safety_stock_qty) AS safety_qty
             FROM inventory_policy
             WHERE is_deleted = 0
               AND (effective_from IS NULL OR effective_from &lt;= #{asOfDate})
               AND (effective_to IS NULL OR effective_to &gt;= #{asOfDate})
-            GROUP BY sku_id, COALESCE(stock_sales_point_id, allocated_sales_point_id)
+            GROUP BY sku_id, COALESCE(stock_sales_point_id, allocated_sales_point_id, -1)
         ),
         latest_price AS (
             SELECT sku_id, sales_point_id, selling_price,
@@ -289,26 +315,28 @@
         seller_agg AS (
             SELECT sf.sku_id,
                    JSON_ARRAYAGG(JSON_OBJECT(
-                       'salesPointCode' VALUE sp.sales_point_code,
-                       'salesPointName' VALUE sp.sales_point_name,
+                       'salesPointCode' VALUE NVL(sp.sales_point_code, 'UNASSIGNED'),
+                       'salesPointName' VALUE NVL(sp.sales_point_name, '판매처 미할당'),
                        'channelType' VALUE CASE
                            WHEN sp.sales_point_code = 'GREETING' THEN 'GREETING'
                            WHEN sp.sales_point_code = 'MODU_MATJIP' THEN 'ECOMMERCE'
                            WHEN sp.sales_point_code LIKE 'DEPT_%' THEN 'HYUNDAI_DEPT'
                            WHEN sp.sales_point_code LIKE 'HMART_%' THEN 'HMART'
+                           WHEN sp.sales_point_code IS NULL THEN 'CENTER'
                            ELSE sc.channel_code
                        END,
                        'currentQuantity' VALUE sf.current_qty,
                        'availableQuantity' VALUE sf.available_qty,
                        'reservedQuantity' VALUE sf.reserved_qty,
                        'riskGrade' VALUE sf.risk_grade,
+                       'salesPointState' VALUE sf.sales_point_state,
                        'warehouseName' VALUE wa.primary_warehouse_name,
                        'sellingPrice' VALUE sf.selling_price
                        RETURNING CLOB
-                   ) ORDER BY sp.sales_point_code RETURNING CLOB) AS sales_points_json
+                   ) ORDER BY NVL(sp.sales_point_code, 'UNASSIGNED') RETURNING CLOB) AS sales_points_json
             FROM seller_facts sf
-            INNER JOIN sales_point sp ON sp.sales_point_id = sf.sales_point_id
-            INNER JOIN sales_channel sc ON sc.sales_channel_id = sp.sales_channel_id
+            LEFT JOIN sales_point sp ON sp.sales_point_id = sf.sales_point_id
+            LEFT JOIN sales_channel sc ON sc.sales_channel_id = sp.sales_channel_id
             LEFT JOIN warehouse_agg wa ON wa.sku_id = sf.sku_id AND wa.sales_point_id = sf.sales_point_id
             GROUP BY sf.sku_id
         ),
@@ -337,8 +365,6 @@
                    SUM(lot_count) AS lot_count,
                    MIN(nearest_expiry_days) AS nearest_expiry_days,
                    MIN(nearest_expiry_date) AS nearest_expiry_date,
-                   CAST(NULL AS NUMBER(15,3)) AS daily_sales,
-                   CAST(NULL AS NUMBER(15,3)) AS forecast14_days,
                    MAX(updated_at) AS updated_at
             FROM seller_facts
             GROUP BY sku_id
@@ -379,8 +405,6 @@
                    sa.lot_count,
                    sa.nearest_expiry_days,
                    sa.nearest_expiry_date,
-                   sa.daily_sales,
-                   sa.forecast14_days,
                    sa.updated_at
             FROM sku_agg sa
             INNER JOIN sku s ON s.sku_id = sa.sku_id
@@ -414,12 +438,20 @@
     <select id="countInventory" resultType="long">
         WITH risk_rows AS (
             SELECT ib.sku_id,
-                   ib.stock_sales_point_id AS sales_point_id,
+                   NVL(ib.stock_sales_point_id, NVL(ib.allocated_sales_point_id, -1)) AS sales_point_id,
                    ra.risk_grade,
                    ra.updated_at,
                    ROW_NUMBER() OVER (
-                       PARTITION BY ib.sku_id, ib.stock_sales_point_id
-                       ORDER BY ra.updated_at DESC, ra.risk_assessment_id DESC
+                       PARTITION BY ib.sku_id, NVL(ib.stock_sales_point_id, NVL(ib.allocated_sales_point_id, -1))
+                       ORDER BY CASE ra.risk_grade
+                                    WHEN 'CRITICAL' THEN 1
+                                    WHEN 'WARNING' THEN 2
+                                    WHEN 'NORMAL' THEN 3
+                                    WHEN 'GOOD' THEN 4
+                                    ELSE 5
+                                END,
+                                ra.updated_at DESC,
+                                ra.risk_assessment_id DESC
                    ) AS rn
             FROM risk_assessment ra
             INNER JOIN inventory_balance ib ON ib.inventory_balance_id = ra.inventory_balance_id
@@ -440,13 +472,15 @@
             WHERE rn = 1
         ),
         candidate_keys AS (
-            SELECT DISTINCT ib.sku_id, ib.stock_sales_point_id AS sales_point_id
+            SELECT DISTINCT ib.sku_id,
+                   NVL(ib.stock_sales_point_id, NVL(ib.allocated_sales_point_id, -1)) AS sales_point_id
             FROM inventory_balance ib
             INNER JOIN sku s ON s.sku_id = ib.sku_id
             INNER JOIN product p ON p.product_id = s.product_id
-            INNER JOIN sales_point sp ON sp.sales_point_id = ib.stock_sales_point_id
-            INNER JOIN sales_channel sc ON sc.sales_channel_id = sp.sales_channel_id
-            LEFT JOIN risk_latest r ON r.sku_id = ib.sku_id AND r.sales_point_id = ib.stock_sales_point_id
+            LEFT JOIN sales_point sp ON sp.sales_point_id = NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id)
+            LEFT JOIN sales_channel sc ON sc.sales_channel_id = sp.sales_channel_id
+            LEFT JOIN risk_latest r ON r.sku_id = ib.sku_id
+                                    AND r.sales_point_id = NVL(ib.stock_sales_point_id, NVL(ib.allocated_sales_point_id, -1))
             <include refid="candidateWhere"/>
             <include refid="riskWhere"/>
         )
@@ -457,12 +491,20 @@
     <select id="selectInventorySummary" resultType="InventorySummaryVO">
         WITH risk_rows AS (
             SELECT ib.sku_id,
-                   ib.stock_sales_point_id AS sales_point_id,
+                   NVL(ib.stock_sales_point_id, NVL(ib.allocated_sales_point_id, -1)) AS sales_point_id,
                    ra.risk_grade,
                    ra.updated_at,
                    ROW_NUMBER() OVER (
-                       PARTITION BY ib.sku_id, ib.stock_sales_point_id
-                       ORDER BY ra.updated_at DESC, ra.risk_assessment_id DESC
+                       PARTITION BY ib.sku_id, NVL(ib.stock_sales_point_id, NVL(ib.allocated_sales_point_id, -1))
+                       ORDER BY CASE ra.risk_grade
+                                    WHEN 'CRITICAL' THEN 1
+                                    WHEN 'WARNING' THEN 2
+                                    WHEN 'NORMAL' THEN 3
+                                    WHEN 'GOOD' THEN 4
+                                    ELSE 5
+                                END,
+                                ra.updated_at DESC,
+                                ra.risk_assessment_id DESC
                    ) AS rn
             FROM risk_assessment ra
             INNER JOIN inventory_balance ib ON ib.inventory_balance_id = ra.inventory_balance_id
@@ -483,19 +525,21 @@
             WHERE rn = 1
         ),
         candidate_keys AS (
-            SELECT DISTINCT ib.sku_id, ib.stock_sales_point_id AS sales_point_id
+            SELECT DISTINCT ib.sku_id,
+                   NVL(ib.stock_sales_point_id, NVL(ib.allocated_sales_point_id, -1)) AS sales_point_id
             FROM inventory_balance ib
             INNER JOIN sku s ON s.sku_id = ib.sku_id
             INNER JOIN product p ON p.product_id = s.product_id
-            INNER JOIN sales_point sp ON sp.sales_point_id = ib.stock_sales_point_id
-            INNER JOIN sales_channel sc ON sc.sales_channel_id = sp.sales_channel_id
-            LEFT JOIN risk_latest r ON r.sku_id = ib.sku_id AND r.sales_point_id = ib.stock_sales_point_id
+            LEFT JOIN sales_point sp ON sp.sales_point_id = NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id)
+            LEFT JOIN sales_channel sc ON sc.sales_channel_id = sp.sales_channel_id
+            LEFT JOIN risk_latest r ON r.sku_id = ib.sku_id
+                                    AND r.sales_point_id = NVL(ib.stock_sales_point_id, NVL(ib.allocated_sales_point_id, -1))
             <include refid="candidateWhere"/>
             <include refid="riskWhere"/>
         ),
         balance_base AS (
             SELECT ib.sku_id,
-                   ib.stock_sales_point_id AS sales_point_id,
+                   NVL(ib.stock_sales_point_id, NVL(ib.allocated_sales_point_id, -1)) AS sales_point_id,
                    ib.on_hand_qty,
                    ib.reserved_qty,
                    ib.updated_at,
@@ -503,8 +547,9 @@
                    l.expiry_date,
                    l.sale_stop_date
             FROM inventory_balance ib
-            INNER JOIN candidate_keys ck ON ck.sku_id = ib.sku_id AND ck.sales_point_id = ib.stock_sales_point_id
-            INNER JOIN warehouse active_w
+            INNER JOIN candidate_keys ck ON ck.sku_id = ib.sku_id
+                                        AND ck.sales_point_id = NVL(ib.stock_sales_point_id, NVL(ib.allocated_sales_point_id, -1))
+            LEFT JOIN warehouse active_w
                     ON active_w.warehouse_id = ib.warehouse_id
                    AND active_w.is_deleted = 0
                    AND active_w.active_yn = 'Y'
@@ -514,25 +559,22 @@
         row_agg AS (
             SELECT sku_id,
                    sales_point_id,
-                   SUM(on_hand_qty) AS current_qty,
+                   SUM(on_hand_qty + reserved_qty) AS current_qty,
                    SUM(reserved_qty) AS reserved_qty,
-                   SUM(CASE WHEN lot_status = 'AVAILABLE'
-                                  AND (sale_stop_date IS NULL OR sale_stop_date &gt; #{asOfDate})
-                                  AND (expiry_date IS NULL OR expiry_date &gt;= #{asOfDate})
-                            THEN GREATEST(on_hand_qty - reserved_qty, 0) ELSE 0 END) AS available_qty,
+                   SUM(on_hand_qty) AS available_qty,
                    MAX(updated_at) AS updated_at
             FROM balance_base
             GROUP BY sku_id, sales_point_id
         ),
         policy_agg AS (
             SELECT sku_id,
-                   COALESCE(stock_sales_point_id, allocated_sales_point_id) AS sales_point_id,
-                   SUM(safety_stock_qty) AS safety_qty
+                    COALESCE(stock_sales_point_id, allocated_sales_point_id, -1) AS sales_point_id,
+                    SUM(safety_stock_qty) AS safety_qty
             FROM inventory_policy
             WHERE is_deleted = 0
               AND (effective_from IS NULL OR effective_from &lt;= #{asOfDate})
               AND (effective_to IS NULL OR effective_to &gt;= #{asOfDate})
-            GROUP BY sku_id, COALESCE(stock_sales_point_id, allocated_sales_point_id)
+            GROUP BY sku_id, COALESCE(stock_sales_point_id, allocated_sales_point_id, -1)
         ),
         seller_facts AS (
             SELECT ra.*, p.safety_qty, r.risk_grade
@@ -630,10 +672,6 @@
                     ON active_s.sku_id = ib.sku_id
                    AND active_s.is_deleted = 0
                    AND active_s.active_yn = 'Y'
-            INNER JOIN sales_point active_sp
-                    ON active_sp.sales_point_id = ib.stock_sales_point_id
-                   AND active_sp.is_deleted = 0
-                   AND active_sp.active_yn = 'Y'
             WHERE ib.is_deleted = 0
         ) ib ON ib.warehouse_id = w.warehouse_id
         WHERE w.is_deleted = 0
@@ -696,7 +734,12 @@
     <select id="selectInventoryDetail" resultType="InventoryItemVO">
         WITH balance_base AS (
             SELECT ib.sku_id,
-                   ib.stock_sales_point_id AS sales_point_id,
+                   NVL(ib.stock_sales_point_id, NVL(ib.allocated_sales_point_id, -1)) AS sales_point_id,
+                   CASE
+                       WHEN ib.stock_sales_point_id IS NOT NULL THEN 'OWNED'
+                       WHEN ib.allocated_sales_point_id IS NOT NULL THEN 'ALLOCATED_ONLY'
+                       ELSE 'CENTER_ONLY'
+                   END AS sales_point_state,
                    ib.warehouse_id,
                    ib.lot_id,
                    ib.on_hand_qty,
@@ -707,31 +750,35 @@
                    l.sale_stop_date
             FROM inventory_balance ib
             INNER JOIN sku s ON s.sku_id = ib.sku_id
-            INNER JOIN sales_point sp ON sp.sales_point_id = ib.stock_sales_point_id
-            INNER JOIN warehouse active_w
+            LEFT JOIN sales_point sp ON sp.sales_point_id = NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id)
+            LEFT JOIN warehouse active_w
                     ON active_w.warehouse_id = ib.warehouse_id
                    AND active_w.is_deleted = 0
                    AND active_w.active_yn = 'Y'
-            <!-- LOT가 아직 배정되지 않은 balance도 상세에서는 유지하고 /lots에서 빈 배열로 표현한다. -->
             LEFT JOIN lot l ON l.lot_id = ib.lot_id AND l.is_deleted = 0
             WHERE ib.is_deleted = 0
-              AND ib.stock_sales_point_id IS NOT NULL
               AND s.is_deleted = 0
               AND s.active_yn = 'Y'
-              AND sp.is_deleted = 0
-              AND sp.active_yn = 'Y'
+              AND (sp.sales_point_id IS NULL OR (sp.is_deleted = 0 AND sp.active_yn = 'Y'))
               AND s.sku_code = #{skuCode}
-              AND sp.sales_point_code = #{salesPointCode}
+              AND (
+                  (#{salesPointCode} != 'UNASSIGNED' AND sp.sales_point_code = #{salesPointCode})
+                  OR (#{salesPointCode} = 'UNASSIGNED'
+                      AND ib.stock_sales_point_id IS NULL
+                      AND ib.allocated_sales_point_id IS NULL)
+              )
         ),
         row_agg AS (
             SELECT sku_id,
                    sales_point_id,
-                   SUM(on_hand_qty) AS current_qty,
+                   SUM(on_hand_qty + reserved_qty) AS current_qty,
                    SUM(reserved_qty) AS reserved_qty,
-                   SUM(CASE WHEN lot_status = 'AVAILABLE'
-                                  AND (sale_stop_date IS NULL OR sale_stop_date &gt; #{asOfDate})
-                                  AND (expiry_date IS NULL OR expiry_date &gt;= #{asOfDate})
-                            THEN GREATEST(on_hand_qty - reserved_qty, 0) ELSE 0 END) AS available_qty,
+                   SUM(on_hand_qty) AS available_qty,
+                   CASE
+                       WHEN SUM(CASE WHEN sales_point_state = 'OWNED' THEN 1 ELSE 0 END) > 0 THEN 'OWNED'
+                       WHEN SUM(CASE WHEN sales_point_state = 'ALLOCATED_ONLY' THEN 1 ELSE 0 END) > 0 THEN 'ALLOCATED_ONLY'
+                       ELSE 'CENTER_ONLY'
+                   END AS sales_point_state,
                    COUNT(DISTINCT lot_id) AS lot_count,
                    TRUNC(MIN(CASE WHEN expiry_date IS NOT NULL
                                   THEN TRUNC(expiry_date) - TRUNC(CAST(#{asOfDate} AS DATE)) END)) AS nearest_expiry_days,
@@ -744,10 +791,7 @@
                                           OR (sale_stop_date IS NOT NULL AND sale_stop_date &lt;= #{asOfDate})
                                      THEN 1 ELSE 0 END) &gt; 0 THEN 'SALE_STOPPED_INCLUDED'
                        WHEN SUM(CASE WHEN lot_status = 'DEPLETED' THEN 1 ELSE 0 END) = COUNT(*) THEN 'DEPLETED_ONLY'
-                       WHEN SUM(CASE WHEN lot_status = 'AVAILABLE'
-                                          AND (sale_stop_date IS NULL OR sale_stop_date &gt; #{asOfDate})
-                                          AND (expiry_date IS NULL OR expiry_date &gt;= #{asOfDate})
-                                     THEN GREATEST(on_hand_qty - reserved_qty, 0) ELSE 0 END) = 0 THEN 'OUT_OF_STOCK'
+                     WHEN SUM(on_hand_qty) = 0 THEN 'OUT_OF_STOCK'
                        ELSE 'AVAILABLE'
                    END AS inventory_fact_state,
                    MAX(updated_at) AS updated_at
@@ -757,12 +801,12 @@
         warehouse_rows AS (
             SELECT bb.sku_id,
                    bb.sales_point_id,
-                   w.warehouse_code,
-                   w.warehouse_name,
-                   SUM(bb.on_hand_qty) AS quantity
+                   COALESCE(w.warehouse_code, 'UNKNOWN') AS warehouse_code,
+                   COALESCE(w.warehouse_name, '보관센터 미지정') AS warehouse_name,
+                   SUM(bb.on_hand_qty + bb.reserved_qty) AS quantity
             FROM balance_base bb
-            INNER JOIN warehouse w ON w.warehouse_id = bb.warehouse_id AND w.is_deleted = 0
-            GROUP BY bb.sku_id, bb.sales_point_id, w.warehouse_code, w.warehouse_name
+            LEFT JOIN warehouse w ON w.warehouse_id = bb.warehouse_id AND w.is_deleted = 0
+            GROUP BY bb.sku_id, bb.sales_point_id, COALESCE(w.warehouse_code, 'UNKNOWN'), COALESCE(w.warehouse_name, '보관센터 미지정')
         ),
         warehouse_agg AS (
             SELECT sku_id,
@@ -791,22 +835,30 @@
         ),
         policy_agg AS (
             SELECT sku_id,
-                   COALESCE(stock_sales_point_id, allocated_sales_point_id) AS sales_point_id,
+                   COALESCE(stock_sales_point_id, allocated_sales_point_id, -1) AS sales_point_id,
                    SUM(safety_stock_qty) AS safety_qty
             FROM inventory_policy
             WHERE is_deleted = 0
               AND (effective_from IS NULL OR effective_from &lt;= #{asOfDate})
               AND (effective_to IS NULL OR effective_to &gt;= #{asOfDate})
-            GROUP BY sku_id, COALESCE(stock_sales_point_id, allocated_sales_point_id)
+            GROUP BY sku_id, COALESCE(stock_sales_point_id, allocated_sales_point_id, -1)
         ),
         risk_rows AS (
             SELECT ib.sku_id,
-                   ib.stock_sales_point_id AS sales_point_id,
+                   NVL(ib.stock_sales_point_id, NVL(ib.allocated_sales_point_id, -1)) AS sales_point_id,
                    ra.risk_grade,
                    ra.reason_message,
                    ROW_NUMBER() OVER (
-                       PARTITION BY ib.sku_id, ib.stock_sales_point_id
-                       ORDER BY ra.updated_at DESC, ra.risk_assessment_id DESC
+                       PARTITION BY ib.sku_id, NVL(ib.stock_sales_point_id, NVL(ib.allocated_sales_point_id, -1))
+                       ORDER BY CASE ra.risk_grade
+                                    WHEN 'CRITICAL' THEN 1
+                                    WHEN 'WARNING' THEN 2
+                                    WHEN 'NORMAL' THEN 3
+                                    WHEN 'GOOD' THEN 4
+                                    ELSE 5
+                                END,
+                                ra.updated_at DESC,
+                                ra.risk_assessment_id DESC
                    ) AS rn
             FROM risk_assessment ra
             INNER JOIN inventory_balance ib
@@ -847,10 +899,11 @@
                    WHEN sp.sales_point_code = 'MODU_MATJIP' THEN 'ECOMMERCE'
                    WHEN sp.sales_point_code LIKE 'DEPT_%' THEN 'HYUNDAI_DEPT'
                    WHEN sp.sales_point_code LIKE 'HMART_%' THEN 'HMART'
+                   WHEN sp.sales_point_code IS NULL THEN 'CENTER'
                    ELSE sc.channel_code
                END AS channel_type,
-               sp.sales_point_code,
-               sp.sales_point_name,
+               NVL(sp.sales_point_code, 'UNASSIGNED') AS sales_point_code,
+               NVL(sp.sales_point_name, '판매처 미할당') AS sales_point_name,
                CASE WHEN s.storage_type = 'AMBIENT' THEN 'ROOM_TEMP' ELSE s.storage_type END AS storage_type,
                price.selling_price,
                ra.current_qty AS current_qty,
@@ -864,27 +917,27 @@
                wa.locations_json,
                wa.location_count,
                JSON_ARRAY(JSON_OBJECT(
-                   'salesPointCode' VALUE sp.sales_point_code,
-                   'salesPointName' VALUE sp.sales_point_name,
+                   'salesPointCode' VALUE NVL(sp.sales_point_code, 'UNASSIGNED'),
+                   'salesPointName' VALUE NVL(sp.sales_point_name, '판매처 미할당'),
                    'channelType' VALUE CASE
                        WHEN sp.sales_point_code = 'GREETING' THEN 'GREETING'
                        WHEN sp.sales_point_code = 'MODU_MATJIP' THEN 'ECOMMERCE'
                        WHEN sp.sales_point_code LIKE 'DEPT_%' THEN 'HYUNDAI_DEPT'
                        WHEN sp.sales_point_code LIKE 'HMART_%' THEN 'HMART'
+                       WHEN sp.sales_point_code IS NULL THEN 'CENTER'
                        ELSE sc.channel_code
                    END,
-                    'currentQuantity' VALUE ra.current_qty,
-                    'availableQuantity' VALUE ra.available_qty,
-                    'reservedQuantity' VALUE ra.reserved_qty,
+                   'currentQuantity' VALUE ra.current_qty,
+                   'availableQuantity' VALUE ra.available_qty,
+                   'reservedQuantity' VALUE ra.reserved_qty,
                    'riskGrade' VALUE risk.risk_grade,
+                   'salesPointState' VALUE ra.sales_point_state,
                    'warehouseName' VALUE wa.primary_warehouse_name,
                    'sellingPrice' VALUE price.selling_price
                    RETURNING CLOB) RETURNING CLOB) AS sales_points_json,
                ra.lot_count,
                ra.nearest_expiry_days,
                ra.nearest_expiry_date,
-               CAST(NULL AS NUMBER(15,3)) AS daily_sales,
-               CAST(NULL AS NUMBER(15,3)) AS forecast14_days,
                ra.updated_at
         FROM row_agg ra
         INNER JOIN sku s ON s.sku_id = ra.sku_id
@@ -892,8 +945,8 @@
         LEFT JOIN category c ON c.category_id = p.category_id
         LEFT JOIN category cp ON cp.category_id = c.parent_category_id AND cp.is_deleted = 0
         LEFT JOIN category cg ON cg.category_id = cp.parent_category_id AND cg.is_deleted = 0
-        INNER JOIN sales_point sp ON sp.sales_point_id = ra.sales_point_id
-        INNER JOIN sales_channel sc ON sc.sales_channel_id = sp.sales_channel_id
+        LEFT JOIN sales_point sp ON sp.sales_point_id = ra.sales_point_id
+        LEFT JOIN sales_channel sc ON sc.sales_channel_id = sp.sales_channel_id
         LEFT JOIN warehouse_agg wa ON wa.sku_id = ra.sku_id AND wa.sales_point_id = ra.sales_point_id
         LEFT JOIN latest_price price ON price.sku_id = ra.sku_id AND price.sales_point_id = ra.sales_point_id AND price.rn = 1
         LEFT JOIN policy_agg policy ON policy.sku_id = ra.sku_id AND policy.sales_point_id = ra.sales_point_id
@@ -909,28 +962,28 @@
                    l.received_date,
                    l.expiry_date,
                    l.sale_stop_date,
-                   SUM(ib.on_hand_qty) AS quantity,
+                   SUM(ib.on_hand_qty + ib.reserved_qty) AS quantity,
                    SUM(ib.reserved_qty) AS reserved_quantity,
-                   SUM(CASE WHEN l.lot_status = 'AVAILABLE'
-                                  AND (l.sale_stop_date IS NULL OR l.sale_stop_date &gt; #{asOfDate})
-                                  AND (l.expiry_date IS NULL OR l.expiry_date &gt;= #{asOfDate})
-                            THEN GREATEST(ib.on_hand_qty - ib.reserved_qty, 0) ELSE 0 END) AS available_quantity,
+                   SUM(ib.on_hand_qty) AS available_quantity,
                    TRUNC(CASE WHEN l.expiry_date IS NULL THEN NULL
                               ELSE TRUNC(l.expiry_date) - TRUNC(CAST(#{asOfDate} AS DATE)) END) AS expiry_days,
-                   MIN(w.warehouse_code) KEEP (DENSE_RANK FIRST ORDER BY w.warehouse_code) AS warehouse_code,
-                   MIN(w.warehouse_name) KEEP (DENSE_RANK FIRST ORDER BY w.warehouse_code) AS warehouse_name
+            COALESCE(MIN(w.warehouse_code) KEEP (DENSE_RANK FIRST ORDER BY w.warehouse_code), 'UNKNOWN') AS warehouse_code,
+            COALESCE(MIN(w.warehouse_name) KEEP (DENSE_RANK FIRST ORDER BY w.warehouse_code), '보관센터 미지정') AS warehouse_name
             FROM inventory_balance ib
             INNER JOIN lot l ON l.lot_id = ib.lot_id AND l.is_deleted = 0
             INNER JOIN sku s ON s.sku_id = ib.sku_id AND s.is_deleted = 0 AND s.active_yn = 'Y'
-            INNER JOIN sales_point sp ON sp.sales_point_id = ib.stock_sales_point_id
-                                     AND sp.is_deleted = 0
-                                     AND sp.active_yn = 'Y'
-            INNER JOIN warehouse w ON w.warehouse_id = ib.warehouse_id
+            LEFT JOIN sales_point sp ON sp.sales_point_id = NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id)
+            LEFT JOIN warehouse w ON w.warehouse_id = ib.warehouse_id
                                   AND w.is_deleted = 0
                                   AND w.active_yn = 'Y'
             WHERE ib.is_deleted = 0
               AND s.sku_code = #{skuCode}
-              AND sp.sales_point_code = #{salesPointCode}
+              AND (
+                  (#{salesPointCode} != 'UNASSIGNED' AND sp.sales_point_code = #{salesPointCode})
+                  OR (#{salesPointCode} = 'UNASSIGNED'
+                      AND ib.stock_sales_point_id IS NULL
+                      AND ib.allocated_sales_point_id IS NULL)
+              )
             GROUP BY l.lot_id, l.lot_no, l.lot_status, l.manufactured_date,
                      l.received_date, l.expiry_date, l.sale_stop_date
         )
@@ -955,6 +1008,41 @@
                warehouse_name
         FROM lot_agg
         ORDER BY fefo_priority
+    </select>
+
+    <select id="selectSkuChannelPrices" resultType="com.stockit.backend.feature.inventory.vo.SkuChannelPriceVO">
+        SELECT scp.sku_channel_price_id,
+               scp.sku_id,
+               s.sku_code,
+               scp.sales_point_id,
+               sp.sales_point_code,
+               sp.sales_point_name,
+               scp.selling_price,
+               scp.actual_price,
+               scp.minimum_selling_price,
+               scp.effective_from,
+               scp.effective_to,
+               CASE
+                   WHEN scp.selling_price IS NULL THEN 'NOT_LOADED'
+                   WHEN scp.effective_to IS NOT NULL AND scp.effective_to &lt; #{asOfDate} THEN 'STALE'
+                   ELSE 'AVAILABLE'
+               END AS price_status,
+               scp.updated_at
+        FROM (
+            SELECT p.*,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY p.sku_id, p.sales_point_id
+                       ORDER BY p.effective_from DESC, p.sku_channel_price_id DESC
+                   ) AS rn
+            FROM sku_channel_price p
+            WHERE p.is_deleted = 0
+              AND p.effective_from &lt;= #{asOfDate}
+        ) scp
+        INNER JOIN sku s ON s.sku_id = scp.sku_id AND s.is_deleted = 0
+        INNER JOIN sales_point sp ON sp.sales_point_id = scp.sales_point_id AND sp.is_deleted = 0
+        WHERE s.sku_code = #{skuCode}
+          AND scp.rn = 1
+        ORDER BY sp.sales_point_code ASC
     </select>
 
 </mapper>
