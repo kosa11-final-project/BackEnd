@@ -21,8 +21,8 @@ spring:
   rabbitmq:
     host: ${RABBITMQ_HOST:localhost}
     port: ${RABBITMQ_PORT:5672}
-    username: ${RABBITMQ_USERNAME:stockit_local}
-    password: ${RABBITMQ_PASSWORD:stockit_local}
+    username: ${RABBITMQ_USERNAME}
+    password: ${RABBITMQ_PASSWORD}
     publisher-confirm-type: correlated
     publisher-returns: true
     template:
@@ -90,6 +90,9 @@ spring:
   config:
     activate:
       on-profile: local
+  rabbitmq:
+    username: ${RABBITMQ_USERNAME:stockit_local}
+    password: ${RABBITMQ_PASSWORD:stockit_local}
 
 server:
   servlet:

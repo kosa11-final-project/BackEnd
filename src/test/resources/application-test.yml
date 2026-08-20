@@ -11,6 +11,9 @@ spring:
       initialize-schema: always
   flyway:
     enabled: false
+  rabbitmq:
+    username: ${RABBITMQ_USERNAME:stockit_test}
+    password: ${RABBITMQ_PASSWORD:stockit_test}
 
 app:
   ai-strategy:
