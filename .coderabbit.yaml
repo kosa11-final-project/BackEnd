@@ -1,0 +1,120 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+
+language: 'ko-KR'
+early_access: false
+
+reviews:
+  profile: 'chill'
+  request_changes_workflow: false
+  high_level_summary: true
+  review_status: true
+  auto_review:
+    enabled: false
+    labels:
+      - 'coderabbit-review'
+    drafts: false
+    auto_incremental_review: true
+  path_filters:
+    - '!build/**'
+    - '!.gradle/**'
+    - '!out/**'
+    - '!*.log'
+  path_instructions:
+    - path: 'src/main/java/**'
+      instructions: |
+        이 저장소는 Java 17 + Spring Boot 3.5 기반 백엔드이며 Spring Security, MyBatis, Flyway, Oracle Database를 사용합니다.
+        다음 기준을 기존 코드와 문서에 맞춰 리뷰하세요.
+        - feature 패키지 안의 controller -> service -> mapper 계층 책임을 지키고, controller나 persistence 세부 구현이 상위 계층으로 새지 않는지 확인합니다.
+        - common과 config는 특정 feature에 불필요하게 의존하지 않아야 하며, feature 간 직접 결합이 생기면 명확한 도메인 계약이 있는지 확인합니다.
+        - 요청·응답 DTO, 도메인 값/명령, MyBatis 조회 VO의 역할을 구분하고 DB 모델이 API 응답으로 직접 노출되지 않는지 확인합니다.
+        - API 성공·오류 응답은 기존 ApiResponse, ApiErrorResponse, AppException, ErrorCode 규약과 일관되어야 합니다.
+        - 입력값의 null, 빈 값, 길이, 범위, enum, 날짜 경계를 신뢰 경계에서 검증하고 서버 오류나 내부 정보가 클라이언트에 노출되지 않는지 확인합니다.
+        - 시간·날짜 계산은 Asia/Seoul 업무 기준과 저장소의 Instant/LocalDate 사용 방식을 지키며 테스트 가능한 구조인지 확인합니다.
+        - 불필요한 의존성, 전역 가변 상태, 과도한 Lombok 사용, 기존 구조와 다른 패턴의 도입을 지적합니다.
+
+    - path: 'src/main/java/**/controller/**'
+      instructions: |
+        Controller는 HTTP 바인딩·검증·권한 경계와 응답 조립에 집중하고 비즈니스 규칙이나 SQL 관심사를 직접 구현하지 않아야 합니다.
+        경로·쿼리·본문 검증, HTTP 상태, ApiResponse/ApiErrorResponse 형식, OpenAPI 설명과 실제 동작이 일치하는지 확인합니다.
+        기존 클라이언트 계약에 영향을 주는 필드명, null 가능성, 페이지 기준, 정렬·필터 의미의 변경은 하위 호환성과 테스트가 함께 검토되어야 합니다.
+
+    - path: 'src/main/java/**/service/**'
+      instructions: |
+        Service는 유스케이스와 트랜잭션 경계를 소유해야 합니다.
+        조회에는 readOnly 트랜잭션을 우선하고 쓰기 작업은 원자성, 동시성, 중복 실행 시의 결과와 실패 시 정합성을 확인합니다.
+        목록과 count/summary 쿼리의 필터 의미가 일치하는지, 반복 mapper 호출로 N+1 또는 불필요한 대량 조회가 생기지 않는지 확인합니다.
+
+    - path: 'src/main/java/**/security/**'
+      instructions: |
+        세션 인증, CSRF, 내부 API 키, 인증·인가 실패 응답을 보안 경계로 엄격하게 리뷰합니다.
+        permitAll 경로 확대, CSRF 예외, 세션 고정·만료 처리, 필터 순서 변경이 우회 경로를 만들지 않는지 확인합니다.
+        비밀번호, 세션 ID, API 키, Authorization/Cookie 헤더와 개인정보가 코드·응답·로그에 노출되지 않아야 합니다.
+
+    - path: 'src/main/java/**/config/**'
+      instructions: |
+        Spring Bean과 Security 설정 변경은 순환 의존성, 조건부 활성화, 필터 순서, profile별 동작을 확인합니다.
+        인증이 필요한 API가 permitAll 또는 CSRF 예외에 포함되지 않는지, 환경 변수 누락 시 안전하게 실패하는지 검토합니다.
+        설정 클래스에 비밀값이나 환경별 값을 하드코딩하지 않아야 합니다.
+
+    - path: 'src/main/resources/mappers/**'
+      instructions: |
+        MyBatis XML은 대응하는 mapper 인터페이스의 namespace, statement id, 파라미터, result mapping과 정확히 일치해야 합니다.
+        사용자 입력에는 ${} 문자열 치환 대신 #{} 바인딩을 사용하고, 동적 정렬·필터는 허용 목록으로 제한하는지 확인합니다.
+        Oracle 문법과 null 처리, 숫자·날짜 타입, 조인으로 인한 중복 행, 페이징 안정성, 인덱스를 무력화하는 조건을 검토합니다.
+        목록·count·summary 쿼리가 동일한 업무 predicate를 공유하는지와 XML 특수문자 escaping도 확인합니다.
+
+    - path: 'src/main/resources/db/migration/**'
+      instructions: |
+        Flyway 마이그레이션은 이미 배포된 파일을 수정하지 말고 다음 버전 파일로 추가해야 합니다.
+        Oracle에서 실행 가능한 DDL/DML인지, 기존 데이터 backfill 후 NOT NULL·FK·CHECK 제약을 적용하는 순서가 안전한지 확인합니다.
+        데이터 손실 가능성이 있는 DROP·타입 변경·대량 UPDATE에는 사전 검증과 명시적인 실패 조건이 있는지 확인합니다.
+        Java 모델, MyBatis XML, 테스트용 H2 스키마와 변경된 테이블·컬럼·제약 조건이 함께 갱신되는지 확인합니다.
+
+    - path: 'src/main/resources/application*.yml'
+      instructions: |
+        환경별 설정은 환경 변수와 안전한 기본값을 사용하고 실제 비밀번호, API 키, 연결 문자열 같은 비밀값을 커밋하지 않아야 합니다.
+        Spring profile, 세션 쿠키, CORS/CSRF, MyBatis, Flyway, 배치와 Azure 설정 변경이 운영 환경에 미칠 영향을 확인합니다.
+        보안에 민감한 설정이 값 누락 시 조용히 약한 기본값으로 동작하지 않는지 검토합니다.
+
+    - path: 'src/main/java/**/batch/**'
+      instructions: |
+        Spring Batch와 Azure Blob 내보내기는 재시도·재실행·부분 실패에도 중복 업로드나 손상된 결과를 만들지 않아야 합니다.
+        대용량 데이터를 메모리에 전부 적재하지 않는지, CSV 인코딩·escaping·날짜 형식이 계약과 일치하는지 확인합니다.
+        임시 파일과 스트림은 성공·실패 모두에서 정리하고, blob 경로와 자격 증명 및 민감 데이터가 로그에 노출되지 않는지 확인합니다.
+
+    - path: 'src/test/**'
+      instructions: |
+        JUnit 5, MockMvc, Spring Security Test, MyBatis/H2 테스트는 외부 네트워크·실제 클라우드·실제 시간·실행 순서에 의존하지 않고 결정적이어야 합니다.
+        변경된 정상 경로뿐 아니라 인증·인가, 검증 실패, 빈 결과, 경계값, 예외와 트랜잭션 실패 경로를 확인합니다.
+        H2에서만 통과하고 Oracle에서 실패할 수 있는 SQL·타입·날짜·제약 조건 차이는 별도 계약 테스트나 명시적 검증으로 보완하는지 확인합니다.
+
+    - path: 'build.gradle'
+      instructions: |
+        이 프로젝트는 Java 17 toolchain과 Gradle Wrapper를 사용합니다.
+        새 의존성과 플러그인이 실제로 필요한지, 기존 Spring Boot dependency management와 버전 호환성이 있는지, 운영 의존성과 테스트 의존성 scope가 올바른지 확인합니다.
+        기존 test 설정을 우회하거나 재현 가능한 빌드를 해치는 task·repository 설정이 추가되지 않는지 검토합니다.
+
+    - path: '.github/workflows/**'
+      instructions: |
+        GitHub Actions와 Jira 자동화는 최소 permissions를 사용하고 fork PR이나 신뢰할 수 없는 제목·본문·브랜치 입력이 shell 또는 API payload에 안전하게 전달되는지 확인합니다.
+        secret이 로그에 노출되지 않아야 하며, 재실행·부분 실패에도 Jira 작업이나 PR 메타데이터가 중복 생성되지 않는지 검토합니다.
+
+chat:
+  auto_reply: true
+  allow_non_org_members: false
+  integrations:
+    jira:
+      usage: 'enabled'
+
+knowledge_base:
+  jira:
+    usage: 'enabled'
+    project_keys:
+      - 'YSK'
+  code_guidelines:
+    enabled: true
+    filePatterns:
+      - files: 'docs/azure-sales-daily-export.md'
+        applyTo: 'src/main/java/**/salesdaily/**/*.java, src/test/java/**/salesdaily/**/*.java, src/main/resources/application*.yml'
+      - files: '.github/pull_request_template.md'
+        applyTo: 'src/**/*.java, src/**/*.xml, src/**/*.sql, src/**/*.yml, build.gradle, settings.gradle, .github/**/*.yml'
