@@ -12,6 +12,13 @@ public enum ErrorCode {
     BAD_REQUEST(HttpStatus.BAD_REQUEST, "잘못된 요청입니다.", "COMMON-001"),
     INVALID_PARAMETER(HttpStatus.BAD_REQUEST, "요청 파라미터가 잘못되었습니다.", "COMMON-002"),
 
+    // AI STRATEGY
+    AI_STRATEGY_INVALID_REQUEST(HttpStatus.BAD_REQUEST, "AI 전략 생성 요청이 잘못되었습니다.", "AI_STRATEGY-001"),
+    AI_STRATEGY_LOT_NOT_BELONG_TO_SKU(HttpStatus.BAD_REQUEST, "요청한 LOT가 대상 SKU에 속하지 않습니다.", "AI_STRATEGY-003"),
+    AI_STRATEGY_UNSUPPORTED_TYPE(HttpStatus.BAD_REQUEST, "아직 지원하지 않는 AI 전략 유형입니다.", "AI_STRATEGY-004"),
+    AI_STRATEGY_DATE_OUT_OF_RANGE(HttpStatus.BAD_REQUEST, "AI 전략 희망 기간이 허용 범위를 벗어났습니다.", "AI_STRATEGY-005"),
+    AI_STRATEGY_START_AFTER_END(HttpStatus.BAD_REQUEST, "AI 전략 희망 시작일은 종료일보다 늦을 수 없습니다.", "AI_STRATEGY-006"),
+
     // ==============================
     // 401 UNAUTHORIZED
     // ==============================
@@ -45,6 +52,11 @@ public enum ErrorCode {
     // STATISTICS
     STATISTICS_SNAPSHOT_NOT_FOUND(HttpStatus.NOT_FOUND, "완료된 통계 스냅샷을 찾을 수 없습니다.", "STATISTICS-001"),
 
+    // AI STRATEGY
+    AI_STRATEGY_SKU_NOT_FOUND(HttpStatus.NOT_FOUND, "AI 전략 대상 SKU를 찾을 수 없습니다.", "AI_STRATEGY-007"),
+    AI_STRATEGY_LOT_NOT_FOUND(HttpStatus.NOT_FOUND, "AI 전략 대상 LOT를 찾을 수 없거나 사용할 수 없습니다.", "AI_STRATEGY-008"),
+    AI_STRATEGY_SALES_POINT_NOT_FOUND(HttpStatus.NOT_FOUND, "AI 전략 대상 판매처를 찾을 수 없습니다.", "AI_STRATEGY-009"),
+
     // ==============================
     // 405 METHOD_NOT_ALLOWED
     // ==============================
@@ -58,6 +70,9 @@ public enum ErrorCode {
 
     // DEMAND_FORECAST
     DEMAND_FORECAST_DUPLICATE_TARGET(HttpStatus.CONFLICT, "요청 내 SKU와 판매처 조합이 중복되었습니다.", "DEMAND_FORECAST-005"),
+
+    // AI STRATEGY
+    AI_STRATEGY_DUPLICATE_INPUT(HttpStatus.CONFLICT, "AI 전략 생성 요청에 중복된 값이 포함되어 있습니다.", "AI_STRATEGY-002"),
 
     // TMP - 구조 확인 후 실제 기능과 함께 제거
     TMP_CONFLICT(HttpStatus.CONFLICT, "테스트 요청이 충돌했습니다.", "TMP-001"),
