@@ -87,10 +87,17 @@ public class StrategyGenerationJobListener {
 
     private StrategyGenerationJobMessage deserialize(Message rawMessage) {
         try {
-            return objectMapper.readValue(
+            StrategyGenerationJobMessage message = objectMapper.readValue(
                     rawMessage.getBody(),
                     StrategyGenerationJobMessage.class
             );
+            if (message == null) {
+                throw new PermanentStrategyGenerationException(
+                        INVALID_MESSAGE_CODE,
+                        "AI strategy generation message JSON must not be null"
+                );
+            }
+            return message;
         } catch (IOException | IllegalArgumentException exception) {
             throw new PermanentStrategyGenerationException(
                     INVALID_MESSAGE_CODE,

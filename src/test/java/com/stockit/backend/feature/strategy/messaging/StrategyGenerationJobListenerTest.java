@@ -147,6 +147,21 @@ class StrategyGenerationJobListenerTest {
         verify(channel).basicReject(DELIVERY_TAG, false);
     }
 
+    @Test
+    void rejectsJsonNullAsPermanentFailureWithoutRetry() throws Exception {
+        Message jsonNull = MessageBuilder
+                .withBody("null".getBytes(StandardCharsets.UTF_8))
+                .setDeliveryTag(DELIVERY_TAG)
+                .build();
+
+        listener.consume(jsonNull, channel);
+
+        verify(jobHandler, never()).handle(any());
+        verify(retryPublisher, never()).publishForRetry(any(), any(Integer.class));
+        verify(failureService, never()).markFailed(any(), any(), any());
+        verify(channel).basicReject(DELIVERY_TAG, false);
+    }
+
     private Message rawMessage(
             StrategyGenerationJobMessage payload,
             int retryCount
