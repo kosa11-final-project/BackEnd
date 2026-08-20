@@ -11,3 +11,8 @@ spring:
       initialize-schema: always
   flyway:
     enabled: false
+
+app:
+  ai-strategy:
+    messaging:
+      enabled: false
