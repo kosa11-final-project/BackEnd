@@ -10,6 +10,7 @@
         <result property="caseCode" column="case_code"/>
         <result property="caseName" column="case_name"/>
         <result property="caseStatus" column="case_status"/>
+        <result property="generationStage" column="generation_stage"/>
         <result property="requestPayloadJson" column="request_payload_json"/>
         <result property="resultCacheKey" column="result_cache_key"/>
         <result property="resultExpiresAt" column="result_expires_at"/>
@@ -96,6 +97,7 @@
                case_code,
                case_name,
                case_status,
+               generation_stage,
                request_payload_json,
                result_cache_key,
                result_expires_at,
@@ -111,5 +113,29 @@
         WHERE strategy_case_id = #{strategyCaseId}
           AND is_deleted = 0
     </select>
+
+    <update id="markForecastingIfPending">
+        UPDATE strategy_case
+        SET generation_stage = 'FORECASTING',
+            updated_at = SYSTIMESTAMP,
+            updated_by = created_by
+        WHERE strategy_case_id = #{strategyCaseId}
+          AND case_status = 'GENERATING'
+          AND generation_stage IS NULL
+          AND is_deleted = 0
+    </update>
+
+    <update id="markGenerationFailedIfGenerating">
+        UPDATE strategy_case
+        SET case_status = 'GENERATION_FAILED',
+            failure_code = #{failureCode},
+            failure_message = #{failureMessage},
+            completed_at = SYSTIMESTAMP,
+            updated_at = SYSTIMESTAMP,
+            updated_by = created_by
+        WHERE strategy_case_id = #{strategyCaseId}
+          AND case_status = 'GENERATING'
+          AND is_deleted = 0
+    </update>
 
 </mapper>
