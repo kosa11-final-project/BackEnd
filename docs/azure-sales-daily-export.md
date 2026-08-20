@@ -12,8 +12,11 @@ Oracle SALES_DAILY
   -> 성공 시 로컬 최종 CSV 원자적 교체
 ```
 
-- `BOOTSTRAP` 조회 조건: `is_deleted = 0`, `sales_date <= baseDate`
-- `DAILY` 조회 조건: `is_deleted = 0`, `sales_date = baseDate`
+- 조합 집합: `baseDate`까지 유효한 `sku_id + sales_point_id` 전체 조합
+- `BOOTSTRAP`: 최초 유효 판매일부터 `baseDate`까지 날짜와 전체 조합의 완전 패널
+- `DAILY`: `baseDate` 하루와 전체 조합의 완전 패널
+- 실제 판매 행이 없거나 삭제된 행만 있으면 `net_sales_qty=0`
+- Export 이후 `날짜 수 × 조합 수`와 실제 CSV 행 수를 검증하고 불일치하면 업로드 전에 실패
 - `exportMode` 생략 시 안전한 기본값은 `DAILY`
 - CSV 컬럼: `sales_date,sku_id,sales_point_id,net_sales_qty`
 - 인코딩: UTF-8
@@ -22,6 +25,24 @@ Oracle SALES_DAILY
 
 `AZURE_BLOB`에서도 `SALES_DAILY_EXPORT_PATH`는 Blob URL이 아니라 로컬 staging 및
 최종 파일 경로입니다. `https://...blob.core.windows.net/...` URL을 이 값에 넣지 않습니다.
+
+## 로컬 통합 재고 조회 기동값
+
+통합 재고 조회와 수요예측 조회를 로컬에서 확인할 때는 공유 Oracle 스키마에 migration이나
+Spring Batch 메타데이터 DDL을 실행하지 않도록 다음 값을 Run Configuration에 설정합니다.
+
+```env
+FLYWAY_ENABLED=false
+SPRING_BATCH_JDBC_INITIALIZE_SCHEMA=never
+SPRING_BATCH_JOB_ENABLED=false
+SALES_DAILY_EXPORT_DESTINATION=LOCAL
+SALES_DAILY_EXPORT_PATH=./build/exports/sales_daily.csv
+```
+
+`FLYWAY_ENABLED=true` 또는 `SPRING_BATCH_JDBC_INITIALIZE_SCHEMA=always`가 IDE 환경변수에
+남아 있으면 `application.yml`의 안전한 기본값보다 환경변수가 우선하므로, 로컬 read-only
+검증 전에 반드시 제거하거나 위 값으로 바꿉니다. Azure Blob export를 실행하는 별도 작업에서만
+destination과 Azure 인증 환경변수를 추가합니다.
 
 ## Azure 리소스 준비
 

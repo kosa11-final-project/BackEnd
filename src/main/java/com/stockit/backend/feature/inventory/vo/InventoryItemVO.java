@@ -23,6 +23,7 @@ public class InventoryItemVO {
     private String channelType;
     private String salesPointCode;
     private String salesPointName;
+    private String salesPointState;
     private String storageType;
     private BigDecimal sellingPrice;
     private BigDecimal currentQty;
@@ -40,8 +41,6 @@ public class InventoryItemVO {
     private Integer lotCount;
     private Integer nearestExpiryDays;
     private Date nearestExpiryDate;
-    private BigDecimal dailySales;
-    private BigDecimal forecast14Days;
     private Timestamp updatedAt;
 
     public String getProductCode() { return productCode; }
@@ -78,6 +77,8 @@ public class InventoryItemVO {
     public void setSalesPointCode(String salesPointCode) { this.salesPointCode = salesPointCode; }
     public String getSalesPointName() { return salesPointName; }
     public void setSalesPointName(String salesPointName) { this.salesPointName = salesPointName; }
+    public String getSalesPointState() { return salesPointState; }
+    public void setSalesPointState(String salesPointState) { this.salesPointState = salesPointState; }
     public String getStorageType() { return storageType; }
     public void setStorageType(String storageType) { this.storageType = storageType; }
     public BigDecimal getSellingPrice() { return sellingPrice; }
@@ -112,10 +113,6 @@ public class InventoryItemVO {
     public void setNearestExpiryDays(Integer nearestExpiryDays) { this.nearestExpiryDays = nearestExpiryDays; }
     public Date getNearestExpiryDate() { return nearestExpiryDate; }
     public void setNearestExpiryDate(Date nearestExpiryDate) { this.nearestExpiryDate = nearestExpiryDate; }
-    public BigDecimal getDailySales() { return dailySales; }
-    public void setDailySales(BigDecimal dailySales) { this.dailySales = dailySales; }
-    public BigDecimal getForecast14Days() { return forecast14Days; }
-    public void setForecast14Days(BigDecimal forecast14Days) { this.forecast14Days = forecast14Days; }
     public Timestamp getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(Timestamp updatedAt) { this.updatedAt = updatedAt; }
 }
