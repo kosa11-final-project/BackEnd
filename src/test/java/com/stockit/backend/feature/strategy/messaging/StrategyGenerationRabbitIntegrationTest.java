@@ -106,15 +106,19 @@ class StrategyGenerationRabbitIntegrationTest {
     @Test
     void retryQueueReturnsMessageToMainQueueAfterTtl() {
         listenerRegistry.stop();
+        await().atMost(Duration.ofSeconds(5)).until(
+                () -> !listenerRegistry.isRunning()
+        );
+        rabbitAdmin.purgeQueue(StrategyGenerationMessagingProperties.RETRY_QUEUE, false);
         rabbitAdmin.purgeQueue(StrategyGenerationMessagingProperties.MAIN_QUEUE, false);
         try {
             StrategyGenerationJobMessage message = jobMessage(12345L);
 
             retryPublisher.publishForRetry(message, 1);
 
-            Message retried = rabbitTemplate.receive(
-                    StrategyGenerationMessagingProperties.MAIN_QUEUE,
-                    Duration.ofSeconds(5).toMillis()
+            Message retried = receiveExpectedMessage(
+                    message.messageId().toString(),
+                    Duration.ofSeconds(5)
             );
             assertThat(retried).isNotNull();
             assertThat(retried.getMessageProperties().getHeaders())
@@ -167,5 +171,28 @@ class StrategyGenerationRabbitIntegrationTest {
                         ZoneOffset.ofHours(9)
                 )
         );
+    }
+
+    private Message receiveExpectedMessage(
+            String expectedMessageId,
+            Duration timeout
+    ) {
+        long deadline = System.nanoTime() + timeout.toNanos();
+        while (System.nanoTime() < deadline) {
+            long remainingMillis = Math.max(
+                    1L,
+                    Duration.ofNanos(deadline - System.nanoTime()).toMillis()
+            );
+            Message candidate = rabbitTemplate.receive(
+                    StrategyGenerationMessagingProperties.MAIN_QUEUE,
+                    Math.min(remainingMillis, 500L)
+            );
+            if (candidate != null && expectedMessageId.equals(
+                    candidate.getMessageProperties().getMessageId()
+            )) {
+                return candidate;
+            }
+        }
+        return null;
     }
 }
