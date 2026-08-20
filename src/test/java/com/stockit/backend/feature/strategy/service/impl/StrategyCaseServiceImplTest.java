@@ -131,6 +131,8 @@ class StrategyCaseServiceImplTest {
                 .isEqualTo("[\"CHANNEL_EXPANSION\",\"PRICE_DISCOUNT\"]");
         assertThat(payload.get("preferredStartDate").asText()).isEqualTo("2026-08-20");
         assertThat(payload.get("preferredEndDate").asText()).isEqualTo("2026-08-27");
+        assertThat(payload.get("forecastStartDate").asText()).isEqualTo("2026-08-20");
+        assertThat(payload.get("forecastEndDate").asText()).isEqualTo("2026-08-27");
     }
 
     @Test
@@ -160,6 +162,12 @@ class StrategyCaseServiceImplTest {
         assertThat(payload.get("lotIds").isEmpty()).isTrue();
         assertThat(payload.get("candidateSalesPointIds").isEmpty()).isTrue();
         assertThat(payload.get("strategyTypes").isEmpty()).isTrue();
+        assertThat(payload.get("preferredStartDate").isNull()).isTrue();
+        assertThat(payload.get("preferredEndDate").isNull()).isTrue();
+        assertThat(payload.get("forecastStartDate").asText())
+                .isEqualTo(REQUESTED_AT.toLocalDate().toString());
+        assertThat(payload.get("forecastEndDate").asText())
+                .isEqualTo(REQUESTED_AT.toLocalDate().plusDays(89).toString());
     }
 
     @Test

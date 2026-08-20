@@ -17,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.stockit.backend.common.exception.AppException;
 import com.stockit.backend.common.exception.ErrorCode;
 import com.stockit.backend.feature.strategy.domain.CreateStrategyCaseCommand;
+import com.stockit.backend.feature.strategy.domain.ForecastDateRange;
 import com.stockit.backend.feature.strategy.domain.StrategyCaseCreated;
 import com.stockit.backend.feature.strategy.domain.StrategyType;
 import com.stockit.backend.feature.strategy.dto.StrategyCaseRequestPayload;
@@ -84,7 +85,7 @@ public class StrategyCaseServiceImpl implements StrategyCaseService {
 
         // 제목과 날짜 검증이 자정 경계를 사이에 두고 달라지지 않도록 요청 시각을 한 번만 고정
         LocalDateTime requestedAt = dateTimeProvider.now();
-        dateRangeResolver.resolve(
+        ForecastDateRange forecastDateRange = dateRangeResolver.resolve(
                 command.preferredStartDate(),
                 command.preferredEndDate(),
                 requestedAt.toLocalDate()
@@ -96,7 +97,9 @@ public class StrategyCaseServiceImpl implements StrategyCaseService {
                 command.candidateSalesPointIds(),
                 command.strategyTypes(),
                 command.preferredStartDate(),
-                command.preferredEndDate()
+                command.preferredEndDate(),
+                forecastDateRange.startDate(),
+                forecastDateRange.endDate()
         ));
 
         StrategyCaseVO strategyCase = StrategyCaseVO.generating(
