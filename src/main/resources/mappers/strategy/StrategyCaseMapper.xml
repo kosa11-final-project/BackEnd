@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.stockit.backend.feature.strategy.mapper.StrategyCaseMapper">
+
+    <resultMap id="strategyCaseResultMap" type="StrategyCaseVO">
+        <id property="strategyCaseId" column="strategy_case_id"/>
+        <result property="skuId" column="sku_id"/>
+        <result property="requestedSalesPointId" column="requested_sales_point_id"/>
+        <result property="caseCode" column="case_code"/>
+        <result property="caseName" column="case_name"/>
+        <result property="caseStatus" column="case_status"/>
+        <result property="requestPayloadJson" column="request_payload_json"/>
+        <result property="resultCacheKey" column="result_cache_key"/>
+        <result property="resultExpiresAt" column="result_expires_at"/>
+        <result property="failureCode" column="failure_code"/>
+        <result property="failureMessage" column="failure_message"/>
+        <result property="completedAt" column="completed_at"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+        <result property="createdBy" column="created_by"/>
+        <result property="updatedBy" column="updated_by"/>
+        <result property="isDeleted" column="is_deleted"/>
+    </resultMap>
+
+    <select id="selectActiveSku" resultType="StrategySkuReferenceVO">
+        SELECT sku_id,
+               sku_name
+        FROM sku
+        WHERE sku_id = #{skuId}
+          AND active_yn = 'Y'
+          AND is_deleted = 0
+    </select>
+
+    <select id="selectActiveSalesPointIds" resultType="long">
+        SELECT sales_point_id
+        FROM sales_point
+        WHERE active_yn = 'Y'
+          AND is_deleted = 0
+          AND sales_point_id IN
+        <foreach collection="salesPointIds" item="salesPointId" open="(" separator="," close=")">
+            #{salesPointId}
+        </foreach>
+    </select>
+
+    <select id="selectLotReferences" resultType="StrategyLotReferenceVO">
+        SELECT lot.lot_id,
+               lot.sku_id,
+               lot.lot_status,
+               (
+                   SELECT MIN(balance.warehouse_id)
+                   FROM inventory_balance balance
+                   WHERE balance.lot_id = lot.lot_id
+                     AND balance.is_deleted = 0
+               ) AS warehouse_id
+        FROM lot
+        WHERE lot.is_deleted = 0
+          AND lot.lot_id IN
+        <foreach collection="lotIds" item="lotId" open="(" separator="," close=")">
+            #{lotId}
+        </foreach>
+    </select>
+
+    <insert id="insertStrategyCase"
+            parameterType="StrategyCaseVO"
+            useGeneratedKeys="true"
+            keyProperty="strategyCaseId"
+            keyColumn="strategy_case_id">
+        INSERT INTO strategy_case (
+            sku_id,
+            created_by,
+            updated_by,
+            requested_sales_point_id,
+            case_code,
+            case_name,
+            case_status,
+            request_payload_json,
+            is_deleted
+        ) VALUES (
+            #{skuId},
+            #{createdBy},
+            #{updatedBy},
+            #{requestedSalesPointId},
+            #{caseCode},
+            #{caseName},
+            #{caseStatus},
+            #{requestPayloadJson},
+            0
+        )
+    </insert>
+
+    <select id="selectStrategyCaseById" resultMap="strategyCaseResultMap">
+        SELECT strategy_case_id,
+               sku_id,
+               requested_sales_point_id,
+               case_code,
+               case_name,
+               case_status,
+               request_payload_json,
+               result_cache_key,
+               result_expires_at,
+               failure_code,
+               failure_message,
+               completed_at,
+               created_at,
+               updated_at,
+               created_by,
+               updated_by,
+               is_deleted
+        FROM strategy_case
+        WHERE strategy_case_id = #{strategyCaseId}
+          AND is_deleted = 0
+    </select>
+
+</mapper>
