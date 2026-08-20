@@ -1,0 +1,228 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.stockit.backend.feature.strategy.mapper.StrategyExecutionMapper">
+
+    <sql id="finalStrategyBaseSelect">
+        SELECT final_selection.final_selection_id,
+               strategy_case.strategy_case_id,
+               strategy_option.strategy_option_id,
+               strategy_case.case_code,
+               strategy_case.case_name,
+               strategy_case.case_status,
+               final_selection.created_at AS established_at,
+               final_selection.last_synced_at,
+               sku.sku_id,
+               sku.sku_code,
+               sku.sku_name,
+               sku.unit_code,
+               product.product_name,
+               product.image_url,
+               strategy_option.option_name,
+               strategy_option.recommendation_reason
+        FROM (
+            SELECT selection.*,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY selection.strategy_case_id
+                       ORDER BY selection.created_at DESC,
+                                selection.final_selection_id DESC
+                   ) AS selection_rank
+            FROM final_strategy_selection selection
+            WHERE selection.is_deleted = 0
+        ) final_selection
+        JOIN strategy_case
+          ON strategy_case.strategy_case_id = final_selection.strategy_case_id
+         AND strategy_case.is_deleted = 0
+        JOIN strategy_option
+          ON strategy_option.strategy_option_id = final_selection.strategy_option_id
+         AND strategy_option.strategy_case_id = strategy_case.strategy_case_id
+         AND strategy_option.is_deleted = 0
+        JOIN sku
+          ON sku.sku_id = strategy_case.sku_id
+         AND sku.is_deleted = 0
+        JOIN product
+          ON product.product_id = sku.product_id
+         AND product.is_deleted = 0
+        WHERE final_selection.selection_rank = 1
+    </sql>
+
+    <select id="selectFinalStrategyExecutions" resultType="StrategyExecutionBaseVO">
+        <include refid="finalStrategyBaseSelect"/>
+        ORDER BY final_selection.created_at DESC,
+                 final_selection.final_selection_id DESC
+    </select>
+
+    <select id="selectFinalStrategyExecution" resultType="StrategyExecutionBaseVO">
+        <include refid="finalStrategyBaseSelect"/>
+          AND strategy_case.strategy_case_id = #{strategyCaseId}
+        ORDER BY final_selection.created_at DESC,
+                 final_selection.final_selection_id DESC
+        FETCH FIRST 1 ROW ONLY
+    </select>
+
+    <select id="selectSupportedActions" resultType="StrategyExecutionActionVO">
+        SELECT action.strategy_action_id,
+               action.strategy_option_id,
+               action.action_type,
+               action.action_quantity,
+               action.action_order,
+               action.start_date,
+               action.end_date,
+               source_point.sales_point_id AS source_sales_point_id,
+               source_point.sales_point_code AS source_sales_point_code,
+               source_point.sales_point_name AS source_sales_point_name,
+               target_point.sales_point_id AS target_sales_point_id,
+               target_point.sales_point_code AS target_sales_point_code,
+               target_point.sales_point_name AS target_sales_point_name,
+               source_warehouse.warehouse_id AS source_warehouse_id,
+               source_warehouse.warehouse_code AS source_warehouse_code,
+               source_warehouse.warehouse_name AS source_warehouse_name,
+               destination_warehouse.warehouse_id AS destination_warehouse_id,
+               destination_warehouse.warehouse_code AS destination_warehouse_code,
+               destination_warehouse.warehouse_name AS destination_warehouse_name
+        FROM strategy_action action
+        LEFT JOIN sales_point source_point
+          ON source_point.sales_point_id = action.source_sales_point_id
+         AND source_point.is_deleted = 0
+        LEFT JOIN sales_point target_point
+          ON target_point.sales_point_id = action.target_sales_point_id
+         AND target_point.is_deleted = 0
+        LEFT JOIN warehouse source_warehouse
+          ON source_warehouse.warehouse_id = action.source_warehouse_id
+         AND source_warehouse.is_deleted = 0
+        LEFT JOIN warehouse destination_warehouse
+          ON destination_warehouse.warehouse_id = action.destination_warehouse_id
+         AND destination_warehouse.is_deleted = 0
+        WHERE action.is_deleted = 0
+          AND action.action_type IN (
+              'REALLOCATION',
+              'RT_TRANSFER',
+              'CHANNEL_EXPANSION',
+              'CHANNEL_CONCENTRATION'
+          )
+          AND action.strategy_option_id IN
+        <foreach collection="strategyOptionIds" item="strategyOptionId" open="(" separator="," close=")">
+            #{strategyOptionId}
+        </foreach>
+        ORDER BY action.strategy_option_id,
+                 action.action_order NULLS LAST,
+                 action.strategy_action_id
+    </select>
+
+    <select id="selectInventoryResults" resultType="StrategyExecutionInventoryVO">
+        SELECT CASE WHEN snapshot.sales_point_id IS NOT NULL THEN 'SALES_POINT' ELSE 'WAREHOUSE' END AS location_type,
+               COALESCE(snapshot.sales_point_id, snapshot.warehouse_id) AS location_id,
+               COALESCE(sales_point.sales_point_code, warehouse.warehouse_code) AS location_code,
+               COALESCE(sales_point.sales_point_name, warehouse.warehouse_name) AS location_name,
+               SUM(snapshot.on_hand_qty) AS before_quantity,
+               CASE WHEN COUNT(current_balance.inventory_balance_id) = 0
+                    THEN NULL
+                    ELSE SUM(current_balance.on_hand_qty)
+               END AS current_quantity,
+               SUM(snapshot.safety_stock_qty) AS safety_stock_quantity
+        FROM strategy_inventory_snapshot snapshot
+        LEFT JOIN inventory_balance current_balance
+          ON current_balance.inventory_balance_id = snapshot.inventory_balance_id
+         AND current_balance.is_deleted = 0
+        LEFT JOIN sales_point
+          ON sales_point.sales_point_id = snapshot.sales_point_id
+         AND sales_point.is_deleted = 0
+        LEFT JOIN warehouse
+          ON warehouse.warehouse_id = snapshot.warehouse_id
+         AND warehouse.is_deleted = 0
+        WHERE snapshot.strategy_case_id = #{strategyCaseId}
+          AND snapshot.is_deleted = 0
+        GROUP BY CASE WHEN snapshot.sales_point_id IS NOT NULL THEN 'SALES_POINT' ELSE 'WAREHOUSE' END,
+                 COALESCE(snapshot.sales_point_id, snapshot.warehouse_id),
+                 COALESCE(sales_point.sales_point_code, warehouse.warehouse_code),
+                 COALESCE(sales_point.sales_point_name, warehouse.warehouse_name)
+        ORDER BY location_type, location_name
+    </select>
+
+    <select id="selectDailySales" resultType="StrategyExecutionDailySalesVO">
+        WITH selected_strategy AS (
+            SELECT final_selection.strategy_option_id,
+                   strategy_case.sku_id,
+                   TRUNC(final_selection.created_at) AS established_date
+            FROM final_strategy_selection final_selection
+            JOIN strategy_case
+              ON strategy_case.strategy_case_id = final_selection.strategy_case_id
+             AND strategy_case.is_deleted = 0
+            WHERE final_selection.strategy_case_id = #{strategyCaseId}
+              AND final_selection.is_deleted = 0
+            ORDER BY final_selection.created_at DESC,
+                     final_selection.final_selection_id DESC
+            FETCH FIRST 1 ROW ONLY
+        ),
+        relevant_points AS (
+            SELECT action.source_sales_point_id AS sales_point_id
+            FROM strategy_action action
+            JOIN selected_strategy selected
+              ON selected.strategy_option_id = action.strategy_option_id
+            WHERE action.is_deleted = 0
+              AND action.action_type IN (
+                  'REALLOCATION', 'RT_TRANSFER', 'CHANNEL_EXPANSION', 'CHANNEL_CONCENTRATION'
+              )
+              AND action.source_sales_point_id IS NOT NULL
+            UNION
+            SELECT action.target_sales_point_id
+            FROM strategy_action action
+            JOIN selected_strategy selected
+              ON selected.strategy_option_id = action.strategy_option_id
+            WHERE action.is_deleted = 0
+              AND action.action_type IN (
+                  'REALLOCATION', 'RT_TRANSFER', 'CHANNEL_EXPANSION', 'CHANNEL_CONCENTRATION'
+              )
+              AND action.target_sales_point_id IS NOT NULL
+        )
+        SELECT sales.sales_date,
+               sales.sales_point_id,
+               sales_point.sales_point_code,
+               sales_point.sales_point_name,
+               sales.net_sales_qty AS quantity,
+               sales.net_sales_amount AS revenue
+        FROM selected_strategy selected
+        JOIN sales_daily sales
+          ON sales.sku_id = selected.sku_id
+         AND sales.sales_date &gt;= selected.established_date
+         AND sales.sales_date &lt; selected.established_date + 90
+         AND sales.sales_date &lt;= TRUNC(SYSDATE)
+         AND sales.is_deleted = 0
+        JOIN relevant_points relevant
+          ON relevant.sales_point_id = sales.sales_point_id
+        JOIN sales_point
+          ON sales_point.sales_point_id = sales.sales_point_id
+         AND sales_point.is_deleted = 0
+        ORDER BY sales.sales_date, sales.sales_point_id
+    </select>
+
+    <select id="selectPerformance" resultType="StrategyExecutionPerformanceVO">
+        SELECT aggregated.performance_count,
+               aggregated.actual_sales_quantity,
+               aggregated.actual_revenue,
+               aggregated.actual_contribution_margin,
+               (
+                   SELECT latest.actual_remaining_qty
+                   FROM strategy_performance latest
+                   WHERE latest.strategy_option_id = #{strategyOptionId}
+                     AND latest.is_deleted = 0
+                   ORDER BY latest.performance_date DESC,
+                            latest.strategy_performance_id DESC
+                   FETCH FIRST 1 ROW ONLY
+               ) AS actual_remaining_quantity,
+               aggregated.moved_quantity,
+               aggregated.disposed_quantity
+        FROM (
+            SELECT COUNT(*) AS performance_count,
+                   SUM(performance.actual_sales_qty) AS actual_sales_quantity,
+                   SUM(performance.actual_revenue) AS actual_revenue,
+                   SUM(performance.actual_contribution_margin) AS actual_contribution_margin,
+                   SUM(performance.moved_quantity) AS moved_quantity,
+                   SUM(performance.disposed_quantity) AS disposed_quantity
+            FROM strategy_performance performance
+            WHERE performance.strategy_option_id = #{strategyOptionId}
+              AND performance.is_deleted = 0
+        ) aggregated
+    </select>
+
+</mapper>

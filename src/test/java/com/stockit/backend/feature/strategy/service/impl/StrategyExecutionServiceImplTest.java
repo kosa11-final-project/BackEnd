@@ -1,0 +1,143 @@
+package com.stockit.backend.feature.strategy.service.impl;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.List;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+import com.stockit.backend.common.exception.AppException;
+import com.stockit.backend.common.exception.ErrorCode;
+import com.stockit.backend.feature.strategy.dto.response.StrategyExecutionResponse;
+import com.stockit.backend.feature.strategy.mapper.StrategyExecutionMapper;
+import com.stockit.backend.feature.strategy.service.StrategyExecutionService;
+import com.stockit.backend.feature.strategy.vo.StrategyExecutionActionVO;
+import com.stockit.backend.feature.strategy.vo.StrategyExecutionBaseVO;
+import com.stockit.backend.feature.strategy.vo.StrategyExecutionDailySalesVO;
+import com.stockit.backend.feature.strategy.vo.StrategyExecutionInventoryVO;
+import com.stockit.backend.feature.strategy.vo.StrategyExecutionPerformanceVO;
+
+@ExtendWith(MockitoExtension.class)
+class StrategyExecutionServiceImplTest {
+
+    @Mock
+    private StrategyExecutionMapper mapper;
+
+    private StrategyExecutionService service;
+
+    @BeforeEach
+    void setUp() {
+        service = new StrategyExecutionServiceImpl(mapper);
+    }
+
+    @Test
+    void loadsListBasesAndAllActionsWithoutNPlusOne() {
+        StrategyExecutionBaseVO first = base(101L, 1001L);
+        StrategyExecutionBaseVO second = base(102L, 1002L);
+        when(mapper.selectFinalStrategyExecutions()).thenReturn(List.of(first, second));
+        when(mapper.selectSupportedActions(List.of(1001L, 1002L)))
+                .thenReturn(List.of(action(11L, 1001L), action(12L, 1001L), action(21L, 1002L)));
+
+        List<StrategyExecutionResponse> result = service.findAll();
+
+        assertThat(result).hasSize(2);
+        assertThat(result.get(0).actions()).hasSize(2);
+        assertThat(result.get(1).actions()).hasSize(1);
+        assertThat(result.get(0).inventoryResults()).isEmpty();
+        assertThat(result.get(0).salesDaily()).isEmpty();
+        verify(mapper).selectSupportedActions(List.of(1001L, 1002L));
+    }
+
+    @Test
+    void returnsDetailWithNullUnknownsAndActualCollectedValues() {
+        StrategyExecutionBaseVO base = base(101L, 1001L);
+        StrategyExecutionActionVO action = action(11L, 1001L);
+        StrategyExecutionInventoryVO inventory = new StrategyExecutionInventoryVO();
+        inventory.setLocationType("WAREHOUSE");
+        inventory.setLocationId(501L);
+        inventory.setLocationName("성남센터");
+        inventory.setBeforeQuantity(new BigDecimal("100"));
+        inventory.setCurrentQuantity(new BigDecimal("80"));
+        inventory.setSafetyStockQuantity(new BigDecimal("30"));
+        StrategyExecutionDailySalesVO sales = new StrategyExecutionDailySalesVO();
+        sales.setSalesDate(LocalDate.of(2026, 5, 2));
+        sales.setSalesPointId(10L);
+        sales.setSalesPointCode("GREETING");
+        sales.setSalesPointName("그리팅몰");
+        sales.setQuantity(new BigDecimal("7"));
+        sales.setRevenue(new BigDecimal("70000"));
+        StrategyExecutionPerformanceVO performance = new StrategyExecutionPerformanceVO();
+        performance.setPerformanceCount(1L);
+        performance.setActualSalesQuantity(new BigDecimal("7"));
+        performance.setActualRemainingQuantity(new BigDecimal("80"));
+
+        when(mapper.selectFinalStrategyExecution(101L)).thenReturn(base);
+        when(mapper.selectSupportedActions(List.of(1001L))).thenReturn(List.of(action));
+        when(mapper.selectInventoryResults(101L)).thenReturn(List.of(inventory));
+        when(mapper.selectDailySales(101L)).thenReturn(List.of(sales));
+        when(mapper.selectPerformance(1001L)).thenReturn(performance);
+
+        StrategyExecutionResponse result = service.findByStrategyCaseId(101L);
+
+        assertThat(result.id()).isEqualTo(101L);
+        assertThat(result.progress()).isNull();
+        assertThat(result.actions().get(0).status()).isNull();
+        assertThat(result.actions().get(0).relationship()).isNull();
+        assertThat(result.inventoryResults().get(0).moved()).isEqualByComparingTo("-20");
+        assertThat(result.salesDaily()).hasSize(1);
+        assertThat(result.channelResults().get(0).sales()).isEqualByComparingTo("7");
+        assertThat(result.performance().actualRemainingQuantity()).isEqualByComparingTo("80");
+        assertThat(result.lastSyncedAt()).isNotNull();
+    }
+
+    @Test
+    void rejectsCaseWithoutFinalSelectionAsStandardNotFound() {
+        when(mapper.selectFinalStrategyExecution(999L)).thenReturn(null);
+
+        assertThatThrownBy(() -> service.findByStrategyCaseId(999L))
+                .isInstanceOfSatisfying(AppException.class, exception ->
+                        assertThat(exception.getErrorCode())
+                                .isEqualTo(ErrorCode.AI_STRATEGY_EXECUTION_NOT_FOUND));
+    }
+
+    private static StrategyExecutionBaseVO base(Long caseId, Long optionId) {
+        StrategyExecutionBaseVO base = new StrategyExecutionBaseVO();
+        base.setStrategyCaseId(caseId);
+        base.setStrategyOptionId(optionId);
+        base.setCaseCode("SC-" + caseId);
+        base.setCaseStatus("EXECUTING");
+        base.setEstablishedAt(LocalDateTime.of(2026, 5, 1, 10, 0));
+        base.setLastSyncedAt(LocalDateTime.of(2026, 5, 3, 10, 0));
+        base.setSkuId(1L);
+        base.setSkuCode("SKU-1");
+        base.setSkuName("테스트 SKU");
+        base.setUnitCode("개");
+        base.setProductName("테스트 상품");
+        base.setRecommendationReason("재고 편중 완화");
+        return base;
+    }
+
+    private static StrategyExecutionActionVO action(Long actionId, Long optionId) {
+        StrategyExecutionActionVO action = new StrategyExecutionActionVO();
+        action.setStrategyActionId(actionId);
+        action.setStrategyOptionId(optionId);
+        action.setActionType("REALLOCATION");
+        action.setActionQuantity(new BigDecimal("20"));
+        action.setSourceWarehouseId(501L);
+        action.setSourceWarehouseName("성남센터");
+        action.setTargetSalesPointId(10L);
+        action.setTargetSalesPointCode("GREETING");
+        action.setTargetSalesPointName("그리팅몰");
+        return action;
+    }
+}
