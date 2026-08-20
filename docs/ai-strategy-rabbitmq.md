@@ -27,8 +27,10 @@ docker compose -f compose.rabbitmq.yml up -d
 - 로컬 기본 계정: `stockit_local`
 - 로컬 기본 비밀번호: `stockit_local`
 
-운영에서는 `RABBITMQ_USERNAME`, `RABBITMQ_PASSWORD`를 반드시 별도 비밀값으로
-재정의한다. 로컬 RabbitMQ를 중지할 때는 다음 명령을 사용한다.
+공통 설정에는 계정 기본값을 두지 않는다. `stockit_local` 기본값은 `local` 프로필에서만
+제공하며, 운영에서는 `RABBITMQ_USERNAME`, `RABBITMQ_PASSWORD`를 필수 비밀값으로
+주입한다. 운영 Broker 주소만 설정하고 로컬 계정으로 접속을 시도하는 설정 누락을 조기에
+발견하기 위한 구분이다. 로컬 RabbitMQ를 중지할 때는 다음 명령을 사용한다.
 
 ```bash
 docker compose -f compose.rabbitmq.yml down
@@ -71,11 +73,15 @@ AI_STRATEGY_CONFIRM_TIMEOUT=5s
 ## 장애 처리
 
 - Publisher NACK, Confirm timeout, 미라우팅 return은 `MQ_PUBLISH_FAILED`로 기록한다.
-- 손상된 메시지, 지원하지 않는 schema version과 잘못된 저장 payload는 재시도 없이
-  `GENERATION_FAILED` 및 DLQ로 보낸다.
+- 손상된 메시지, JSON `null`, 지원하지 않는 schema version과 잘못된 저장 payload는
+  재시도 없이 `GENERATION_FAILED` 및 DLQ로 보낸다. Case ID를 복원할 수 없는 메시지는
+  DB 실패 상태를 기록하지 않고 DLQ에 원본만 보존한다.
 - 일시 오류가 총 3회 실패하면 `MQ_RETRY_EXHAUSTED`로 기록하고 DLQ로 보낸다.
 - Retry 메시지의 Publisher Confirm을 받기 전에는 원본 메시지를 ACK하지 않는다.
 - 동일 Case의 중복 메시지는 조건부 DB 갱신 결과를 이용해 no-op ACK한다.
+- 실패 전이는 `case_status=GENERATING AND generation_stage IS NULL`인 Case에만 허용한다.
+  이미 `FORECASTING`에 진입한 Case가 뒤늦은 손상·중복 메시지 때문에 실패로 덮어써지는
+  것을 방지한다.
 
 ## 테스트
 
@@ -85,7 +91,9 @@ AI_STRATEGY_CONFIRM_TIMEOUT=5s
 ```
 
 Docker가 실행 중이면 Testcontainers가 실제 RabbitMQ로 정상 소비, Retry TTL과 DLQ
-라우팅을 검증한다. Docker를 사용할 수 없는 환경에서는 해당 통합 테스트만 skip된다.
+라우팅을 검증한다. Retry 테스트는 Listener 종료를 확인한 뒤 공유 Queue를 비우고 기대한
+`messageId`만 수신해 이전 테스트 메시지에 의한 비결정적 실패를 방지한다. Docker를 사용할
+수 없는 환경에서는 해당 통합 테스트만 skip된다.
 
 ## 현재 한계와 후속 안정화
 
@@ -94,6 +102,10 @@ Docker가 실행 중이면 Testcontainers가 실제 RabbitMQ로 정상 소비, R
 - 현재 멱등성은 단일 Consumer, 종료 상태 확인과 `generation_stage IS NULL` 조건부 갱신을
   사용한다. 장시간 실행되는 ML·AI Workflow를 연결하기 전 Redis Case lock 또는 실행 lease가
   필요하다.
+- 현재 실패 UPDATE의 `generation_stage IS NULL` 조건은 Consumer 진입 단계에서 중복 오류가
+  진행 중 Case를 덮어쓰지 못하게 하는 보호 장치다. 실제 ML·AI 실행을 연결할 때는
+  `FORECASTING`, `STRATEGY_GENERATING` 등 예상 단계를 조건으로 하는 단계별 실패 전이를
+  별도로 구현해야 한다.
 - DLQ 메시지의 조회와 수동 재발행 API는 아직 제공하지 않는다.
 - Queue TTL은 Queue 선언 인자이므로 운영 중 retry delay를 변경할 때는 Queue 재생성 또는
   versioning 절차가 필요하다.
