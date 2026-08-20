@@ -135,6 +135,7 @@
             updated_by = created_by
         WHERE strategy_case_id = #{strategyCaseId}
           AND case_status = 'GENERATING'
+          AND generation_stage IS NULL
           AND is_deleted = 0
     </update>
 

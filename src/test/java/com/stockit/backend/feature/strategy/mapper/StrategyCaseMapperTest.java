@@ -116,4 +116,37 @@ class StrategyCaseMapperTest {
         assertThat(failed.getFailureMessage()).isEqualTo("temporary failure");
         assertThat(failed.getCompletedAt()).isNotNull();
     }
+
+    @Test
+    void doesNotOverwriteForecastingCaseWithFailure() {
+        StrategyCaseVO strategyCase = StrategyCaseVO.generating(
+                101L,
+                10L,
+                "SC-0123456789abcdef0123456789abcdff",
+                "수요예측 진행 전략",
+                "{\"lotIds\":[]}",
+                99L
+        );
+        strategyCaseMapper.insertStrategyCase(strategyCase);
+        assertThat(strategyCaseMapper.markForecastingIfPending(
+                strategyCase.getStrategyCaseId()
+        )).isEqualTo(1);
+
+        assertThat(strategyCaseMapper.markGenerationFailedIfGenerating(
+                strategyCase.getStrategyCaseId(),
+                "MQ_MESSAGE_INVALID",
+                "duplicated invalid message"
+        )).isZero();
+
+        StrategyCaseVO forecasting = strategyCaseMapper.selectStrategyCaseById(
+                strategyCase.getStrategyCaseId()
+        );
+        assertThat(forecasting.getCaseStatus())
+                .isEqualTo(StrategyCaseStatus.GENERATING);
+        assertThat(forecasting.getGenerationStage())
+                .isEqualTo(StrategyGenerationStage.FORECASTING);
+        assertThat(forecasting.getFailureCode()).isNull();
+        assertThat(forecasting.getFailureMessage()).isNull();
+        assertThat(forecasting.getCompletedAt()).isNull();
+    }
 }
