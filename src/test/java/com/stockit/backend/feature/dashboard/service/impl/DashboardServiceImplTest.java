@@ -26,6 +26,7 @@ import com.stockit.backend.feature.dashboard.dto.DashboardSnapshotPayload;
 import com.stockit.backend.feature.dashboard.dto.response.DashboardResponse;
 import com.stockit.backend.feature.dashboard.dto.response.DashboardSummaryResponse;
 import com.stockit.backend.feature.dashboard.dto.response.OfflineStoreInventoryResponse;
+import com.stockit.backend.feature.dashboard.dto.response.OnlineSalesPointInventoryResponse;
 import com.stockit.backend.feature.dashboard.dto.response.RiskSalesPointResponse;
 import com.stockit.backend.feature.dashboard.dto.response.UrgentSkuResponse;
 import com.stockit.backend.feature.dashboard.dto.response.WarehouseInventoryResponse;
@@ -34,6 +35,7 @@ import com.stockit.backend.feature.dashboard.mapper.DashboardSnapshotMapper;
 import com.stockit.backend.feature.dashboard.vo.DashboardSnapshotVO;
 import com.stockit.backend.feature.dashboard.vo.DashboardSummaryVO;
 import com.stockit.backend.feature.dashboard.vo.OfflineStoreInventoryVO;
+import com.stockit.backend.feature.dashboard.vo.OnlineSalesPointInventoryVO;
 import com.stockit.backend.feature.dashboard.vo.RiskSalesPointVO;
 import com.stockit.backend.feature.dashboard.vo.UrgentSkuVO;
 import com.stockit.backend.feature.dashboard.vo.WarehouseInventoryVO;
@@ -69,10 +71,11 @@ class DashboardServiceImplTest {
     void returnsLatestCompletedSnapshot() throws Exception {
         DashboardSnapshotVO snapshot = new DashboardSnapshotVO();
         snapshot.setDashboardSnapshotId(11L);
-        snapshot.setPayloadVersion(1);
+        snapshot.setPayloadVersion(2);
         snapshot.setPayloadJson(objectMapper.writeValueAsString(new DashboardSnapshotPayload(
                 DashboardSummaryResponse.from(summary()),
                 List.of(WarehouseInventoryResponse.from(warehouse())),
+                List.of(OnlineSalesPointInventoryResponse.from(onlineSalesPoint())),
                 List.of(OfflineStoreInventoryResponse.from(store())),
                 List.of(RiskSalesPointResponse.from(1, riskPoint())),
                 List.of(UrgentSkuResponse.from(1, urgentSku()))
@@ -101,6 +104,8 @@ class DashboardServiceImplTest {
     void combinesLiveDashboardQueriesAndAssignsRanksWithoutExposingRiskScore() {
         when(dashboardMapper.selectSummary(AS_OF_DATE)).thenReturn(summary());
         when(dashboardMapper.selectWarehouseInventories(AS_OF_DATE)).thenReturn(List.of(warehouse()));
+        when(dashboardMapper.selectOnlineSalesPointInventories(AS_OF_DATE))
+                .thenReturn(List.of(onlineSalesPoint()));
         when(dashboardMapper.selectOfflineStoreInventories(AS_OF_DATE)).thenReturn(List.of(store()));
         when(dashboardMapper.selectRiskSalesPointsTop10(AS_OF_DATE)).thenReturn(List.of(riskPoint()));
         when(dashboardMapper.selectUrgentSkusTop5(AS_OF_DATE)).thenReturn(List.of(urgentSku()));
@@ -111,6 +116,7 @@ class DashboardServiceImplTest {
 
         verify(dashboardMapper).selectSummary(AS_OF_DATE);
         verify(dashboardMapper).selectWarehouseInventories(AS_OF_DATE);
+        verify(dashboardMapper).selectOnlineSalesPointInventories(AS_OF_DATE);
         verify(dashboardMapper).selectOfflineStoreInventories(AS_OF_DATE);
         verify(dashboardMapper).selectRiskSalesPointsTop10(AS_OF_DATE);
         verify(dashboardMapper).selectUrgentSkusTop5(AS_OF_DATE);
@@ -122,6 +128,11 @@ class DashboardServiceImplTest {
         assertThat(response.summary().riskAndWarningSkuCount()).isEqualTo(12);
         assertThat(response.warehouses()).singleElement()
                 .satisfies(value -> assertThat(value.warehouseCode()).isEqualTo("SEONGNAM"));
+        assertThat(response.onlineSalesPoints()).singleElement()
+                .satisfies(value -> {
+                    assertThat(value.salesPointCode()).isEqualTo("GREETING");
+                    assertThat(value.storageWarehouseCount()).isEqualTo(1);
+                });
         assertThat(response.offlineStores()).singleElement()
                 .satisfies(value -> assertThat(value.salesPointCode()).isEqualTo("DEPT_PANGYO"));
         assertThat(response.riskSalesPointsTop10()).singleElement()
@@ -172,6 +183,21 @@ class DashboardServiceImplTest {
         value.setNearExpiryStock(new BigDecimal("45"));
         value.setExpectedDisposalQty(new BigDecimal("38"));
         value.setRiskSkuCount(3);
+        return value;
+    }
+
+    private static OnlineSalesPointInventoryVO onlineSalesPoint() {
+        OnlineSalesPointInventoryVO value = new OnlineSalesPointInventoryVO();
+        value.setSalesPointId(1L);
+        value.setSalesPointCode("GREETING");
+        value.setSalesPointName("그리팅몰");
+        value.setRegionCode("ONLINE");
+        value.setStorageWarehouseCount(1);
+        value.setCurrentStock(new BigDecimal("900"));
+        value.setAvailableStock(new BigDecimal("833"));
+        value.setNearExpiryStock(new BigDecimal("74"));
+        value.setExpectedDisposalQty(new BigDecimal("118"));
+        value.setRiskSkuCount(5);
         return value;
     }
 

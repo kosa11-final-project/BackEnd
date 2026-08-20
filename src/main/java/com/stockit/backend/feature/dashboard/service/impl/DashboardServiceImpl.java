@@ -18,6 +18,7 @@ import com.stockit.backend.feature.dashboard.dto.DashboardSnapshotPayload;
 import com.stockit.backend.feature.dashboard.dto.response.DashboardResponse;
 import com.stockit.backend.feature.dashboard.dto.response.DashboardSummaryResponse;
 import com.stockit.backend.feature.dashboard.dto.response.OfflineStoreInventoryResponse;
+import com.stockit.backend.feature.dashboard.dto.response.OnlineSalesPointInventoryResponse;
 import com.stockit.backend.feature.dashboard.dto.response.RiskSalesPointResponse;
 import com.stockit.backend.feature.dashboard.dto.response.UrgentSkuResponse;
 import com.stockit.backend.feature.dashboard.dto.response.WarehouseInventoryResponse;
@@ -35,7 +36,7 @@ import com.stockit.backend.feature.dashboard.vo.UrgentSkuVO;
 public class DashboardServiceImpl implements DashboardService {
 
     private static final ZoneId KOREA_ZONE_ID = ZoneId.of("Asia/Seoul");
-    private static final int SUPPORTED_PAYLOAD_VERSION = 1;
+    private static final int SUPPORTED_PAYLOAD_VERSION = 2;
 
     private final DashboardMapper dashboardMapper;
     private final DashboardSnapshotMapper snapshotMapper;
@@ -96,6 +97,11 @@ public class DashboardServiceImpl implements DashboardService {
                 .stream()
                 .map(WarehouseInventoryResponse::from)
                 .toList();
+        List<OnlineSalesPointInventoryResponse> onlineSalesPoints = dashboardMapper
+                .selectOnlineSalesPointInventories(asOfDate)
+                .stream()
+                .map(OnlineSalesPointInventoryResponse::from)
+                .toList();
         List<OfflineStoreInventoryResponse> offlineStores = dashboardMapper
                 .selectOfflineStoreInventories(asOfDate)
                 .stream()
@@ -111,6 +117,7 @@ public class DashboardServiceImpl implements DashboardService {
         return new DashboardResponse(
                 summary,
                 warehouses,
+                onlineSalesPoints,
                 offlineStores,
                 riskSalesPointsTop10,
                 urgentSkusTop5,

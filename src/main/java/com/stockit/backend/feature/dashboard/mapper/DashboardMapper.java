@@ -8,6 +8,7 @@ import org.apache.ibatis.annotations.Param;
 
 import com.stockit.backend.feature.dashboard.vo.DashboardSummaryVO;
 import com.stockit.backend.feature.dashboard.vo.OfflineStoreInventoryVO;
+import com.stockit.backend.feature.dashboard.vo.OnlineSalesPointInventoryVO;
 import com.stockit.backend.feature.dashboard.vo.RiskSalesPointVO;
 import com.stockit.backend.feature.dashboard.vo.UrgentSkuVO;
 import com.stockit.backend.feature.dashboard.vo.WarehouseInventoryVO;
@@ -18,6 +19,10 @@ public interface DashboardMapper {
     DashboardSummaryVO selectSummary(@Param("asOfDate") LocalDate asOfDate);
 
     List<WarehouseInventoryVO> selectWarehouseInventories(@Param("asOfDate") LocalDate asOfDate);
+
+    List<OnlineSalesPointInventoryVO> selectOnlineSalesPointInventories(
+            @Param("asOfDate") LocalDate asOfDate
+    );
 
     List<OfflineStoreInventoryVO> selectOfflineStoreInventories(@Param("asOfDate") LocalDate asOfDate);
 

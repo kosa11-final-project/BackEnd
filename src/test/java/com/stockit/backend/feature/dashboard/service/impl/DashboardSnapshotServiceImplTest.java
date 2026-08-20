@@ -65,7 +65,7 @@ class DashboardSnapshotServiceImplTest {
         verify(snapshotMapper).insertSnapshot(
                 eq(SNAPSHOT_ID),
                 eq(SYNC_JOB_ID),
-                eq(1),
+                eq(2),
                 payloadCaptor.capture()
         );
         DashboardSnapshotPayload payload = objectMapper.readValue(
@@ -98,6 +98,7 @@ class DashboardSnapshotServiceImplTest {
         );
         return new DashboardResponse(
                 summary,
+                List.of(),
                 List.of(),
                 List.of(),
                 List.of(),
