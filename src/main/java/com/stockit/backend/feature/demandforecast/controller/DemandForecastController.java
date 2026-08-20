@@ -61,11 +61,13 @@ public class DemandForecastController {
                 {
                   "skuId": 101,
                   "salesPointId": 10,
-                  "d7CumulativeQty": 28.5,
-                  "d14CumulativeQty": 55.0,
-                  "d30CumulativeQty": 120.0,
-                  "d60CumulativeQty": 240.0,
-                  "d90CumulativeQty": 360.0
+                  "predictedQtyD7": 28.5,
+                  "predictedQtyD14": 55.0,
+                  "predictedQtyD30": 120.0,
+                  "predictedQtyD60": 240.0,
+                  "predictedQtyD90": 360.0,
+                  "forecastSource": "LIGHTGBM",
+                  "confidenceLevel": "HIGH"
                 }
               ]
             }
@@ -103,9 +105,10 @@ public class DemandForecastController {
      * @return 적재 결과 응답
      */
     @Operation(
-            summary = "수요예측 결과 일괄 적재",
+            summary = "위험등급 판정용 누적 수요예측 적재 API",
             description = """
-                    FastAPI가 Azure ML의 demand_forecast.csv를 파싱한 뒤 전달한 예측 결과를 적재합니다.
+                    위험등급 판정에 사용하는 D7·D14·D30·D60·D90 누적 수요예측을 적재합니다.
+                    FastAPI가 Azure ML의 demand_forecast.csv를 파싱한 뒤 전달한 예측 결과를 사용합니다.
                     요청 하나는 최대 1,000건이며, 모델·SKU·판매처와 예측값을 검증한 후 배치 전체를
                     단일 트랜잭션으로 DEMAND_FORECAST에 MERGE합니다.
                     """,
