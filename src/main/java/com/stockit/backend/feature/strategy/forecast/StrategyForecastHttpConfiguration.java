@@ -6,7 +6,10 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
+import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
 import org.springframework.web.client.RestClient;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 @Configuration
 @EnableConfigurationProperties(StrategyForecastProperties.class)
@@ -14,7 +17,8 @@ public class StrategyForecastHttpConfiguration {
 
     @Bean
     public RestClient.Builder strategyForecastRestClientBuilder(
-            StrategyForecastProperties properties
+            StrategyForecastProperties properties,
+            ObjectMapper objectMapper
     ) {
         HttpClient httpClient = HttpClient.newBuilder()
                 .connectTimeout(properties.getConnectTimeout())
@@ -22,6 +26,15 @@ public class StrategyForecastHttpConfiguration {
         JdkClientHttpRequestFactory requestFactory =
                 new JdkClientHttpRequestFactory(httpClient);
         requestFactory.setReadTimeout(properties.getReadTimeout());
-        return RestClient.builder().requestFactory(requestFactory);
+        return RestClient.builder()
+                .requestFactory(requestFactory)
+                .messageConverters(converters -> {
+                    converters.removeIf(
+                            MappingJackson2HttpMessageConverter.class::isInstance
+                    );
+                    converters.add(
+                            new MappingJackson2HttpMessageConverter(objectMapper)
+                    );
+                });
     }
 }

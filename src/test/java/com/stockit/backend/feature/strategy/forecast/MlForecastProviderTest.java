@@ -17,6 +17,7 @@ import org.junit.jupiter.api.Test;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
 import com.stockit.backend.config.InternalApiProperties;
 import com.stockit.backend.feature.strategy.messaging.PermanentStrategyGenerationException;
 import com.stockit.backend.feature.strategy.messaging.RetryableStrategyGenerationException;
@@ -36,7 +37,9 @@ class MlForecastProviderTest {
 
     @BeforeEach
     void setUp() throws IOException {
-        objectMapper = new ObjectMapper().findAndRegisterModules();
+        objectMapper = new ObjectMapper()
+                .findAndRegisterModules()
+                .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
         server = HttpServer.create(new InetSocketAddress(0), 0);
         server.createContext(PATH, this::handle);
         server.start();
@@ -60,6 +63,12 @@ class MlForecastProviderTest {
         assertThat(requestJson.path("strategyRequestId").asLong()).isEqualTo(12345L);
         assertThat(requestJson.path("candidateSalesPointIds").get(0).asLong())
                 .isEqualTo(20L);
+        assertThat(requestJson.path("forecastStartDate").isTextual()).isTrue();
+        assertThat(requestJson.path("forecastStartDate").asText())
+                .isEqualTo("2026-08-20");
+        assertThat(requestJson.path("forecastEndDate").isTextual()).isTrue();
+        assertThat(requestJson.path("forecastEndDate").asText())
+                .isEqualTo("2026-08-20");
     }
 
     @Test
@@ -146,7 +155,7 @@ class MlForecastProviderTest {
         properties.setReadTimeout(readTimeout);
         return new MlForecastProvider(
                 new StrategyForecastHttpConfiguration()
-                        .strategyForecastRestClientBuilder(properties),
+                        .strategyForecastRestClientBuilder(properties, objectMapper),
                 objectMapper,
                 properties,
                 new InternalApiProperties("test-api-key", 0L, "ml-service")
