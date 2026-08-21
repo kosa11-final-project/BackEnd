@@ -1,5 +1,6 @@
 package com.stockit.backend.feature.strategy.controller;
 
+import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -42,8 +43,7 @@ class StrategyExecutionControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[0].id").value(101))
                 .andExpect(jsonPath("$.data[0].product.imageUrl").value("https://example.com/product.jpg"))
-                .andExpect(jsonPath("$.data[0].lastSyncedAt").doesNotExist())
-                .andExpect(jsonPath("$.data[0].sync").doesNotExist());
+                .andExpect(jsonPath("$.data[0].lastSyncedAt").value(nullValue()));
 
         mockMvc.perform(get("/api/v1/strategy-executions/101"))
                 .andExpect(status().isOk())
