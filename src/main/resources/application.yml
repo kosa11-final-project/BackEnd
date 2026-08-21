@@ -32,6 +32,14 @@ spring:
         max-concurrency: 1
         prefetch: 1
         default-requeue-rejected: false
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      username: ${REDIS_USERNAME:}
+      password: ${REDIS_PASSWORD:}
+      connect-timeout: ${REDIS_CONNECT_TIMEOUT:3s}
+      timeout: ${REDIS_COMMAND_TIMEOUT:3s}
 
 server:
   port: ${SERVER_PORT:8080}
@@ -69,6 +77,13 @@ app:
       max-attempts: ${AI_STRATEGY_MAX_ATTEMPTS:3}
       retry-delay: ${AI_STRATEGY_RETRY_DELAY:30s}
       confirm-timeout: ${AI_STRATEGY_CONFIRM_TIMEOUT:5s}
+    forecast:
+      base-url: ${ML_FORECAST_BASE_URL:}
+      path: ${ML_FORECAST_PATH:/api/v1/demand-forecasts/daily}
+      connect-timeout: ${ML_FORECAST_CONNECT_TIMEOUT:3s}
+      read-timeout: ${ML_FORECAST_READ_TIMEOUT:60s}
+      result-ttl: ${AI_STRATEGY_FORECAST_TTL:3d}
+      lock-ttl: ${AI_STRATEGY_FORECAST_LOCK_TTL:90s}
 
 mybatis:
   mapper-locations: classpath:mappers/**/*.xml
