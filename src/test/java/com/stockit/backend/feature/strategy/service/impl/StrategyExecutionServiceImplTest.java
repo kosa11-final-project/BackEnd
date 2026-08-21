@@ -120,6 +120,16 @@ class StrategyExecutionServiceImplTest {
                                 .isEqualTo(ErrorCode.AI_STRATEGY_EXECUTION_NOT_FOUND));
     }
 
+    @Test
+    void rejectsFinalSelectionWithoutStrategyOptionAsStandardNotFound() {
+        when(mapper.selectFinalStrategyExecution(101L)).thenReturn(base(101L, null));
+
+        assertThatThrownBy(() -> service.findByStrategyCaseId(101L))
+                .isInstanceOfSatisfying(AppException.class, exception ->
+                        assertThat(exception.getErrorCode())
+                                .isEqualTo(ErrorCode.AI_STRATEGY_EXECUTION_NOT_FOUND));
+    }
+
     private static StrategyExecutionBaseVO base(Long caseId, Long optionId) {
         StrategyExecutionBaseVO base = new StrategyExecutionBaseVO();
         base.setStrategyCaseId(caseId);

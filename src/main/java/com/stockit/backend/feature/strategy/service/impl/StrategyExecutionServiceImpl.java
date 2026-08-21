@@ -90,8 +90,12 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
         if (base == null) {
             throw new AppException(ErrorCode.AI_STRATEGY_EXECUTION_NOT_FOUND);
         }
+        Long strategyOptionId = base.getStrategyOptionId();
+        if (strategyOptionId == null) {
+            throw new AppException(ErrorCode.AI_STRATEGY_EXECUTION_NOT_FOUND);
+        }
         List<StrategyExecutionActionVO> actions = safe(strategyExecutionMapper.selectSupportedActions(
-                List.of(base.getStrategyOptionId())
+                List.of(strategyOptionId)
         ));
         List<StrategyExecutionInventoryVO> inventories = safe(
                 strategyExecutionMapper.selectInventoryResults(strategyCaseId)
@@ -103,7 +107,7 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
                 )
         );
         StrategyExecutionPerformanceVO performance = strategyExecutionMapper.selectPerformance(
-                base.getStrategyOptionId()
+                strategyOptionId
         );
         return response(base, actions, inventories, dailySales, performance);
     }
