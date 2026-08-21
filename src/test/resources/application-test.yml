@@ -11,3 +11,8 @@ spring:
       initialize-schema: always
   flyway:
     enabled: false
+app:
+  inventory-sync:
+    batch-enabled: false
+    schedule:
+      enabled: false

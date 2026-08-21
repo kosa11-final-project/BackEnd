@@ -41,6 +41,15 @@ app:
     key: ${STOCKIT_INTERNAL_API_KEY:}
     user-id: ${STOCKIT_INTERNAL_API_USER_ID:0}
     principal-name: ${STOCKIT_INTERNAL_API_PRINCIPAL:ml-service}
+  inventory-sync:
+    batch-enabled: ${INVENTORY_SYNC_BATCH_ENABLED:true}
+    instance-id: ${INVENTORY_SYNC_INSTANCE_ID:local-worker}
+    # Demo-only source adjustment is disabled for every production-like profile by default.
+    demo-enabled: ${INVENTORY_SYNC_DEMO_ENABLED:false}
+    schedule:
+      enabled: ${INVENTORY_SYNC_SCHEDULE_ENABLED:true}
+      cron: ${INVENTORY_SYNC_SCHEDULE_CRON:0 30 0 * * *}
+      zone: ${INVENTORY_SYNC_SCHEDULE_ZONE:Asia/Seoul}
   sales-daily-export:
     # Path 바인딩이 실패하지 않도록 Backend 프로젝트 기준의 유효한 기본 경로를 사용합니다.
     output-path: ${SALES_DAILY_EXPORT_PATH:./build/exports/sales_daily.csv}

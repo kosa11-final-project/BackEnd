@@ -15,6 +15,9 @@ public enum ErrorCode {
     BAD_REQUEST(HttpStatus.BAD_REQUEST, "잘못된 요청입니다.", "COMMON-001"),
     INVALID_PARAMETER(HttpStatus.BAD_REQUEST, "요청 파라미터가 잘못되었습니다.", "COMMON-002"),
 
+    RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.", "COMMON-007"),
+    PAYLOAD_TOO_LARGE(HttpStatus.PAYLOAD_TOO_LARGE, "요청 본문이 허용된 크기를 초과했습니다.", "COMMON-008"),
+
     // ==============================
     // 401 UNAUTHORIZED
     // ==============================
@@ -58,6 +61,9 @@ public enum ErrorCode {
     // ==============================
     // 409 CONFLICT
     // ==============================
+
+    // INVENTORY_SYNC
+    INVENTORY_SYNC_CONFLICT(HttpStatus.CONFLICT, "동기화 시연 요청이 현재 상태와 충돌했습니다.", "INVENTORY_SYNC-001"),
 
     // DEMAND_FORECAST
     DEMAND_FORECAST_DUPLICATE_TARGET(HttpStatus.CONFLICT, "요청 내 SKU와 판매처 조합이 중복되었습니다.", "DEMAND_FORECAST-005"),

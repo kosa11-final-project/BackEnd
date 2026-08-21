@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.stockit.backend.feature.inventorysync.mapper.InventorySyncSourceWriteMapper">
+    <select id="lockSourceState" resultType="long">
+        SELECT current_version FROM inventory_source_state
+         WHERE source_type = #{sourceType}
+         FOR UPDATE
+    </select>
+    <sql id="sourceRows">
+        <foreach collection="records" item="record" separator=" UNION ALL ">
+            SELECT #{record.sourceRecordKey} AS source_record_key,
+                   #{record.recordHash} AS record_hash FROM dual
+        </foreach>
+    </sql>
+    <update id="markOfflineSynced">
+        MERGE INTO inventory_source_offline target
+        USING (<include refid="sourceRows"/>) source
+           ON (target.source_record_key = source.source_record_key AND target.is_deleted = 0)
+        WHEN MATCHED THEN UPDATE SET target.synced_record_hash = source.record_hash,
+             target.last_sync_run_id = #{runId}, target.last_synced_at = SYSTIMESTAMP, target.updated_at = SYSTIMESTAMP
+             WHERE target.synced_record_hash IS NULL OR target.synced_record_hash != source.record_hash
+    </update>
+    <update id="markEcommerceSynced">
+        MERGE INTO inventory_source_ecommerce target
+        USING (<include refid="sourceRows"/>) source
+           ON (target.source_record_key = source.source_record_key AND target.is_deleted = 0)
+        WHEN MATCHED THEN UPDATE SET target.synced_record_hash = source.record_hash,
+             target.last_sync_run_id = #{runId}, target.last_synced_at = SYSTIMESTAMP, target.updated_at = SYSTIMESTAMP
+             WHERE target.synced_record_hash IS NULL OR target.synced_record_hash != source.record_hash
+    </update>
+    <update id="markGreetingSynced">
+        MERGE INTO inventory_source_greeting target
+        USING (<include refid="sourceRows"/>) source
+           ON (target.source_record_key = source.source_record_key AND target.is_deleted = 0)
+        WHEN MATCHED THEN UPDATE SET target.synced_record_hash = source.record_hash,
+             target.last_sync_run_id = #{runId}, target.last_synced_at = SYSTIMESTAMP, target.updated_at = SYSTIMESTAMP
+             WHERE target.synced_record_hash IS NULL OR target.synced_record_hash != source.record_hash
+    </update>
+    <update id="markWarehouseSynced">
+        MERGE INTO inventory_source_warehouse target
+        USING (<include refid="sourceRows"/>) source
+           ON (target.source_record_key = source.source_record_key AND target.is_deleted = 0)
+        WHEN MATCHED THEN UPDATE SET target.synced_record_hash = source.record_hash,
+             target.last_sync_run_id = #{runId}, target.last_synced_at = SYSTIMESTAMP, target.updated_at = SYSTIMESTAMP
+             WHERE target.synced_record_hash IS NULL OR target.synced_record_hash != source.record_hash
+    </update>
+    <update id="refreshState">
+        UPDATE inventory_source_state st
+           SET pending_record_count = CASE st.source_type
+                    WHEN 'OFFLINE' THEN (SELECT COUNT(*) FROM inventory_source_offline WHERE active_yn = 'Y' AND is_deleted = 0 AND (synced_record_hash IS NULL OR record_hash != synced_record_hash))
+                    WHEN 'ECOMMERCE' THEN (SELECT COUNT(*) FROM inventory_source_ecommerce WHERE active_yn = 'Y' AND is_deleted = 0 AND (synced_record_hash IS NULL OR record_hash != synced_record_hash))
+                    WHEN 'GREETING' THEN (SELECT COUNT(*) FROM inventory_source_greeting WHERE active_yn = 'Y' AND is_deleted = 0 AND (synced_record_hash IS NULL OR record_hash != synced_record_hash))
+                    WHEN 'WAREHOUSE' THEN (SELECT COUNT(*) FROM inventory_source_warehouse WHERE active_yn = 'Y' AND is_deleted = 0 AND (synced_record_hash IS NULL OR record_hash != synced_record_hash))
+                    ELSE pending_record_count END,
+                   last_success_sync_run_id = #{runId}, last_success_synced_at = SYSTIMESTAMP, updated_at = SYSTIMESTAMP
+         WHERE st.source_type IN
+         <foreach collection="sourceTypes" item="sourceType" open="(" separator="," close=")">#{sourceType}</foreach>
+    </update>
+</mapper>
