@@ -72,6 +72,7 @@ class DashboardSnapshotServiceImplTest {
                 payloadCaptor.getValue(),
                 DashboardSnapshotPayload.class
         );
+        assertThat(payload.summary().totalCurrentStock()).isEqualByComparingTo("4800");
         assertThat(payload.summary().totalAvailableStock()).isEqualByComparingTo("4062");
         assertThat(payload.warehouses()).isEmpty();
     }
@@ -89,6 +90,7 @@ class DashboardSnapshotServiceImplTest {
 
     private static DashboardResponse dashboard() {
         DashboardSummaryResponse summary = new DashboardSummaryResponse(
+                new BigDecimal("4800"),
                 new BigDecimal("4062"),
                 5,
                 7,

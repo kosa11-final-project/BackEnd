@@ -71,7 +71,7 @@ class DashboardServiceImplTest {
     void returnsLatestCompletedSnapshot() throws Exception {
         DashboardSnapshotVO snapshot = new DashboardSnapshotVO();
         snapshot.setDashboardSnapshotId(11L);
-        snapshot.setPayloadVersion(2);
+        snapshot.setPayloadVersion(1);
         snapshot.setPayloadJson(objectMapper.writeValueAsString(new DashboardSnapshotPayload(
                 DashboardSummaryResponse.from(summary()),
                 List.of(WarehouseInventoryResponse.from(warehouse())),
@@ -124,6 +124,7 @@ class DashboardServiceImplTest {
 
     private static void assertDashboard(DashboardResponse response) {
         assertThat(response.calculatedAt()).isEqualTo(CALCULATED_AT);
+        assertThat(response.summary().totalCurrentStock()).isEqualByComparingTo("4800");
         assertThat(response.summary().totalAvailableStock()).isEqualByComparingTo("4062");
         assertThat(response.summary().riskAndWarningSkuCount()).isEqualTo(12);
         assertThat(response.warehouses()).singleElement()
@@ -148,6 +149,7 @@ class DashboardServiceImplTest {
 
     private static DashboardSummaryVO summary() {
         DashboardSummaryVO value = new DashboardSummaryVO();
+        value.setTotalCurrentStock(new BigDecimal("4800"));
         value.setTotalAvailableStock(new BigDecimal("4062"));
         value.setCriticalSkuCount(5);
         value.setWarningSkuCount(7);

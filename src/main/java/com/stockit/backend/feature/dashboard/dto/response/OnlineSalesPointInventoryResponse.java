@@ -6,7 +6,7 @@ import com.stockit.backend.feature.dashboard.vo.OnlineSalesPointInventoryVO;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 
-@Schema(description = "활성 온라인 판매처별 재고 현황")
+@Schema(description = "활성 온라인 판매처별 할당 재고 현황")
 public record OnlineSalesPointInventoryResponse(
         @Schema(description = "판매처 ID", example = "1") Long salesPointId,
         @Schema(description = "판매처 코드", example = "GREETING") String salesPointCode,

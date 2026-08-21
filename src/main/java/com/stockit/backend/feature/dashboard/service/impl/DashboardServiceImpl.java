@@ -36,7 +36,6 @@ import com.stockit.backend.feature.dashboard.vo.UrgentSkuVO;
 public class DashboardServiceImpl implements DashboardService {
 
     private static final ZoneId KOREA_ZONE_ID = ZoneId.of("Asia/Seoul");
-    private static final int SUPPORTED_PAYLOAD_VERSION = 2;
 
     private final DashboardMapper dashboardMapper;
     private final DashboardSnapshotMapper snapshotMapper;
@@ -70,11 +69,6 @@ public class DashboardServiceImpl implements DashboardService {
         if (snapshot == null) {
             throw new AppException(ErrorCode.DASHBOARD_SNAPSHOT_NOT_FOUND);
         }
-        if (snapshot.getPayloadVersion() != SUPPORTED_PAYLOAD_VERSION) {
-            throw new IllegalStateException("지원하지 않는 대시보드 스냅샷 버전입니다: "
-                    + snapshot.getPayloadVersion());
-        }
-
         DashboardSnapshotPayload payload = deserialize(snapshot.getPayloadJson());
         return payload.toResponse(snapshot.getCreatedAt().atZone(KOREA_ZONE_ID).toInstant());
     }

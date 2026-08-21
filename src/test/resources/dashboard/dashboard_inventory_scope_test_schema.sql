@@ -135,8 +135,8 @@ INSERT INTO inventory_balance VALUES (6000, 2000, 100, NULL, NULL, 3000, 10, 0, 
 INSERT INTO inventory_balance VALUES (6001, 2000, 100, NULL, 10, 3000, 20, 0, 20, 0);
 -- 현재 적재 데이터 호환 형태: 보관·할당 판매처가 모두 온라인인 재고
 INSERT INTO inventory_balance VALUES (6002, 2000, 101, 10, 10, 3000, 30, 0, 30, 0);
--- 오프라인 매장에 보관된 재고
-INSERT INTO inventory_balance VALUES (6003, 2000, 100, 20, 20, 3000, 40, 0, 40, 0);
+-- 현재 적재 형태: 물류센터에 보관되며 오프라인 판매처에만 할당된 재고
+INSERT INTO inventory_balance VALUES (6003, 2000, 100, NULL, 20, 3000, 40, 0, 40, 0);
 
 INSERT INTO risk_assessment VALUES (
     7000, 6001, 5000, 'CRITICAL', 'N', 90, '온라인 재고 위험',

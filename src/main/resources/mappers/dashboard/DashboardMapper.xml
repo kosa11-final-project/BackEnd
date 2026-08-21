@@ -3,15 +3,12 @@
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.stockit.backend.feature.dashboard.mapper.DashboardMapper">
 
-    <!-- 대시보드 지도에서 관리하는 전국 8개 운영 물류센터만 포함한다. -->
+    <!-- 대시보드 지도에서 실제 사용하는 전국 5개 운영 물류센터만 포함한다. -->
     <sql id="dashboardWarehouseScope">
         w.warehouse_code IN (
             'GYEONGIN_1',
             'GYEONGIN_2',
             'SUJI',
-            'SMART_FOOD',
-            'DONGTAN',
-            'ICHEON_DC',
             'YEONGNAM',
             'HONAM'
         )
@@ -217,9 +214,9 @@
                         AND <include refid="dashboardWarehouseScope"/>
                     )
                     OR (
-                        stock_ch.channel_type = 'OFFLINE'
-                        AND stock_sp.active_yn = 'Y'
-                        AND stock_ch.active_yn = 'Y'
+                        demand_ch.channel_type = 'OFFLINE'
+                        AND demand_sp.active_yn = 'Y'
+                        AND demand_ch.active_yn = 'Y'
                     )
               )
         ),
@@ -293,7 +290,8 @@
             FROM inventory_base
             GROUP BY sku_id
         )
-        SELECT COALESCE((SELECT SUM(available_qty) FROM inventory_base), 0) AS total_available_stock,
+        SELECT COALESCE((SELECT SUM(current_qty) FROM inventory_base), 0) AS total_current_stock,
+               COALESCE((SELECT SUM(available_qty) FROM inventory_base), 0) AS total_available_stock,
                COALESCE((SELECT SUM(CASE WHEN risk_severity = 4 THEN 1 ELSE 0 END) FROM sku_risk), 0)
                    AS critical_sku_count,
                COALESCE((SELECT SUM(CASE WHEN risk_severity = 3 THEN 1 ELSE 0 END) FROM sku_risk), 0)
@@ -395,14 +393,14 @@
             resultType="com.stockit.backend.feature.dashboard.vo.OfflineStoreInventoryVO">
         <include refid="dashboardBaseCtes"/>,
         store_inventory AS (
-            SELECT stock_sales_point_id AS sales_point_id,
+            SELECT sales_point_id,
                    SUM(current_qty) AS current_stock,
                    SUM(available_qty) AS available_stock,
                    SUM(near_expiry_qty) AS near_expiry_stock,
                    COUNT(DISTINCT CASE WHEN risk_grade = 'CRITICAL' THEN sku_id END) AS risk_sku_count
             FROM inventory_base
             WHERE inventory_scope = 'OFFLINE'
-            GROUP BY stock_sales_point_id
+            GROUP BY sales_point_id
         ),
         store_disposal AS (
             SELECT sales_point_id,

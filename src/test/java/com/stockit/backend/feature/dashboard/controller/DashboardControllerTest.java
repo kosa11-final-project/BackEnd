@@ -46,6 +46,7 @@ class DashboardControllerTest {
 
         mockMvc.perform(get("/api/v1/dashboard"))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.summary.totalCurrentStock").value(4800))
                 .andExpect(jsonPath("$.data.summary.totalAvailableStock").value(4062))
                 .andExpect(jsonPath("$.data.summary.riskAndWarningSkuCount").value(12))
                 .andExpect(jsonPath("$.data.warehouses[0].warehouseCode").value("SEONGNAM"))
@@ -99,6 +100,7 @@ class DashboardControllerTest {
 
     private static DashboardResponse dashboard() {
         DashboardSummaryResponse summary = new DashboardSummaryResponse(
+                new BigDecimal("4800"),
                 new BigDecimal("4062"),
                 5,
                 7,

@@ -9,6 +9,7 @@ import lombok.Setter;
 @Setter
 public class DashboardSummaryVO {
 
+    private BigDecimal totalCurrentStock;
     private BigDecimal totalAvailableStock;
     private long criticalSkuCount;
     private long warningSkuCount;

@@ -71,6 +71,8 @@ class DashboardMapperTest {
         BigDecimal scopeTotal = warehouse.getAvailableStock()
                 .add(online.getAvailableStock())
                 .add(offline.getAvailableStock());
+        assertThat(mapper.selectSummary(AS_OF_DATE).getTotalCurrentStock())
+                .isEqualByComparingTo("100");
         assertThat(mapper.selectSummary(AS_OF_DATE).getTotalAvailableStock())
                 .isEqualByComparingTo(scopeTotal)
                 .isEqualByComparingTo("100");
