@@ -1,5 +1,6 @@
 package com.stockit.backend.feature.strategy.mapper;
 
+import java.time.LocalDate;
 import java.util.List;
 
 import org.apache.ibatis.annotations.Mapper;
@@ -26,7 +27,8 @@ public interface StrategyExecutionMapper {
     );
 
     List<StrategyExecutionDailySalesVO> selectDailySales(
-            @Param("strategyCaseId") Long strategyCaseId
+            @Param("strategyCaseId") Long strategyCaseId,
+            @Param("asOfDate") LocalDate asOfDate
     );
 
     StrategyExecutionPerformanceVO selectPerformance(

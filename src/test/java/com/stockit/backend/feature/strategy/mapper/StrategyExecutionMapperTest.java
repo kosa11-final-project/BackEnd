@@ -2,6 +2,7 @@ package com.stockit.backend.feature.strategy.mapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.time.LocalDate;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
@@ -57,7 +58,8 @@ class StrategyExecutionMapperTest {
     @Test
     void readsInventoryPerformanceAndAtMostNinetyDaysOfSales() {
         List<StrategyExecutionInventoryVO> inventory = mapper.selectInventoryResults(101L);
-        List<StrategyExecutionDailySalesVO> sales = mapper.selectDailySales(101L);
+        LocalDate asOfDate = LocalDate.of(2026, 7, 28);
+        List<StrategyExecutionDailySalesVO> sales = mapper.selectDailySales(101L, asOfDate);
         StrategyExecutionPerformanceVO performance = mapper.selectPerformance(1001L);
 
         assertThat(inventory).singleElement().satisfies(row -> {
@@ -65,7 +67,7 @@ class StrategyExecutionMapperTest {
             assertThat(row.getCurrentQuantity()).isEqualByComparingTo("80");
         });
         assertThat(sales).extracting(StrategyExecutionDailySalesVO::getSalesDate)
-                .containsExactly(java.time.LocalDate.of(2026, 5, 2), java.time.LocalDate.of(2026, 7, 29));
+                .containsExactly(LocalDate.of(2026, 5, 2), LocalDate.of(2026, 7, 28));
         assertThat(performance.getActualSalesQuantity()).isEqualByComparingTo("12");
         assertThat(performance.getActualRemainingQuantity()).isEqualByComparingTo("88");
     }

@@ -6,8 +6,11 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -30,6 +33,8 @@ import com.stockit.backend.feature.strategy.vo.StrategyExecutionPerformanceVO;
 @ExtendWith(MockitoExtension.class)
 class StrategyExecutionServiceImplTest {
 
+    private static final LocalDate AS_OF_DATE = LocalDate.of(2026, 7, 29);
+
     @Mock
     private StrategyExecutionMapper mapper;
 
@@ -37,7 +42,11 @@ class StrategyExecutionServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        service = new StrategyExecutionServiceImpl(mapper);
+        Clock clock = Clock.fixed(
+                Instant.parse("2026-07-28T15:30:00Z"),
+                ZoneId.of("UTC")
+        );
+        service = new StrategyExecutionServiceImpl(mapper, clock);
     }
 
     @Test
@@ -84,7 +93,7 @@ class StrategyExecutionServiceImplTest {
         when(mapper.selectFinalStrategyExecution(101L)).thenReturn(base);
         when(mapper.selectSupportedActions(List.of(1001L))).thenReturn(List.of(action));
         when(mapper.selectInventoryResults(101L)).thenReturn(List.of(inventory));
-        when(mapper.selectDailySales(101L)).thenReturn(List.of(sales));
+        when(mapper.selectDailySales(101L, AS_OF_DATE)).thenReturn(List.of(sales));
         when(mapper.selectPerformance(1001L)).thenReturn(performance);
 
         StrategyExecutionResponse result = service.findByStrategyCaseId(101L);
@@ -98,6 +107,7 @@ class StrategyExecutionServiceImplTest {
         assertThat(result.channelResults().get(0).sales()).isEqualByComparingTo("7");
         assertThat(result.performance().actualRemainingQuantity()).isEqualByComparingTo("80");
         assertThat(result.lastSyncedAt()).isNotNull();
+        verify(mapper).selectDailySales(101L, AS_OF_DATE);
     }
 
     @Test

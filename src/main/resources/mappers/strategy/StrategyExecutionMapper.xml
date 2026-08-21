@@ -186,7 +186,7 @@
           ON sales.sku_id = selected.sku_id
          AND sales.sales_date &gt;= selected.established_date
          AND sales.sales_date &lt; selected.established_date + 90
-         AND sales.sales_date &lt;= TRUNC(SYSDATE)
+         AND sales.sales_date &lt;= #{asOfDate}
          AND sales.is_deleted = 0
         JOIN relevant_points relevant
           ON relevant.sales_point_id = sales.sales_point_id

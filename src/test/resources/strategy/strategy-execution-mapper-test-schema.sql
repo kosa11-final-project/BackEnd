@@ -76,6 +76,7 @@ INSERT INTO strategy_action VALUES (
 INSERT INTO inventory_balance VALUES (9001, 80, 0);
 INSERT INTO strategy_inventory_snapshot VALUES (8001, 101, NULL, 501, 9001, 100, 30, 0);
 INSERT INTO sales_daily VALUES (7001, 1, 10, DATE '2026-05-02', 7, 70000, 0);
+INSERT INTO sales_daily VALUES (7004, 1, 10, DATE '2026-07-28', 4, 40000, 0);
 INSERT INTO sales_daily VALUES (7002, 1, 10, DATE '2026-07-29', 3, 30000, 0);
 INSERT INTO sales_daily VALUES (7003, 1, 10, DATE '2026-07-30', 99, 990000, 0);
 INSERT INTO strategy_performance VALUES (6001, 1001, DATE '2026-05-02', 7, 70000, 30000, 93, 10, 0, 0);

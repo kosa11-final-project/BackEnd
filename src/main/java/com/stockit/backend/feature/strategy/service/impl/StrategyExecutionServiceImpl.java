@@ -1,6 +1,8 @@
 package com.stockit.backend.feature.strategy.service.impl;
 
 import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -9,6 +11,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -36,9 +39,16 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
     );
 
     private final StrategyExecutionMapper strategyExecutionMapper;
+    private final Clock clock;
 
+    @Autowired
     public StrategyExecutionServiceImpl(StrategyExecutionMapper strategyExecutionMapper) {
+        this(strategyExecutionMapper, Clock.system(BUSINESS_ZONE));
+    }
+
+    StrategyExecutionServiceImpl(StrategyExecutionMapper strategyExecutionMapper, Clock clock) {
         this.strategyExecutionMapper = strategyExecutionMapper;
+        this.clock = clock;
     }
 
     @Override
@@ -87,7 +97,10 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
                 strategyExecutionMapper.selectInventoryResults(strategyCaseId)
         );
         List<StrategyExecutionDailySalesVO> dailySales = safe(
-                strategyExecutionMapper.selectDailySales(strategyCaseId)
+                strategyExecutionMapper.selectDailySales(
+                        strategyCaseId,
+                        LocalDate.now(clock.withZone(BUSINESS_ZONE))
+                )
         );
         StrategyExecutionPerformanceVO performance = strategyExecutionMapper.selectPerformance(
                 base.getStrategyOptionId()
