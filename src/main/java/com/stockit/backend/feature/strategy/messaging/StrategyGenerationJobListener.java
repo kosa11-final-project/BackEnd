@@ -20,6 +20,9 @@ import com.stockit.backend.feature.strategy.domain.StrategyGenerationStage;
 
 /**
  * AI 전략 생성 메시지의 ACK, 지연 재시도와 DLQ 분기를 담당하는 RabbitMQ Adapter
+ *
+ * <p>업무 처리가 끝난 메시지만 ACK하고, 복구 가능한 일시 오류는 Retry Queue로,
+ * 동일 입력으로 회복할 수 없는 영구 오류는 DLQ로 분리</p>
  */
 @Component
 @ConditionalOnProperty(
@@ -58,6 +61,9 @@ public class StrategyGenerationJobListener {
         this.properties = properties;
     }
 
+    /**
+     * 메시지 처리 결과에 따라 원본 메시지의 최종 소유권을 ACK, 재큐잉 또는 DLQ로 결정
+     */
     @RabbitListener(queues = StrategyGenerationMessagingProperties.MAIN_QUEUE)
     public void consume(Message rawMessage, Channel channel) throws IOException {
         long deliveryTag = rawMessage.getMessageProperties().getDeliveryTag();
@@ -69,6 +75,7 @@ public class StrategyGenerationJobListener {
             putLogContext(jobMessage);
 
             jobHandler.handle(jobMessage);
+            // DB와 외부 저장소 처리가 모두 끝난 뒤에만 원본 메시지 제거
             channel.basicAck(deliveryTag, false);
             log.info(
                     "AI strategy generation message handled. retryCount={}",
@@ -84,6 +91,7 @@ public class StrategyGenerationJobListener {
                     exception.getMessage()
             );
             log.error("Permanent AI strategy message failure; routing to DLQ", exception);
+            // 동일 메시지를 반복해도 회복되지 않는 오류이므로 재시도 없이 DLQ 격리
             channel.basicReject(deliveryTag, false);
         } catch (RetryableStrategyGenerationException exception) {
             handleTransientFailure(
@@ -162,6 +170,7 @@ public class StrategyGenerationJobListener {
         int nextRetryCount = retryCount + 1;
         if (nextRetryCount < properties.getMaxAttempts()) {
             try {
+                // 재시도 메시지 발행 성공 후 ACK해 작업 유실과 원본 중복 보존을 방지
                 retryPublisher.publishForRetry(jobMessage, nextRetryCount);
                 channel.basicAck(deliveryTag, false);
                 log.warn(
@@ -175,6 +184,7 @@ public class StrategyGenerationJobListener {
                         "Failed to publish AI strategy retry message; requeueing original",
                         retryPublishException
                 );
+                // 대체 메시지를 만들지 못했으므로 Broker가 원본을 다시 전달하도록 요청
                 channel.basicNack(deliveryTag, false, true);
                 return;
             }
@@ -206,6 +216,7 @@ public class StrategyGenerationJobListener {
     ) throws IOException {
         int retryCount = readRetryCount(rawMessage);
         try {
+            // Lock 경합은 외부 API 실패가 아니므로 허용된 API 재시도 횟수를 보존
             retryPublisher.publishForRetry(jobMessage, retryCount);
             channel.basicAck(deliveryTag, false);
             log.info(

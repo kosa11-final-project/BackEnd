@@ -20,7 +20,10 @@ import com.stockit.backend.feature.strategy.messaging.PermanentStrategyGeneratio
 import com.stockit.backend.feature.strategy.messaging.RetryableStrategyGenerationException;
 
 /**
- * ML 일별 수요예측 REST API Adapter
+ * 내부 API Key 인증을 적용해 ML 일별 수요예측을 호출하는 REST Adapter
+ *
+ * <p>HTTP 상태와 공급자 오류 코드를 재시도 가능 여부로 변환하고 인증 정보나
+ * 전체 응답 원문은 로그에 남기지 않음</p>
  */
 @Component
 public class MlForecastProvider implements ForecastProvider {
@@ -49,6 +52,9 @@ public class MlForecastProvider implements ForecastProvider {
         this.internalApiProperties = internalApiProperties;
     }
 
+    /**
+     * Case에서 확정된 예측 요청을 인증 헤더와 함께 전송하고 성공 응답 역직렬화
+     */
     @Override
     public StrategyForecastResponse forecast(StrategyForecastRequest request) {
         validateConfiguration();
@@ -59,6 +65,7 @@ public class MlForecastProvider implements ForecastProvider {
             return client.post()
                     .uri(properties.getPath())
                     .contentType(MediaType.APPLICATION_JSON)
+                    // 내부 서비스 인증 키를 URL이나 본문에 포함하지 않고 전용 헤더로 전달
                     .header(API_KEY_HEADER, internalApiProperties.key())
                     .body(request)
                     .exchange((httpRequest, response) -> parseResponse(

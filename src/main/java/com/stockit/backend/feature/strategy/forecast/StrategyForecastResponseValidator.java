@@ -12,9 +12,18 @@ import org.springframework.stereotype.Component;
 import com.stockit.backend.feature.strategy.domain.StrategyGenerationStage;
 import com.stockit.backend.feature.strategy.messaging.PermanentStrategyGenerationException;
 
+/**
+ * ML 성공 응답이 요청 범위와 일별 예측 계약을 완전히 만족하는지 검증하는 컴포넌트
+ *
+ * <p>누락·추가·정렬 오류를 서버에서 보정하지 않고 거부해 일부 데이터로 생성된 전략이
+ * 정상 결과처럼 사용되는 상황을 방지</p>
+ */
 @Component
 public class StrategyForecastResponseValidator {
 
+    /**
+     * 요청 메타데이터와 모든 판매처의 동일 날짜 범위 및 예측값 무결성 검증
+     */
     public void validate(
             StrategyForecastRequestContext context,
             StrategyForecastResponse response

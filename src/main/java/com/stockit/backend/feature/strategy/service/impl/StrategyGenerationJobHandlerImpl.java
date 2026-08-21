@@ -34,7 +34,10 @@ import com.stockit.backend.feature.strategy.service.StrategyGenerationStageServi
 import com.stockit.backend.feature.strategy.vo.StrategyCaseVO;
 
 /**
- * 실제 수요예측을 Redis 체크포인트로 보존하고 중단된 FORECASTING을 재개
+ * 실제 수요예측을 Redis 체크포인트로 보존하고 중단된 FORECASTING을 재개하는 Worker
+ *
+ * <p>외부 API 호출 결과와 DB 단계 전환 사이의 중단을 복구할 수 있도록 체크포인트를
+ * 먼저 확정하고, Case 단계는 짧은 트랜잭션으로 조건부 갱신</p>
  */
 @Service
 public class StrategyGenerationJobHandlerImpl implements StrategyGenerationJobHandler {
@@ -75,6 +78,9 @@ public class StrategyGenerationJobHandlerImpl implements StrategyGenerationJobHa
         this.stageService = stageService;
     }
 
+    /**
+     * 저장된 Case를 복원해 완료된 작업은 건너뛰고 현재 Worker가 소유한 예측만 실행
+     */
     @Override
     public void handle(StrategyGenerationJobMessage message) {
         validateMessage(message);
@@ -83,6 +89,7 @@ public class StrategyGenerationJobHandlerImpl implements StrategyGenerationJobHa
             return;
         }
 
+        // 완료 결과가 있으면 Lock 없이 DB 단계 전환만 복구해 불필요한 경합 방지
         StrategyForecastRequestContext context = createContext(strategyCase);
         Optional<ForecastCheckpoint> checkpoint = findCheckpoint(
                 context,
@@ -93,6 +100,7 @@ public class StrategyGenerationJobHandlerImpl implements StrategyGenerationJobHa
             return;
         }
 
+        // 결과가 없을 때만 실행권을 획득해 동일 Case의 중복 ML 호출 방지
         ForecastLock lock = acquireLock(
                 message.strategyCaseId(),
                 strategyCase.getGenerationStage()
@@ -110,6 +118,7 @@ public class StrategyGenerationJobHandlerImpl implements StrategyGenerationJobHa
             return;
         }
 
+        // 최초 조회와 Lock 획득 사이 다른 Worker가 완료했을 가능성에 대한 재확인
         StrategyForecastRequestContext context = createContext(latest);
         Optional<ForecastCheckpoint> checkpoint = findCheckpoint(
                 context,
@@ -125,6 +134,7 @@ public class StrategyGenerationJobHandlerImpl implements StrategyGenerationJobHa
         }
         StrategyForecastResponse response = forecastProvider.forecast(context.request());
         responseValidator.validate(context, response);
+        // Redis 저장 후 DB 단계를 전환해 중단 시 체크포인트로 전환만 재개할 수 있도록 구성
         saveCheckpoint(ForecastCheckpoint.create(context, response, Instant.now()));
         completeForecasting(strategyCaseId);
     }
@@ -327,6 +337,7 @@ public class StrategyGenerationJobHandlerImpl implements StrategyGenerationJobHa
         try {
             lockManager.release(lock);
         } catch (RuntimeException exception) {
+            // 해제 장애가 완료된 작업을 실패로 되돌리지 않도록 TTL 만료에 위임
             log.warn(
                     "Demand forecast lock release failed; waiting for TTL. strategyCaseId={}",
                     strategyCaseId,

@@ -45,6 +45,7 @@ public class StrategyGenerationFailureService {
                     normalizedMessage
             ) == 1;
         }
+        // 늦게 도착한 실패가 이미 다음 단계로 진행된 Case를 덮어쓰지 않도록 단계 비교
         return strategyCaseMapper.markGenerationFailedAtStage(
                 strategyCaseId,
                 expectedStage,

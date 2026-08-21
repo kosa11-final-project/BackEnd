@@ -13,6 +13,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.SerializationFeature;
 
+/**
+ * ML 수요예측 성공 결과를 Redis에 임시 보존하는 체크포인트 저장소
+ *
+ * <p>Case ID뿐 아니라 요청 해시와 기대 판매처 범위까지 검증해 변경된 요청에
+ * 과거 예측 결과가 잘못 재사용되는 상황을 차단</p>
+ */
 @Component
 public class RedisForecastCheckpointStore implements ForecastCheckpointStore {
 
@@ -34,6 +40,9 @@ public class RedisForecastCheckpointStore implements ForecastCheckpointStore {
         this.properties = properties;
     }
 
+    /**
+     * 현재 요청과 동일한 무결성 정보를 가진 체크포인트만 복구 대상으로 반환
+     */
     @Override
     public Optional<ForecastCheckpoint> find(
             Long strategyCaseId,
@@ -63,6 +72,9 @@ public class RedisForecastCheckpointStore implements ForecastCheckpointStore {
         }
     }
 
+    /**
+     * 승인 전 임시 결과의 수명만 유지하도록 설정된 TTL과 함께 체크포인트 저장
+     */
     @Override
     public void save(ForecastCheckpoint checkpoint) {
         try {

@@ -14,7 +14,10 @@ import com.stockit.backend.feature.strategy.service.StrategyGenerationFailureSer
 import com.stockit.backend.feature.strategy.service.StrategyGenerationJobPublisher;
 
 /**
- * strategy_case 커밋 이후에만 RabbitMQ 작업을 발행
+ * 전략 Case가 커밋된 이후에만 RabbitMQ 작업을 발행하는 트랜잭션 이벤트 Listener
+ *
+ * <p>저장 롤백 시 유효하지 않은 작업이 큐에 남거나, Worker가 아직 조회할 수 없는
+ * Case를 먼저 소비하는 상황을 방지</p>
  */
 @Component
 @ConditionalOnProperty(
@@ -42,6 +45,9 @@ public class StrategyGenerationAfterCommitListener {
         this.failureService = failureService;
     }
 
+    /**
+     * 커밋이 보장된 Case 식별자를 영속 메시지로 발행하고 발행 실패를 Case에 기록
+     */
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void publishAfterCommit(StrategyGenerationRequestedEvent event) {
         StrategyGenerationJobMessage message = StrategyGenerationJobMessage.create(
@@ -64,6 +70,7 @@ public class StrategyGenerationAfterCommitListener {
                     exception
             );
             try {
+                // 원 요청은 이미 커밋됐으므로 발행 실패도 별도 트랜잭션으로 가시화
                 failureService.markFailed(
                         event.strategyCaseId(),
                         PUBLISH_FAILURE_CODE,

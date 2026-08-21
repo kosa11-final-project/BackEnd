@@ -11,10 +11,16 @@ import org.springframework.web.client.RestClient;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+/**
+ * ML 수요예측 전용 HTTP Client의 연결 제한과 JSON 직렬화 정책 구성
+ */
 @Configuration
 @EnableConfigurationProperties(StrategyForecastProperties.class)
 public class StrategyForecastHttpConfiguration {
 
+    /**
+     * 애플리케이션 공용 Jackson 날짜 정책을 적용한 수요예측 전용 Builder 생성
+     */
     @Bean
     public RestClient.Builder strategyForecastRestClientBuilder(
             StrategyForecastProperties properties,
@@ -29,6 +35,7 @@ public class StrategyForecastHttpConfiguration {
         return RestClient.builder()
                 .requestFactory(requestFactory)
                 .messageConverters(converters -> {
+                    // LocalDate가 ML 계약의 ISO 문자열로 직렬화되도록 기본 Converter 교체
                     converters.removeIf(
                             MappingJackson2HttpMessageConverter.class::isInstance
                     );

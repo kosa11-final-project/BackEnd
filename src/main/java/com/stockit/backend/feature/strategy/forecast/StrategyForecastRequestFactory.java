@@ -31,6 +31,9 @@ public class StrategyForecastRequestFactory {
         this.requestHasher = requestHasher;
     }
 
+    /**
+     * 요청 시점 스냅샷과 현재 활성 판매처를 조합해 ML 요청 및 응답 검증 기준 생성
+     */
     public StrategyForecastRequestContext create(
             StrategyCaseVO strategyCase,
             StrategyCaseRequestPayload payload
@@ -62,6 +65,7 @@ public class StrategyForecastRequestFactory {
             StrategyGenerationStage expectedStage
     ) {
         if (request.candidateSalesPointIds().isEmpty()) {
+            // 후보 미지정은 Worker 실행 시점의 전체 활성 판매처 예측을 의미
             List<Long> activeIds = new ArrayList<>(
                     strategyCaseMapper.selectAllActiveSalesPointIds()
             );
@@ -83,6 +87,7 @@ public class StrategyForecastRequestFactory {
         if (request.sourceSalesPointId() != null) {
             requestedIds.add(request.sourceSalesPointId());
         }
+        // 요청 이후 비활성화된 판매처로 전략이 생성되지 않도록 외부 호출 직전 재검증
         List<Long> activeIds = strategyCaseMapper.selectActiveSalesPointIds(
                 List.copyOf(requestedIds)
         );

@@ -13,6 +13,9 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 import com.stockit.backend.feature.strategy.domain.StrategyGenerationStage;
 import com.stockit.backend.feature.strategy.messaging.PermanentStrategyGenerationException;
 
+/**
+ * 체크포인트가 현재 ML 요청에서 생성됐는지 판별하기 위한 정규화 요청 해시 생성기
+ */
 @Component
 public class StrategyForecastRequestHasher {
 
@@ -24,6 +27,9 @@ public class StrategyForecastRequestHasher {
                 .configure(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS, true);
     }
 
+    /**
+     * 객체와 Map의 필드 순서 차이에 영향받지 않는 SHA-256 요청 식별값 생성
+     */
     public String hash(
             StrategyForecastRequest request,
             StrategyGenerationStage expectedStage
