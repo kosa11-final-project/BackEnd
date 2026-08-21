@@ -59,6 +59,7 @@ public enum ErrorCode {
     AI_STRATEGY_SKU_NOT_FOUND(HttpStatus.NOT_FOUND, "AI 전략 대상 SKU를 찾을 수 없습니다.", "AI_STRATEGY-007"),
     AI_STRATEGY_LOT_NOT_FOUND(HttpStatus.NOT_FOUND, "AI 전략 대상 LOT를 찾을 수 없거나 사용할 수 없습니다.", "AI_STRATEGY-008"),
     AI_STRATEGY_SALES_POINT_NOT_FOUND(HttpStatus.NOT_FOUND, "AI 전략 대상 판매처를 찾을 수 없습니다.", "AI_STRATEGY-009"),
+    AI_STRATEGY_EXECUTION_NOT_FOUND(HttpStatus.NOT_FOUND, "AI 전략 실행 정보를 찾을 수 없습니다.", "AI_STRATEGY-010"),
 
     // ==============================
     // 405 METHOD_NOT_ALLOWED
