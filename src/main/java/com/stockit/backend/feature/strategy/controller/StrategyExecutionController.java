@@ -60,6 +60,16 @@ public class StrategyExecutionController {
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "상세 조회 성공"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "401",
+                    description = "세션이 없거나 만료됨",
+                    content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "403",
+                    description = "조회 권한이 없음",
+                    content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "404",
                     description = "최종 선택된 전략 실행 정보를 찾을 수 없음",
                     content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))

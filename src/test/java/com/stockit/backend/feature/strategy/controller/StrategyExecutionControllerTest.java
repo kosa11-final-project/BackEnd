@@ -64,12 +64,21 @@ class StrategyExecutionControllerTest {
 
     @Test
     void publishesBothEndpointsInOpenApi() throws Exception {
+        String detailOperation = "$.paths['/api/v1/strategy-executions/{strategyCaseId}'].get";
+
         mockMvc.perform(get("/v3/api-docs"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.paths['/api/v1/strategy-executions'].get.summary")
                         .value("AI 전략 실행 관제 목록 조회"))
-                .andExpect(jsonPath("$.paths['/api/v1/strategy-executions/{strategyCaseId}'].get.summary")
-                        .value("AI 전략 실행 관제 상세 조회"));
+                .andExpect(jsonPath(detailOperation + ".summary")
+                        .value("AI 전략 실행 관제 상세 조회"))
+                .andExpect(jsonPath(detailOperation + ".responses['200']").exists())
+                .andExpect(jsonPath(detailOperation + ".responses['401'].content['*/*'].schema['$ref']")
+                        .value("#/components/schemas/ApiErrorResponse"))
+                .andExpect(jsonPath(detailOperation + ".responses['403'].content['*/*'].schema['$ref']")
+                        .value("#/components/schemas/ApiErrorResponse"))
+                .andExpect(jsonPath(detailOperation + ".responses['404'].content['*/*'].schema['$ref']")
+                        .value("#/components/schemas/ApiErrorResponse"));
     }
 
     private static StrategyExecutionResponse response() {
