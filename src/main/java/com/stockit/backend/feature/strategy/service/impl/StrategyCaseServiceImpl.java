@@ -38,7 +38,7 @@ import com.stockit.backend.feature.strategy.vo.StrategySkuReferenceVO;
  * AI 전략 생성 요청의 도메인 검증과 최초 영속화를 담당하는 서비스
  *
  * <p>비동기 Worker가 사용자 요청과 무관하게 작업을 복원할 수 있도록 선택 조건과
- * 확정 예측 기간을 Case에 먼저 저장한 뒤, DB 식별자만 담은 내부 이벤트를 발행</p>
+ * 확정 예측 기간을 Case에 먼저 저장한 뒤, DB 식별자와 생성 시각을 담은 내부 이벤트를 발행</p>
  */
 @Service
 public class StrategyCaseServiceImpl implements StrategyCaseService {
@@ -122,7 +122,7 @@ public class StrategyCaseServiceImpl implements StrategyCaseService {
         );
         strategyCaseMapper.insertStrategyCase(strategyCase);
 
-        // 메시지에는 DB 식별자만 전달하므로 작업 발행보다 Case 영속화가 항상 선행
+        // 메시지에는 DB 식별자와 생성 시각만 전달하므로 작업 발행보다 Case 영속화가 항상 선행
         if (strategyCase.getStrategyCaseId() == null) {
             throw new AppException(ErrorCode.INTERNAL_SERVER_ERROR);
         }
