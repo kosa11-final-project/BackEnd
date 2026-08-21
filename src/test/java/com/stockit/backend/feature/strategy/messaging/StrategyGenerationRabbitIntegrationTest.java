@@ -105,13 +105,20 @@ class StrategyGenerationRabbitIntegrationTest {
 
     @Test
     void retryQueueReturnsMessageToMainQueueAfterTtl() {
-        listenerRegistry.stop();
-        await().atMost(Duration.ofSeconds(5)).until(
-                () -> !listenerRegistry.isRunning()
-        );
-        rabbitAdmin.purgeQueue(StrategyGenerationMessagingProperties.RETRY_QUEUE, false);
-        rabbitAdmin.purgeQueue(StrategyGenerationMessagingProperties.MAIN_QUEUE, false);
         try {
+            listenerRegistry.stop();
+            await().atMost(Duration.ofSeconds(5)).until(
+                    () -> !listenerRegistry.isRunning()
+            );
+            rabbitAdmin.purgeQueue(
+                    StrategyGenerationMessagingProperties.RETRY_QUEUE,
+                    false
+            );
+            rabbitAdmin.purgeQueue(
+                    StrategyGenerationMessagingProperties.MAIN_QUEUE,
+                    false
+            );
+
             StrategyGenerationJobMessage message = jobMessage(12345L);
 
             retryPublisher.publishForRetry(message, 1);
