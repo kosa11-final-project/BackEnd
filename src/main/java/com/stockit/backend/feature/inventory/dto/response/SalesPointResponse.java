@@ -27,7 +27,7 @@ public record SalesPointResponse(
         @Schema(description = "위험등급", example = "SAFE")
         String riskGrade,
 
-        @Schema(description = "보관 물류센터명", example = "동탄물류센터")
+        @Schema(description = "판매처 행에서는 노출하지 않음(null). 미할당 재고의 보관 위치는 unassignedInventory.locations에서 제공합니다.", example = "")
         String warehouseName,
 
         @Schema(description = "판매가", example = "12000")

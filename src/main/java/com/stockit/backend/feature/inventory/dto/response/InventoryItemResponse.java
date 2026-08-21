@@ -9,6 +9,7 @@ public record InventoryItemResponse(
         String rowId,
         String productCode,
         String productName,
+        String supplierName,
         String skuCode,
         String skuName,
         String imageUrl,
@@ -30,6 +31,7 @@ public record InventoryItemResponse(
         int locationCount,
         List<SalesPointResponse> salesPoints,
         Integer ownerSalesPointCount,
+        UnassignedInventoryResponse unassignedInventory,
         Integer lotCount,
         Integer nearestExpiryDays,
         LocalDate nearestExpiryDate,
@@ -39,6 +41,7 @@ public record InventoryItemResponse(
     public InventoryItemResponse {
         locations = List.copyOf(locations == null ? List.of() : locations);
         salesPoints = List.copyOf(salesPoints == null ? List.of() : salesPoints);
+        unassignedInventory = unassignedInventory == null ? UnassignedInventoryResponse.empty() : unassignedInventory;
     }
 
     public InventoryItemResponse(
@@ -67,6 +70,6 @@ public record InventoryItemResponse(
             LocalDate nearestExpiryDate,
             Instant updatedAt
     ) {
-        this(rowId, productCode, productName, skuCode, skuName, imageUrl, null, null, null, channelType, salesPointCode, salesPointName, storageType, sellingPrice, currentQuantity, availableQuantity, reservedQuantity, safetyQuantity, inventoryFactState, risk, locations, locationCount, salesPoints, salesPoints == null ? 0 : salesPoints.size(), lotCount, nearestExpiryDays, nearestExpiryDate, updatedAt);
+        this(rowId, productCode, productName, null, skuCode, skuName, imageUrl, null, null, null, channelType, salesPointCode, salesPointName, storageType, sellingPrice, currentQuantity, availableQuantity, reservedQuantity, safetyQuantity, inventoryFactState, risk, locations, locationCount, salesPoints, salesPoints == null ? 0 : salesPoints.size(), UnassignedInventoryResponse.empty(), lotCount, nearestExpiryDays, nearestExpiryDate, updatedAt);
     }
 }

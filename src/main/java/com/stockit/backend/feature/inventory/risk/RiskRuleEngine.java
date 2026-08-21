@@ -127,7 +127,8 @@ public class RiskRuleEngine {
             );
         }
 
-        // Flyway V9와 ERD의 의미에 따라 on_hand_qty 자체가 가용수량입니다.
+        // 현재 canonical 계약에서는 on_hand_qty 자체가 예약을 제외한 가용수량입니다.
+        // 소비기한·판매중지에 따른 별도 차감 컬럼은 후속 스키마 결정에서 반영합니다.
         BigDecimal availableQty = input.onHandQty();
 
         // 2. 수요예측·안전재고 기준으로 예상 잔고와 부족량을 계산합니다.
@@ -174,7 +175,7 @@ public class RiskRuleEngine {
                 }
 
                 // 개별 LOT 단위 경과/임박 체크
-                if (hasQuantity && lot.saleStopDate() != null && !lot.saleStopDate().isAfter(baseDate)) {
+                if (hasQuantity && isSaleStopped(lot, baseDate)) {
                     reasons.add(new RiskReason(
                             "LOT_SALE_STOPPED",
                             "판매중지일 도래 LOT 존재 (" + lot.lotNumber() + ")",
@@ -182,7 +183,7 @@ public class RiskRuleEngine {
                             "saleStopDate=" + lot.saleStopDate() + ", qty=" + lot.quantity()
                     ));
                 }
-                if (hasQuantity && lot.expiryDate() != null && !lot.expiryDate().isAfter(baseDate)) {
+                if (hasQuantity && isExpired(lot, baseDate)) {
                     reasons.add(new RiskReason(
                             "LOT_EXPIRED",
                             "소비기한 만료 LOT 존재 (" + lot.lotNumber() + ")",
@@ -316,6 +317,17 @@ public class RiskRuleEngine {
             case "GOOD" -> 1;
             default -> 0;
         };
+    }
+
+    private static boolean isExpired(RiskAssessmentInput.LotRiskItem lot, LocalDate baseDate) {
+        return "EXPIRED".equalsIgnoreCase(lot.lotStatus())
+                || (lot.expiryDate() != null && !lot.expiryDate().isAfter(baseDate));
+    }
+
+    private static boolean isSaleStopped(RiskAssessmentInput.LotRiskItem lot, LocalDate baseDate) {
+        return "SALE_STOPPED".equalsIgnoreCase(lot.lotStatus())
+                || "DEPLETED".equalsIgnoreCase(lot.lotStatus())
+                || (lot.saleStopDate() != null && !lot.saleStopDate().isAfter(baseDate));
     }
 
     private RiskAssessmentResult unassessed(
