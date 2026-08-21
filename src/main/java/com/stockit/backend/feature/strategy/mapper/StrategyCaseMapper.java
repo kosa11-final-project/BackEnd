@@ -39,4 +39,18 @@ public interface StrategyCaseMapper {
      * DB 기본값을 포함한 저장 결과 확인을 위한 단건 조회
      */
     StrategyCaseVO selectStrategyCaseById(@Param("strategyCaseId") Long strategyCaseId);
+
+    /**
+     * 아직 Worker가 선점하지 않은 생성 Case만 수요예측 단계로 전이
+     */
+    int markForecastingIfPending(@Param("strategyCaseId") Long strategyCaseId);
+
+    /**
+     * 생성 중인 Case에 한해 최종 실패 상태와 원인을 기록
+     */
+    int markGenerationFailedIfGenerating(
+            @Param("strategyCaseId") Long strategyCaseId,
+            @Param("failureCode") String failureCode,
+            @Param("failureMessage") String failureMessage
+    );
 }

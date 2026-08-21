@@ -12,6 +12,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.stockit.backend.common.exception.AppException;
@@ -19,6 +20,7 @@ import com.stockit.backend.common.exception.ErrorCode;
 import com.stockit.backend.feature.strategy.domain.CreateStrategyCaseCommand;
 import com.stockit.backend.feature.strategy.domain.ForecastDateRange;
 import com.stockit.backend.feature.strategy.domain.StrategyCaseCreated;
+import com.stockit.backend.feature.strategy.domain.StrategyGenerationRequestedEvent;
 import com.stockit.backend.feature.strategy.domain.StrategyType;
 import com.stockit.backend.feature.strategy.dto.StrategyCaseRequestPayload;
 import com.stockit.backend.feature.strategy.mapper.StrategyCaseMapper;
@@ -47,19 +49,22 @@ public class StrategyCaseServiceImpl implements StrategyCaseService {
     private final StrategyCaseRequestPayloadSerializer payloadSerializer;
     private final LegacyStrategyCaseCodeGenerator caseCodeGenerator;
     private final StrategyDateTimeProvider dateTimeProvider;
+    private final ApplicationEventPublisher eventPublisher;
 
     public StrategyCaseServiceImpl(
             StrategyCaseMapper strategyCaseMapper,
             StrategyForecastDateRangeResolver dateRangeResolver,
             StrategyCaseRequestPayloadSerializer payloadSerializer,
             LegacyStrategyCaseCodeGenerator caseCodeGenerator,
-            StrategyDateTimeProvider dateTimeProvider
+            StrategyDateTimeProvider dateTimeProvider,
+            ApplicationEventPublisher eventPublisher
     ) {
         this.strategyCaseMapper = strategyCaseMapper;
         this.dateRangeResolver = dateRangeResolver;
         this.payloadSerializer = payloadSerializer;
         this.caseCodeGenerator = caseCodeGenerator;
         this.dateTimeProvider = dateTimeProvider;
+        this.eventPublisher = eventPublisher;
     }
 
     /**
@@ -123,10 +128,15 @@ public class StrategyCaseServiceImpl implements StrategyCaseService {
         if (persisted == null) {
             throw new AppException(ErrorCode.INTERNAL_SERVER_ERROR);
         }
+        eventPublisher.publishEvent(new StrategyGenerationRequestedEvent(
+                persisted.getStrategyCaseId(),
+                persisted.getCreatedAt()
+        ));
         return new StrategyCaseCreated(
                 persisted.getStrategyCaseId(),
                 persisted.getCaseName(),
                 persisted.getCaseStatus(),
+                persisted.getGenerationStage(),
                 persisted.getCreatedAt()
         );
     }
