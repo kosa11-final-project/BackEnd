@@ -20,6 +20,7 @@ strategy_case 저장
 
 ```bash
 docker compose -f compose.rabbitmq.yml up -d
+SPRING_PROFILES_ACTIVE=local ./gradlew bootRun
 ```
 
 - AMQP: `localhost:5672`
@@ -27,10 +28,12 @@ docker compose -f compose.rabbitmq.yml up -d
 - 로컬 기본 계정: `stockit_local`
 - 로컬 기본 비밀번호: `stockit_local`
 
-공통 설정에는 계정 기본값을 두지 않는다. `stockit_local` 기본값은 `local` 프로필에서만
-제공하며, 운영에서는 `RABBITMQ_USERNAME`, `RABBITMQ_PASSWORD`를 필수 비밀값으로
-주입한다. 운영 Broker 주소만 설정하고 로컬 계정으로 접속을 시도하는 설정 누락을 조기에
-발견하기 위한 구분이다. 로컬 RabbitMQ를 중지할 때는 다음 명령을 사용한다.
+`local`은 기본 프로필이 아니므로 로컬 실행 시 `SPRING_PROFILES_ACTIVE=local`을 명시한다.
+공통 설정에는 계정 기본값을 두지 않고 `stockit_local` 기본값은 `local` 프로필에서만
+제공한다. 운영에서는 `SPRING_PROFILES_ACTIVE`를 운영 프로필로 지정하고
+`RABBITMQ_USERNAME`, `RABBITMQ_PASSWORD`를 필수 비밀값으로 주입한다. 프로필이나 운영
+Broker 자격 증명 누락이 로컬 설정으로 조용히 대체되지 않고 기동 시 드러나게 하기 위한
+구분이다. 로컬 RabbitMQ를 중지할 때는 다음 명령을 사용한다.
 
 ```bash
 docker compose -f compose.rabbitmq.yml down
