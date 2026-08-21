@@ -136,10 +136,10 @@ class MlForecastProviderTest {
         response.set(new ResponseSpec(
                 200,
                 successJson(),
-                Duration.ofMillis(200)
+                Duration.ofSeconds(1)
         ));
 
-        assertThatThrownBy(() -> provider(Duration.ofMillis(30)).forecast(request()))
+        assertThatThrownBy(() -> provider(Duration.ofMillis(100)).forecast(request()))
                 .isInstanceOfSatisfying(
                         RetryableStrategyGenerationException.class,
                         exception -> assertThat(exception.getFailureCode())
@@ -147,19 +147,114 @@ class MlForecastProviderTest {
                 );
     }
 
+    @Test
+    void rejectsBlankBaseUrlAsPermanentConfigurationFailure() {
+        assertConfigurationFailure("", PATH, "test-api-key");
+    }
+
+    @Test
+    void rejectsBlankApiKeyAsPermanentConfigurationFailure() {
+        assertConfigurationFailure(serverBaseUrl(), PATH, "");
+    }
+
+    @Test
+    void rejectsInvalidPathAsPermanentConfigurationFailure() {
+        assertConfigurationFailure(serverBaseUrl(), "api/v1/forecast", "test-api-key");
+    }
+
+    @Test
+    void rejectsUnsupportedUrlSchemeAsPermanentConfigurationFailure() {
+        assertConfigurationFailure("ftp://localhost", PATH, "test-api-key");
+    }
+
+    @Test
+    void classifiesServerErrorAsRetryable() {
+        response.set(new ResponseSpec(500, "", Duration.ZERO));
+
+        assertThatThrownBy(() -> provider(Duration.ofSeconds(1)).forecast(request()))
+                .isInstanceOfSatisfying(
+                        RetryableStrategyGenerationException.class,
+                        exception -> assertThat(exception.getFailureCode())
+                                .isEqualTo("FORECAST_API_UNAVAILABLE")
+                );
+    }
+
+    @Test
+    void classifiesRequestTimeoutAsRetryable() {
+        response.set(new ResponseSpec(408, "", Duration.ZERO));
+
+        assertThatThrownBy(() -> provider(Duration.ofSeconds(1)).forecast(request()))
+                .isInstanceOfSatisfying(
+                        RetryableStrategyGenerationException.class,
+                        exception -> assertThat(exception.getFailureCode())
+                                .isEqualTo("FORECAST_API_UNAVAILABLE")
+                );
+    }
+
+    @Test
+    void classifiesUnavailableForecastAsPermanent() {
+        response.set(new ResponseSpec(
+                422,
+                "{\"code\":\"FORECAST_UNAVAILABLE\",\"message\":\"no data\"}",
+                Duration.ZERO
+        ));
+
+        assertThatThrownBy(() -> provider(Duration.ofSeconds(1)).forecast(request()))
+                .isInstanceOfSatisfying(
+                        PermanentStrategyGenerationException.class,
+                        exception -> assertThat(exception.getFailureCode())
+                                .isEqualTo("FORECAST_UNAVAILABLE")
+                );
+    }
+
     private MlForecastProvider provider(Duration readTimeout) {
+        return provider(
+                serverBaseUrl(),
+                PATH,
+                "test-api-key",
+                readTimeout
+        );
+    }
+
+    private MlForecastProvider provider(
+            String baseUrl,
+            String path,
+            String apiKey,
+            Duration readTimeout
+    ) {
         StrategyForecastProperties properties = new StrategyForecastProperties();
-        properties.setBaseUrl("http://localhost:" + server.getAddress().getPort());
-        properties.setPath(PATH);
+        properties.setBaseUrl(baseUrl);
+        properties.setPath(path);
         properties.setConnectTimeout(Duration.ofSeconds(1));
         properties.setReadTimeout(readTimeout);
         return new MlForecastProvider(
                 new StrategyForecastHttpConfiguration()
-                        .strategyForecastRestClientBuilder(properties, objectMapper),
+                        .strategyForecastRestClient(properties, objectMapper),
                 objectMapper,
                 properties,
-                new InternalApiProperties("test-api-key", 0L, "ml-service")
+                new InternalApiProperties(apiKey, 0L, "ml-service")
         );
+    }
+
+    private void assertConfigurationFailure(
+            String baseUrl,
+            String path,
+            String apiKey
+    ) {
+        assertThatThrownBy(() -> provider(
+                baseUrl,
+                path,
+                apiKey,
+                Duration.ofSeconds(1)
+        ).forecast(request())).isInstanceOfSatisfying(
+                PermanentStrategyGenerationException.class,
+                exception -> assertThat(exception.getFailureCode())
+                        .isEqualTo("FORECAST_CONFIGURATION_INVALID")
+        );
+    }
+
+    private String serverBaseUrl() {
+        return "http://localhost:" + server.getAddress().getPort();
     }
 
     private void handle(HttpExchange exchange) throws IOException {

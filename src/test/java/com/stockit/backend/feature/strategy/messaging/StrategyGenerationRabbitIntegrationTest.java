@@ -358,7 +358,7 @@ class StrategyGenerationRabbitIntegrationTest {
                 dates.size(),
                 "integration-forecast-run",
                 1L,
-                OffsetDateTime.now(),
+                OffsetDateTime.parse("2026-08-20T10:15:30+09:00"),
                 forecasts
         );
     }

@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -172,6 +173,55 @@ class StrategyGenerationJobHandlerImplTest {
 
         verify(forecastProvider).forecast(context().request());
         verify(checkpointStore).save(any(ForecastCheckpoint.class));
+        verify(lockManager).release(lock());
+    }
+
+    @Test
+    void releasesLockAndSkipsCheckpointWhenForecastApiFails() {
+        StrategyCaseVO forecasting = generatingCase(StrategyGenerationStage.FORECASTING);
+        givenContextFor(forecasting);
+        when(strategyCaseMapper.selectStrategyCaseById(12345L))
+                .thenReturn(forecasting, forecasting);
+        when(checkpointStore.find(12345L, "request-hash", List.of(10L)))
+                .thenReturn(Optional.empty());
+        when(lockManager.tryAcquire(12345L)).thenReturn(Optional.of(lock()));
+        when(forecastProvider.forecast(context().request()))
+                .thenThrow(new RetryableStrategyGenerationException(
+                        "FORECAST_API_UNAVAILABLE",
+                        StrategyGenerationStage.FORECASTING,
+                        "forecast api unavailable"
+                ));
+
+        assertThatThrownBy(() -> handler.handle(message()))
+                .isInstanceOf(RetryableStrategyGenerationException.class);
+
+        verify(lockManager).release(lock());
+        verify(checkpointStore, never()).save(any());
+        verify(stageService, never()).completeForecasting(12345L);
+    }
+
+    @Test
+    void releasesLockAndSkipsCheckpointWhenResponseValidationFails() {
+        StrategyCaseVO forecasting = generatingCase(StrategyGenerationStage.FORECASTING);
+        givenContextFor(forecasting);
+        when(strategyCaseMapper.selectStrategyCaseById(12345L))
+                .thenReturn(forecasting, forecasting);
+        when(checkpointStore.find(12345L, "request-hash", List.of(10L)))
+                .thenReturn(Optional.empty());
+        when(lockManager.tryAcquire(12345L)).thenReturn(Optional.of(lock()));
+        when(forecastProvider.forecast(context().request())).thenReturn(response());
+        doThrow(new PermanentStrategyGenerationException(
+                "FORECAST_RESPONSE_INVALID",
+                StrategyGenerationStage.FORECASTING,
+                "invalid forecast response"
+        )).when(responseValidator).validate(context(), response());
+
+        assertThatThrownBy(() -> handler.handle(message()))
+                .isInstanceOf(PermanentStrategyGenerationException.class);
+
+        verify(lockManager).release(lock());
+        verify(checkpointStore, never()).save(any());
+        verify(stageService, never()).completeForecasting(12345L);
     }
 
     @Test

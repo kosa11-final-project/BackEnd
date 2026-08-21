@@ -77,6 +77,51 @@ class StrategyForecastResponseValidatorTest {
         )));
     }
 
+    @Test
+    void rejectsNullResponse() {
+        assertInvalid(null);
+    }
+
+    @Test
+    void rejectsMismatchedForecastDays() {
+        assertInvalid(copyWithMetadata(
+                1,
+                "forecast-run-1",
+                3L,
+                List.of(20L)
+        ));
+    }
+
+    @Test
+    void rejectsNonPositiveModelVersionId() {
+        assertInvalid(copyWithMetadata(
+                2,
+                "forecast-run-1",
+                0L,
+                List.of(20L)
+        ));
+    }
+
+    @Test
+    void rejectsBlankForecastRunId() {
+        assertInvalid(copyWithMetadata(
+                2,
+                " ",
+                3L,
+                List.of(20L)
+        ));
+    }
+
+    @Test
+    void rejectsCandidateSalesPointEchoMismatch() {
+        assertInvalid(copyWithMetadata(
+                2,
+                "forecast-run-1",
+                3L,
+                List.of(30L)
+        ));
+    }
+
     private void assertInvalid(StrategyForecastResponse response) {
         assertThatThrownBy(() -> validator.validate(context(), response))
                 .isInstanceOfSatisfying(
@@ -144,6 +189,28 @@ class StrategyForecastResponseValidatorTest {
                 source.modelVersionId(),
                 source.forecastGeneratedAt(),
                 forecasts
+        );
+    }
+
+    private static StrategyForecastResponse copyWithMetadata(
+            Integer forecastDays,
+            String forecastRunId,
+            Long modelVersionId,
+            List<Long> requestedCandidateSalesPointIds
+    ) {
+        StrategyForecastResponse source = validResponse();
+        return new StrategyForecastResponse(
+                source.strategyRequestId(),
+                source.skuId(),
+                source.sourceSalesPointId(),
+                requestedCandidateSalesPointIds,
+                source.forecastStartDate(),
+                source.forecastEndDate(),
+                forecastDays,
+                forecastRunId,
+                modelVersionId,
+                source.forecastGeneratedAt(),
+                source.salesPointForecasts()
         );
     }
 
