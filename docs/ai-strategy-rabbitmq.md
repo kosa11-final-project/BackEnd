@@ -94,9 +94,12 @@ AI_STRATEGY_CONFIRM_TIMEOUT=5s
 ```
 
 Docker가 실행 중이면 Testcontainers가 실제 RabbitMQ로 정상 소비, Retry TTL과 DLQ
-라우팅을 검증한다. Retry 테스트는 Listener 종료를 확인한 뒤 공유 Queue를 비우고 기대한
-`messageId`만 수신해 이전 테스트 메시지에 의한 비결정적 실패를 방지한다. Docker를 사용할
-수 없는 환경에서는 해당 통합 테스트만 skip된다.
+라우팅을 검증한다. 영구 오류 테스트는 잘못된 메시지를 Main Exchange에 발행하고 Listener의
+Reject와 Main Queue의 dead-letter 설정을 거쳐 동일 `messageId`가 DLQ에 도착하는 전체
+경로를 확인한다. DLX와 DLQ의 직접 Binding 검증은 별도 테스트로 분리한다. Retry 테스트는
+Listener 종료를 확인한 뒤 공유 Queue를 비우고 기대한 `messageId`만 수신해 이전 테스트
+메시지에 의한 비결정적 실패를 방지한다. Docker를 사용할 수 없는 환경에서는 해당 통합
+테스트만 skip된다.
 
 ## 현재 한계와 후속 안정화
 
