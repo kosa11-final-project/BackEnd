@@ -124,6 +124,7 @@ class StrategyGenerationRabbitIntegrationTest {
             retryPublisher.publishForRetry(message, 1);
 
             Message retried = receiveExpectedMessage(
+                    StrategyGenerationMessagingProperties.MAIN_QUEUE,
                     message.messageId().toString(),
                     Duration.ofSeconds(5)
             );
@@ -141,13 +142,44 @@ class StrategyGenerationRabbitIntegrationTest {
     }
 
     @Test
-    void deadLetterExchangeRoutesFinalFailureToDlq() {
+    void permanentFailureFromMainQueueIsRejectedAndDeadLettered() {
         rabbitAdmin.purgeQueue(
                 StrategyGenerationMessagingProperties.DEAD_LETTER_QUEUE,
                 false
         );
+        String messageId = UUID.randomUUID().toString();
+        Message permanentlyInvalid = MessageBuilder
+                .withBody("not-json".getBytes(StandardCharsets.UTF_8))
+                .setContentType("application/json")
+                .setMessageId(messageId)
+                .build();
+
+        rabbitTemplate.send(
+                StrategyGenerationMessagingProperties.MAIN_EXCHANGE,
+                StrategyGenerationMessagingProperties.MAIN_ROUTING_KEY,
+                permanentlyInvalid
+        );
+
+        Message deadLettered = receiveExpectedMessage(
+                StrategyGenerationMessagingProperties.DEAD_LETTER_QUEUE,
+                messageId,
+                Duration.ofSeconds(5)
+        );
+        assertThat(deadLettered).isNotNull();
+        assertThat(deadLettered.getMessageProperties().getMessageId())
+                .isEqualTo(messageId);
+    }
+
+    @Test
+    void deadLetterExchangeBindingRoutesMessageToDlq() {
+        rabbitAdmin.purgeQueue(
+                StrategyGenerationMessagingProperties.DEAD_LETTER_QUEUE,
+                false
+        );
+        String messageId = UUID.randomUUID().toString();
         Message failed = MessageBuilder
                 .withBody("failed".getBytes(StandardCharsets.UTF_8))
+                .setMessageId(messageId)
                 .build();
 
         rabbitTemplate.send(
@@ -156,10 +188,14 @@ class StrategyGenerationRabbitIntegrationTest {
                 failed
         );
 
-        assertThat(rabbitTemplate.receive(
+        Message deadLettered = receiveExpectedMessage(
                 StrategyGenerationMessagingProperties.DEAD_LETTER_QUEUE,
-                Duration.ofSeconds(5).toMillis()
-        )).isNotNull();
+                messageId,
+                Duration.ofSeconds(5)
+        );
+        assertThat(deadLettered).isNotNull();
+        assertThat(deadLettered.getMessageProperties().getMessageId())
+                .isEqualTo(messageId);
     }
 
     private static StrategyGenerationJobMessage jobMessage(Long strategyCaseId) {
@@ -181,6 +217,7 @@ class StrategyGenerationRabbitIntegrationTest {
     }
 
     private Message receiveExpectedMessage(
+            String queue,
             String expectedMessageId,
             Duration timeout
     ) {
@@ -191,7 +228,7 @@ class StrategyGenerationRabbitIntegrationTest {
                     Duration.ofNanos(deadline - System.nanoTime()).toMillis()
             );
             Message candidate = rabbitTemplate.receive(
-                    StrategyGenerationMessagingProperties.MAIN_QUEUE,
+                    queue,
                     Math.min(remainingMillis, 500L)
             );
             if (candidate != null && expectedMessageId.equals(
