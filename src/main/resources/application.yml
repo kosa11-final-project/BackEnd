@@ -1,8 +1,6 @@
 spring:
   application:
     name: stockit-backend
-  profiles:
-    default: local
   datasource:
     url: ${DB_URL}
     username: ${DB_USERNAME}
@@ -18,6 +16,22 @@ spring:
     # migration 실행은 별도 승인된 작업에서만 명시적으로 켭니다.
     enabled: ${FLYWAY_ENABLED:false}
     locations: classpath:db/migration
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME}
+    password: ${RABBITMQ_PASSWORD}
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      mandatory: true
+    listener:
+      simple:
+        acknowledge-mode: manual
+        concurrency: 1
+        max-concurrency: 1
+        prefetch: 1
+        default-requeue-rejected: false
 
 server:
   port: ${SERVER_PORT:8080}
@@ -49,6 +63,12 @@ app:
       account-url: ${AZURE_STORAGE_ACCOUNT_URL:}
       container-name: ${AZURE_STORAGE_CONTAINER:}
       blob-prefix: ${AZURE_STORAGE_BLOB_PREFIX:sales-daily}
+  ai-strategy:
+    messaging:
+      enabled: ${AI_STRATEGY_MESSAGING_ENABLED:true}
+      max-attempts: ${AI_STRATEGY_MAX_ATTEMPTS:3}
+      retry-delay: ${AI_STRATEGY_RETRY_DELAY:30s}
+      confirm-timeout: ${AI_STRATEGY_CONFIRM_TIMEOUT:5s}
 
 mybatis:
   mapper-locations: classpath:mappers/**/*.xml
@@ -68,6 +88,9 @@ spring:
   config:
     activate:
       on-profile: local
+  rabbitmq:
+    username: ${RABBITMQ_USERNAME:stockit_local}
+    password: ${RABBITMQ_PASSWORD:stockit_local}
 
 server:
   servlet:

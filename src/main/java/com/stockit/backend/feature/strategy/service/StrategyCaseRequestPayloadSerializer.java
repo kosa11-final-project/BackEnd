@@ -30,4 +30,18 @@ public class StrategyCaseRequestPayloadSerializer {
             throw new AppException(ErrorCode.INTERNAL_SERVER_ERROR);
         }
     }
+
+    /**
+     * 비동기 Worker가 요청 시점에 확정된 스냅샷을 그대로 복원
+     */
+    public StrategyCaseRequestPayload deserialize(String payloadJson) {
+        try {
+            return objectMapper.readValue(payloadJson, StrategyCaseRequestPayload.class);
+        } catch (JsonProcessingException | IllegalArgumentException exception) {
+            throw new StrategyCasePayloadException(
+                    "Stored AI strategy request payload is invalid",
+                    exception
+            );
+        }
+    }
 }

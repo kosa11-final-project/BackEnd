@@ -11,6 +11,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.jdbc.Sql;
 
 import com.stockit.backend.feature.strategy.domain.StrategyCaseStatus;
+import com.stockit.backend.feature.strategy.domain.StrategyGenerationStage;
 import com.stockit.backend.feature.strategy.vo.StrategyCaseVO;
 import com.stockit.backend.feature.strategy.vo.StrategyLotReferenceVO;
 
@@ -64,11 +65,88 @@ class StrategyCaseMapperTest {
                 strategyCase.getStrategyCaseId()
         );
         assertThat(saved.getCaseStatus()).isEqualTo(StrategyCaseStatus.GENERATING);
+        assertThat(saved.getGenerationStage()).isNull();
         assertThat(saved.getCaseName()).isEqualTo("테스트 전략");
         assertThat(saved.getRequestPayloadJson()).contains("1001");
         assertThat(saved.getCreatedBy()).isEqualTo(99L);
         assertThat(saved.getUpdatedBy()).isEqualTo(99L);
         assertThat(saved.getCreatedAt()).isNotNull();
         assertThat(saved.getIsDeleted()).isFalse();
+
+        assertThat(strategyCaseMapper.markForecastingIfPending(
+                strategyCase.getStrategyCaseId()
+        )).isEqualTo(1);
+        assertThat(strategyCaseMapper.markForecastingIfPending(
+                strategyCase.getStrategyCaseId()
+        )).isZero();
+        assertThat(strategyCaseMapper.selectStrategyCaseById(
+                strategyCase.getStrategyCaseId()
+        ).getGenerationStage()).isEqualTo(StrategyGenerationStage.FORECASTING);
+    }
+
+    @Test
+    void recordsFailureOnlyWhileCaseIsGenerating() {
+        StrategyCaseVO strategyCase = StrategyCaseVO.generating(
+                101L,
+                10L,
+                "SC-0123456789abcdef0123456789abcdee",
+                "실패 테스트 전략",
+                "{\"lotIds\":[]}",
+                99L
+        );
+        strategyCaseMapper.insertStrategyCase(strategyCase);
+
+        assertThat(strategyCaseMapper.markGenerationFailedIfGenerating(
+                strategyCase.getStrategyCaseId(),
+                "MQ_RETRY_EXHAUSTED",
+                "temporary failure"
+        )).isEqualTo(1);
+        assertThat(strategyCaseMapper.markGenerationFailedIfGenerating(
+                strategyCase.getStrategyCaseId(),
+                "MQ_RETRY_EXHAUSTED",
+                "duplicated failure"
+        )).isZero();
+
+        StrategyCaseVO failed = strategyCaseMapper.selectStrategyCaseById(
+                strategyCase.getStrategyCaseId()
+        );
+        assertThat(failed.getCaseStatus())
+                .isEqualTo(StrategyCaseStatus.GENERATION_FAILED);
+        assertThat(failed.getFailureCode()).isEqualTo("MQ_RETRY_EXHAUSTED");
+        assertThat(failed.getFailureMessage()).isEqualTo("temporary failure");
+        assertThat(failed.getCompletedAt()).isNotNull();
+    }
+
+    @Test
+    void doesNotOverwriteForecastingCaseWithFailure() {
+        StrategyCaseVO strategyCase = StrategyCaseVO.generating(
+                101L,
+                10L,
+                "SC-0123456789abcdef0123456789abcdff",
+                "수요예측 진행 전략",
+                "{\"lotIds\":[]}",
+                99L
+        );
+        strategyCaseMapper.insertStrategyCase(strategyCase);
+        assertThat(strategyCaseMapper.markForecastingIfPending(
+                strategyCase.getStrategyCaseId()
+        )).isEqualTo(1);
+
+        assertThat(strategyCaseMapper.markGenerationFailedIfGenerating(
+                strategyCase.getStrategyCaseId(),
+                "MQ_MESSAGE_INVALID",
+                "duplicated invalid message"
+        )).isZero();
+
+        StrategyCaseVO forecasting = strategyCaseMapper.selectStrategyCaseById(
+                strategyCase.getStrategyCaseId()
+        );
+        assertThat(forecasting.getCaseStatus())
+                .isEqualTo(StrategyCaseStatus.GENERATING);
+        assertThat(forecasting.getGenerationStage())
+                .isEqualTo(StrategyGenerationStage.FORECASTING);
+        assertThat(forecasting.getFailureCode()).isNull();
+        assertThat(forecasting.getFailureMessage()).isNull();
+        assertThat(forecasting.getCompletedAt()).isNull();
     }
 }
