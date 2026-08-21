@@ -19,7 +19,10 @@ import com.stockit.backend.feature.inventory.vo.InventoryItemVO;
 import com.stockit.backend.feature.inventory.vo.InventoryQuery;
 import com.stockit.backend.feature.inventory.vo.InventorySummaryVO;
 
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(
+        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        properties = "app.ai-strategy.messaging.enabled=false"
+)
 @EnabledIfEnvironmentVariable(named = "INVENTORY_ORACLE_TEST", matches = "true")
 class InventoryOracleMapperTest {
 

@@ -9,7 +9,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Date;
 import java.time.LocalDate;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Stream;
 
 import org.junit.jupiter.api.AfterAll;
@@ -63,9 +65,10 @@ class SalesDailyCsvExportBatchTest {
     }
 
     @Test
-    void bootstrapExportsOnlyActiveRowsUpToBaseDateInRequiredColumnOrder() throws Exception {
+    void bootstrapExportsCompleteDateAndSalesPointPanelWithZeroFilledGaps() throws Exception {
         insertSalesDaily(102L, 20L, LocalDate.of(2026, 7, 31), "8.000", 0);
         insertSalesDaily(101L, 10L, LocalDate.of(2026, 7, 30), "12.300", 0);
+        insertSalesDaily(101L, 10L, LocalDate.of(2026, 7, 31), "55.000", 1);
         insertSalesDaily(101L, 10L, LocalDate.of(2026, 8, 1), "99.000", 0);
         insertSalesDaily(103L, 30L, LocalDate.of(2026, 7, 29), "77.000", 1);
 
@@ -78,8 +81,14 @@ class SalesDailyCsvExportBatchTest {
                 .containsExactly(
                         "sales_date,sku_id,sales_point_id,net_sales_qty",
                         "2026-07-30,101,10,12.3",
+                        "2026-07-31,101,10,0",
+                        "2026-07-30,102,20,0",
                         "2026-07-31,102,20,8"
                 );
+        assertThat(execution.getExecutionContext().getLong(
+                SalesDailyCsvExportBatchConfiguration.EXPECTED_ROW_COUNT_CONTEXT_KEY
+        )).isEqualTo(4L);
+        assertCsvKeysAreUnique();
         assertThat(temporaryFiles()).isEmpty();
     }
 
@@ -88,6 +97,8 @@ class SalesDailyCsvExportBatchTest {
         insertSalesDaily(101L, 10L, LocalDate.of(2026, 8, 17), "7.000", 0);
         insertSalesDaily(101L, 10L, LocalDate.of(2026, 8, 18), "12.300", 0);
         insertSalesDaily(102L, 20L, LocalDate.of(2026, 8, 18), "8.000", 0);
+        insertSalesDaily(105L, 50L, LocalDate.of(2026, 8, 17), "5.000", 0);
+        insertSalesDaily(105L, 50L, LocalDate.of(2026, 8, 18), "66.000", 1);
         insertSalesDaily(103L, 30L, LocalDate.of(2026, 8, 18), "77.000", 1);
         insertSalesDaily(104L, 40L, LocalDate.of(2026, 8, 19), "9.000", 0);
 
@@ -100,8 +111,32 @@ class SalesDailyCsvExportBatchTest {
                 .containsExactly(
                         "sales_date,sku_id,sales_point_id,net_sales_qty",
                         "2026-08-18,101,10,12.3",
-                        "2026-08-18,102,20,8"
+                        "2026-08-18,102,20,8",
+                        "2026-08-18,105,50,0"
                 );
+        assertThat(execution.getExecutionContext().getLong(
+                SalesDailyCsvExportBatchConfiguration.EXPECTED_ROW_COUNT_CONTEXT_KEY
+        )).isEqualTo(3L);
+        assertCsvKeysAreUnique();
+    }
+
+    @Test
+    void bootstrapIncludesBothEndpointsFor1096DayHistory() throws Exception {
+        insertSalesDaily(101L, 10L, LocalDate.of(2023, 8, 18), "1.000", 0);
+        insertSalesDaily(101L, 10L, LocalDate.of(2026, 8, 17), "2.000", 0);
+
+        JobExecution execution = jobLauncherTestUtils.launchJob(
+                jobParameters("2026-08-17", SalesDailyExportMode.BOOTSTRAP)
+        );
+
+        List<String> lines = Files.readAllLines(OUTPUT_PATH, StandardCharsets.UTF_8);
+        assertThat(execution.getStatus()).isEqualTo(BatchStatus.COMPLETED);
+        assertThat(lines).hasSize(1_097);
+        assertThat(lines.get(1)).isEqualTo("2023-08-18,101,10,1");
+        assertThat(lines.get(lines.size() - 1)).isEqualTo("2026-08-17,101,10,2");
+        assertThat(execution.getExecutionContext().getLong(
+                SalesDailyCsvExportBatchConfiguration.EXPECTED_ROW_COUNT_CONTEXT_KEY
+        )).isEqualTo(1_096L);
     }
 
     @Test
@@ -122,6 +157,7 @@ class SalesDailyCsvExportBatchTest {
         assertThat(Files.readAllLines(OUTPUT_PATH, StandardCharsets.UTF_8))
                 .containsExactly(
                         "sales_date,sku_id,sales_point_id,net_sales_qty",
+                        "2026-08-18,101,10,0",
                         "2026-08-18,102,20,8"
                 );
     }
@@ -139,15 +175,29 @@ class SalesDailyCsvExportBatchTest {
     }
 
     @Test
-    void preservesPreviousFinalFileAndDeletesTemporaryFileWhenWritingFails() throws Exception {
+    void preservesPreviousFinalFileAndDeletesTemporaryFileWhenValidationFails() throws Exception {
         Files.writeString(OUTPUT_PATH, "previous-complete-file", StandardCharsets.UTF_8);
-        insertSalesDaily(101L, 10L, LocalDate.of(2026, 7, 31), null, 0);
+        insertSalesDaily(101L, 10L, LocalDate.of(2026, 7, 31), "10.000", 1);
 
         JobExecution execution = jobLauncherTestUtils.launchJob(jobParameters("2026-07-31"));
 
         assertThat(execution.getStatus()).isEqualTo(BatchStatus.FAILED);
         assertThat(Files.readString(OUTPUT_PATH, StandardCharsets.UTF_8))
                 .isEqualTo("previous-complete-file");
+        assertThat(temporaryFiles()).isEmpty();
+    }
+
+    @Test
+    void failsBeforeUploadWhenDuplicateActiveKeysWouldBreakThePanel() throws Exception {
+        insertSalesDaily(101L, 10L, LocalDate.of(2026, 8, 18), "7.000", 0);
+        insertSalesDaily(101L, 10L, LocalDate.of(2026, 8, 18), "8.000", 0);
+
+        JobExecution execution = jobLauncherTestUtils.launchJob(
+                jobParameters("2026-08-18", SalesDailyExportMode.DAILY)
+        );
+
+        assertThat(execution.getStatus()).isEqualTo(BatchStatus.FAILED);
+        assertThat(OUTPUT_PATH).doesNotExist();
         assertThat(temporaryFiles()).isEmpty();
     }
 
@@ -199,6 +249,19 @@ class SalesDailyCsvExportBatchTest {
             return files
                     .filter(path -> path.getFileName().toString().endsWith(".tmp"))
                     .toList();
+        }
+    }
+
+    private static void assertCsvKeysAreUnique() throws IOException {
+        List<String> rows = Files.readAllLines(OUTPUT_PATH, StandardCharsets.UTF_8)
+                .stream()
+                .skip(1)
+                .toList();
+        Set<String> keys = new HashSet<>();
+        for (String row : rows) {
+            String[] columns = row.split(",");
+            assertThat(keys.add(columns[0] + ":" + columns[1] + ":" + columns[2]))
+                    .isTrue();
         }
     }
 
