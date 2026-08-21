@@ -33,6 +33,8 @@ class StrategyCaseMapperTest {
         assertThat(strategyCaseMapper.selectActiveSku(102L)).isNull();
         assertThat(strategyCaseMapper.selectActiveSalesPointIds(List.of(10L, 20L, 30L)))
                 .containsExactlyInAnyOrder(10L, 20L);
+        assertThat(strategyCaseMapper.selectAllActiveSalesPointIds())
+                .containsExactly(10L, 20L);
 
         List<StrategyLotReferenceVO> lots = strategyCaseMapper.selectLotReferences(
                 List.of(1001L, 1002L, 1003L)
@@ -82,6 +84,18 @@ class StrategyCaseMapperTest {
         assertThat(strategyCaseMapper.selectStrategyCaseById(
                 strategyCase.getStrategyCaseId()
         ).getGenerationStage()).isEqualTo(StrategyGenerationStage.FORECASTING);
+
+        assertThat(strategyCaseMapper.markStrategyGeneratingIfForecasting(
+                strategyCase.getStrategyCaseId()
+        )).isEqualTo(1);
+        assertThat(strategyCaseMapper.markStrategyGeneratingIfForecasting(
+                strategyCase.getStrategyCaseId()
+        )).isZero();
+        assertThat(strategyCaseMapper.selectStrategyCaseById(
+                strategyCase.getStrategyCaseId()
+        ).getGenerationStage()).isEqualTo(
+                StrategyGenerationStage.STRATEGY_GENERATING
+        );
     }
 
     @Test
@@ -148,5 +162,42 @@ class StrategyCaseMapperTest {
         assertThat(forecasting.getFailureCode()).isNull();
         assertThat(forecasting.getFailureMessage()).isNull();
         assertThat(forecasting.getCompletedAt()).isNull();
+    }
+
+    @Test
+    void recordsFailureOnlyAtExpectedGenerationStage() {
+        StrategyCaseVO strategyCase = StrategyCaseVO.generating(
+                101L,
+                10L,
+                "SC-0123456789abcdef0123456789abcddd",
+                "단계 실패 테스트 전략",
+                "{\"lotIds\":[]}",
+                99L
+        );
+        strategyCaseMapper.insertStrategyCase(strategyCase);
+        assertThat(strategyCaseMapper.markForecastingIfPending(
+                strategyCase.getStrategyCaseId()
+        )).isEqualTo(1);
+
+        assertThat(strategyCaseMapper.markGenerationFailedAtStage(
+                strategyCase.getStrategyCaseId(),
+                StrategyGenerationStage.STRATEGY_GENERATING,
+                "WRONG_STAGE",
+                "must not overwrite"
+        )).isZero();
+        assertThat(strategyCaseMapper.markGenerationFailedAtStage(
+                strategyCase.getStrategyCaseId(),
+                StrategyGenerationStage.FORECASTING,
+                "FORECAST_UNAVAILABLE",
+                "forecast unavailable"
+        )).isEqualTo(1);
+
+        StrategyCaseVO failed = strategyCaseMapper.selectStrategyCaseById(
+                strategyCase.getStrategyCaseId()
+        );
+        assertThat(failed.getCaseStatus()).isEqualTo(
+                StrategyCaseStatus.GENERATION_FAILED
+        );
+        assertThat(failed.getFailureCode()).isEqualTo("FORECAST_UNAVAILABLE");
     }
 }

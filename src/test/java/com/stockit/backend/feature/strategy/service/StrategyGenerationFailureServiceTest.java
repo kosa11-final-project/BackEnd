@@ -16,6 +16,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.stockit.backend.feature.strategy.mapper.StrategyCaseMapper;
+import com.stockit.backend.feature.strategy.domain.StrategyGenerationStage;
 
 @ExtendWith(MockitoExtension.class)
 class StrategyGenerationFailureServiceTest {
@@ -56,5 +57,31 @@ class StrategyGenerationFailureServiceTest {
         );
         Transactional transactional = method.getAnnotation(Transactional.class);
         assertThat(transactional.propagation()).isEqualTo(Propagation.REQUIRES_NEW);
+    }
+
+    @Test
+    void recordsFailureOnlyForTheExpectedStage() {
+        StrategyGenerationFailureService service =
+                new StrategyGenerationFailureService(strategyCaseMapper);
+        when(strategyCaseMapper.markGenerationFailedAtStage(
+                12345L,
+                StrategyGenerationStage.FORECASTING,
+                "FORECAST_UNAVAILABLE",
+                "forecast unavailable"
+        )).thenReturn(1);
+
+        assertThat(service.markFailed(
+                12345L,
+                StrategyGenerationStage.FORECASTING,
+                "FORECAST_UNAVAILABLE",
+                "forecast unavailable"
+        )).isTrue();
+
+        verify(strategyCaseMapper).markGenerationFailedAtStage(
+                12345L,
+                StrategyGenerationStage.FORECASTING,
+                "FORECAST_UNAVAILABLE",
+                "forecast unavailable"
+        );
     }
 }

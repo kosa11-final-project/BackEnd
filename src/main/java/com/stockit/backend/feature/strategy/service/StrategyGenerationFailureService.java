@@ -5,6 +5,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.stockit.backend.feature.strategy.mapper.StrategyCaseMapper;
+import com.stockit.backend.feature.strategy.domain.StrategyGenerationStage;
 
 /**
  * 이미 커밋된 생성 Case에 최종 실패 상태를 독립적으로 기록
@@ -26,9 +27,27 @@ public class StrategyGenerationFailureService {
             String failureCode,
             String failureMessage
     ) {
+        return markFailed(strategyCaseId, null, failureCode, failureMessage);
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public boolean markFailed(
+            Long strategyCaseId,
+            StrategyGenerationStage expectedStage,
+            String failureCode,
+            String failureMessage
+    ) {
         String normalizedMessage = normalizeMessage(failureMessage);
-        return strategyCaseMapper.markGenerationFailedIfGenerating(
+        if (expectedStage == null) {
+            return strategyCaseMapper.markGenerationFailedIfGenerating(
+                    strategyCaseId,
+                    failureCode,
+                    normalizedMessage
+            ) == 1;
+        }
+        return strategyCaseMapper.markGenerationFailedAtStage(
                 strategyCaseId,
+                expectedStage,
                 failureCode,
                 normalizedMessage
         ) == 1;
