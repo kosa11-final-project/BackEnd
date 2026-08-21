@@ -32,19 +32,19 @@ public class MlForecastProvider implements ForecastProvider {
     private static final StrategyGenerationStage STAGE =
             StrategyGenerationStage.FORECASTING;
 
-    private final RestClient.Builder restClientBuilder;
+    private final RestClient restClient;
     private final ObjectMapper objectMapper;
     private final StrategyForecastProperties properties;
     private final InternalApiProperties internalApiProperties;
 
     public MlForecastProvider(
-            @Qualifier("strategyForecastRestClientBuilder")
-            RestClient.Builder strategyForecastRestClientBuilder,
+            @Qualifier("strategyForecastRestClient")
+            RestClient strategyForecastRestClient,
             ObjectMapper objectMapper,
             StrategyForecastProperties properties,
             InternalApiProperties internalApiProperties
     ) {
-        this.restClientBuilder = strategyForecastRestClientBuilder;
+        this.restClient = strategyForecastRestClient;
         this.objectMapper = objectMapper.copy().disable(
                 DeserializationFeature.ADJUST_DATES_TO_CONTEXT_TIME_ZONE
         );
@@ -58,12 +58,9 @@ public class MlForecastProvider implements ForecastProvider {
     @Override
     public StrategyForecastResponse forecast(StrategyForecastRequest request) {
         validateConfiguration();
-        RestClient client = restClientBuilder.clone()
-                .baseUrl(normalizedBaseUrl())
-                .build();
         try {
-            return client.post()
-                    .uri(properties.getPath())
+            return restClient.post()
+                    .uri(forecastUri())
                     .contentType(MediaType.APPLICATION_JSON)
                     // 내부 서비스 인증 키를 URL이나 본문에 포함하지 않고 전용 헤더로 전달
                     .header(API_KEY_HEADER, internalApiProperties.key())
@@ -90,9 +87,9 @@ public class MlForecastProvider implements ForecastProvider {
                     exception
             );
         } catch (RuntimeException exception) {
-            throw retryable(
-                    "FORECAST_API_UNAVAILABLE",
-                    "Unexpected demand forecast API client failure",
+            throw permanent(
+                    "FORECAST_API_CLIENT_ERROR",
+                    "Demand forecast API client failed unexpectedly",
                     exception
             );
         }
@@ -192,6 +189,14 @@ public class MlForecastProvider implements ForecastProvider {
 
     private String normalizedBaseUrl() {
         return properties.getBaseUrl().trim();
+    }
+
+    private URI forecastUri() {
+        String baseUrl = normalizedBaseUrl();
+        String path = properties.getPath();
+        return URI.create(baseUrl.endsWith("/")
+                ? baseUrl.substring(0, baseUrl.length() - 1) + path
+                : baseUrl + path);
     }
 
     private static boolean containsCause(Throwable throwable, Class<?> causeType) {

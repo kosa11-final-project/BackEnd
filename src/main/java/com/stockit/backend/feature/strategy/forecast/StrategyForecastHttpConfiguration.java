@@ -19,10 +19,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 public class StrategyForecastHttpConfiguration {
 
     /**
-     * 애플리케이션 공용 Jackson 날짜 정책을 적용한 수요예측 전용 Builder 생성
+     * 애플리케이션 공용 Jackson 날짜 정책을 적용한 수요예측 전용 Client 생성
      */
     @Bean
-    public RestClient.Builder strategyForecastRestClientBuilder(
+    public RestClient strategyForecastRestClient(
             StrategyForecastProperties properties,
             ObjectMapper objectMapper
     ) {
@@ -42,6 +42,7 @@ public class StrategyForecastHttpConfiguration {
                     converters.add(
                             new MappingJackson2HttpMessageConverter(objectMapper)
                     );
-                });
+                })
+                .build();
     }
 }

@@ -84,7 +84,7 @@ ML_FORECAST_PATH=/api/v1/demand-forecasts/daily
 ML_FORECAST_CONNECT_TIMEOUT=3s
 ML_FORECAST_READ_TIMEOUT=60s
 AI_STRATEGY_FORECAST_TTL=3d
-AI_STRATEGY_FORECAST_LOCK_TTL=90s
+AI_STRATEGY_FORECAST_LOCK_TTL=180s
 STOCKIT_INTERNAL_API_KEY=replace-with-secret
 ```
 
@@ -96,7 +96,7 @@ STOCKIT_INTERNAL_API_KEY=replace-with-secret
 | 구분 | Key | TTL |
 | --- | --- | --- |
 | 결과 checkpoint | `ai-strategy:case:{strategyCaseId}:forecast:v1` | 저장 후 3일 |
-| 실행 lock | `ai-strategy:case:{strategyCaseId}:lock:forecast` | 90초 |
+| 실행 lock | `ai-strategy:case:{strategyCaseId}:lock:forecast` | 180초 |
 
 체크포인트에는 schema version, Case ID, canonical Request의 SHA-256, 기대 판매처 ID,
 저장시각과 ML Response를 저장한다. 같은 Request hash의 유효한 결과가 있으면 ML API를

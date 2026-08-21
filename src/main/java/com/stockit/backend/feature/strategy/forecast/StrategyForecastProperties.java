@@ -15,7 +15,7 @@ public class StrategyForecastProperties {
     private Duration connectTimeout = Duration.ofSeconds(3);
     private Duration readTimeout = Duration.ofSeconds(60);
     private Duration resultTtl = Duration.ofDays(3);
-    private Duration lockTtl = Duration.ofSeconds(90);
+    private Duration lockTtl = Duration.ofSeconds(180);
 
     public String getBaseUrl() {
         return baseUrl;

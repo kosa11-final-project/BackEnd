@@ -29,6 +29,7 @@ import com.stockit.backend.feature.strategy.service.StrategyCaseRequestPayloadSe
 import com.stockit.backend.feature.strategy.service.StrategyCaseService;
 import com.stockit.backend.feature.strategy.service.StrategyDateTimeProvider;
 import com.stockit.backend.feature.strategy.service.StrategyForecastDateRangeResolver;
+import com.stockit.backend.feature.strategy.service.StrategySalesPointQuerySupport;
 import com.stockit.backend.feature.strategy.vo.StrategyCaseVO;
 import com.stockit.backend.feature.strategy.vo.StrategyLotReferenceVO;
 import com.stockit.backend.feature.strategy.vo.StrategySkuReferenceVO;
@@ -196,7 +197,8 @@ public class StrategyCaseServiceImpl implements StrategyCaseService {
             return;
         }
 
-        List<Long> activeIds = strategyCaseMapper.selectActiveSalesPointIds(
+        List<Long> activeIds = StrategySalesPointQuerySupport.selectActiveSalesPointIds(
+                strategyCaseMapper,
                 List.copyOf(requestedIds)
         );
         if (activeIds.size() != requestedIds.size()

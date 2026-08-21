@@ -83,7 +83,7 @@ app:
       connect-timeout: ${ML_FORECAST_CONNECT_TIMEOUT:3s}
       read-timeout: ${ML_FORECAST_READ_TIMEOUT:60s}
       result-ttl: ${AI_STRATEGY_FORECAST_TTL:3d}
-      lock-ttl: ${AI_STRATEGY_FORECAST_LOCK_TTL:90s}
+      lock-ttl: ${AI_STRATEGY_FORECAST_LOCK_TTL:180s}
 
 mybatis:
   mapper-locations: classpath:mappers/**/*.xml

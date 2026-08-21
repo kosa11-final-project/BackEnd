@@ -12,6 +12,7 @@ import com.stockit.backend.feature.strategy.domain.StrategyGenerationStage;
 import com.stockit.backend.feature.strategy.dto.StrategyCaseRequestPayload;
 import com.stockit.backend.feature.strategy.mapper.StrategyCaseMapper;
 import com.stockit.backend.feature.strategy.messaging.PermanentStrategyGenerationException;
+import com.stockit.backend.feature.strategy.service.StrategySalesPointQuerySupport;
 import com.stockit.backend.feature.strategy.vo.StrategyCaseVO;
 
 /**
@@ -88,7 +89,8 @@ public class StrategyForecastRequestFactory {
             requestedIds.add(request.sourceSalesPointId());
         }
         // 요청 이후 비활성화된 판매처로 전략이 생성되지 않도록 외부 호출 직전 재검증
-        List<Long> activeIds = strategyCaseMapper.selectActiveSalesPointIds(
+        List<Long> activeIds = StrategySalesPointQuerySupport.selectActiveSalesPointIds(
+                strategyCaseMapper,
                 List.copyOf(requestedIds)
         );
         if (activeIds.size() != requestedIds.size()
