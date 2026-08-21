@@ -38,6 +38,7 @@ CREATE TABLE strategy_case (
     requested_sales_point_id NUMBER,
     case_code VARCHAR2(50) NOT NULL UNIQUE,
     case_status VARCHAR2(30) NOT NULL,
+    generation_stage VARCHAR2(30),
     case_name VARCHAR2(200) NOT NULL,
     request_payload_json CLOB NOT NULL,
     result_cache_key VARCHAR2(500),

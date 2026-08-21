@@ -20,6 +20,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.context.ApplicationEventPublisher;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -29,6 +30,7 @@ import com.stockit.backend.common.exception.ErrorCode;
 import com.stockit.backend.feature.strategy.domain.CreateStrategyCaseCommand;
 import com.stockit.backend.feature.strategy.domain.StrategyCaseCreated;
 import com.stockit.backend.feature.strategy.domain.StrategyCaseStatus;
+import com.stockit.backend.feature.strategy.domain.StrategyGenerationRequestedEvent;
 import com.stockit.backend.feature.strategy.domain.StrategyType;
 import com.stockit.backend.feature.strategy.mapper.StrategyCaseMapper;
 import com.stockit.backend.feature.strategy.service.LegacyStrategyCaseCodeGenerator;
@@ -57,6 +59,9 @@ class StrategyCaseServiceImplTest {
     @Mock
     private StrategyDateTimeProvider dateTimeProvider;
 
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
+
     private ObjectMapper objectMapper;
     private StrategyCaseService strategyCaseService;
 
@@ -70,7 +75,8 @@ class StrategyCaseServiceImplTest {
                 new StrategyForecastDateRangeResolver(),
                 new StrategyCaseRequestPayloadSerializer(objectMapper),
                 caseCodeGenerator,
-                dateTimeProvider
+                dateTimeProvider,
+                eventPublisher
         );
     }
 
@@ -116,6 +122,11 @@ class StrategyCaseServiceImplTest {
         assertThat(created.strategyCaseId()).isEqualTo(777L);
         assertThat(created.caseName()).isEqualTo("여름 재고 전략");
         assertThat(created.caseStatus()).isEqualTo(StrategyCaseStatus.GENERATING);
+        assertThat(created.generationStage()).isNull();
+        verify(eventPublisher).publishEvent(new StrategyGenerationRequestedEvent(
+                777L,
+                REQUESTED_AT
+        ));
 
         ArgumentCaptor<StrategyCaseVO> captor = ArgumentCaptor.forClass(StrategyCaseVO.class);
         verify(strategyCaseMapper).insertStrategyCase(captor.capture());
