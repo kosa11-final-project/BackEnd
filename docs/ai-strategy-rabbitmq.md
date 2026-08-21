@@ -98,8 +98,10 @@ Docker가 실행 중이면 Testcontainers가 실제 RabbitMQ로 정상 소비, R
 Reject와 Main Queue의 dead-letter 설정을 거쳐 동일 `messageId`가 DLQ에 도착하는 전체
 경로를 확인한다. DLX와 DLQ의 직접 Binding 검증은 별도 테스트로 분리한다. Retry 테스트는
 Listener 종료를 확인한 뒤 공유 Queue를 비우고 기대한 `messageId`만 수신해 이전 테스트
-메시지에 의한 비결정적 실패를 방지한다. Docker를 사용할 수 없는 환경에서는 해당 통합
-테스트만 skip된다.
+메시지에 의한 비결정적 실패를 방지한다. 테스트 조회는 `basicGet(autoAck=false)`를 사용해
+기대한 메시지만 ACK한다. 다른 `messageId`가 조회되면 NACK으로 재큐잉하고 즉시 테스트를
+실패시켜 공유 Queue 오염을 숨기거나 다른 테스트 메시지를 삭제하지 않는다. Docker를 사용할
+수 없는 환경에서는 해당 통합 테스트만 skip된다.
 
 ## 현재 한계와 후속 안정화
 
