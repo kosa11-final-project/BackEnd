@@ -42,7 +42,7 @@ class StrategyForecastRequestFactoryTest {
     }
 
     @Test
-    void keepsEmptyCandidatesInRequestAndUsesAllActivePointsAsExpectedScope() {
+    void fillsRequestCandidatesWithAllActivePointsWhenCandidatesAreEmpty() {
         when(strategyCaseMapper.selectAllActiveSalesPointIds())
                 .thenReturn(List.of(30L, 10L, 20L));
 
@@ -52,7 +52,8 @@ class StrategyForecastRequestFactoryTest {
         );
 
         assertThat(context.request().strategyRequestId()).isEqualTo(12345L);
-        assertThat(context.request().candidateSalesPointIds()).isEmpty();
+        assertThat(context.request().candidateSalesPointIds())
+                .containsExactly(10L, 20L, 30L);
         assertThat(context.expectedSalesPointIds()).containsExactly(10L, 20L, 30L);
         assertThat(context.requestHash()).hasSize(64);
     }

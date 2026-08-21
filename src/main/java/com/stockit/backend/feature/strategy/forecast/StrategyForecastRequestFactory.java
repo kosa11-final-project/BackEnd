@@ -40,7 +40,7 @@ public class StrategyForecastRequestFactory {
             StrategyCaseRequestPayload payload
     ) {
         StrategyGenerationStage expectedStage = strategyCase.getGenerationStage();
-        StrategyForecastRequest request = new StrategyForecastRequest(
+        StrategyForecastRequest requested = new StrategyForecastRequest(
                 strategyCase.getStrategyCaseId(),
                 strategyCase.getSkuId(),
                 strategyCase.getRequestedSalesPointId(),
@@ -48,16 +48,27 @@ public class StrategyForecastRequestFactory {
                 payload.forecastStartDate(),
                 payload.forecastEndDate()
         );
-        validateRequest(request, expectedStage);
+        validateRequest(requested, expectedStage);
 
         List<Long> expectedSalesPointIds = resolveExpectedSalesPointIds(
-                request,
+                requested,
                 expectedStage
         );
+        // 후보 미지정도 ML이 명시적인 판매처 범위로 처리하도록 전체 활성 판매처 ID로 확정
+        StrategyForecastRequest outboundRequest = requested.candidateSalesPointIds().isEmpty()
+                ? new StrategyForecastRequest(
+                        requested.strategyRequestId(),
+                        requested.skuId(),
+                        requested.sourceSalesPointId(),
+                        expectedSalesPointIds,
+                        requested.forecastStartDate(),
+                        requested.forecastEndDate()
+                )
+                : requested;
         return new StrategyForecastRequestContext(
-                request,
+                outboundRequest,
                 expectedSalesPointIds,
-                requestHasher.hash(request, expectedStage)
+                requestHasher.hash(outboundRequest, expectedStage)
         );
     }
 
