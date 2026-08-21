@@ -16,6 +16,7 @@ import com.rabbitmq.client.Channel;
 import com.stockit.backend.feature.strategy.service.StrategyGenerationFailureService;
 import com.stockit.backend.feature.strategy.service.StrategyGenerationJobHandler;
 import com.stockit.backend.feature.strategy.service.StrategyGenerationRetryPublisher;
+import com.stockit.backend.feature.strategy.domain.StrategyGenerationStage;
 
 /**
  * AI 전략 생성 메시지의 ACK, 지연 재시도와 DLQ 분기를 담당하는 RabbitMQ Adapter
@@ -73,12 +74,37 @@ public class StrategyGenerationJobListener {
                     "AI strategy generation message handled. retryCount={}",
                     retryCount
             );
+        } catch (StrategyGenerationBusyException exception) {
+            handleBusy(rawMessage, jobMessage, channel, deliveryTag, exception);
         } catch (PermanentStrategyGenerationException exception) {
-            recordFailure(jobMessage, exception.getFailureCode(), exception.getMessage());
+            recordFailure(
+                    jobMessage,
+                    exception.getExpectedStage(),
+                    exception.getFailureCode(),
+                    exception.getMessage()
+            );
             log.error("Permanent AI strategy message failure; routing to DLQ", exception);
             channel.basicReject(deliveryTag, false);
+        } catch (RetryableStrategyGenerationException exception) {
+            handleTransientFailure(
+                    rawMessage,
+                    jobMessage,
+                    channel,
+                    deliveryTag,
+                    exception.getFailureCode(),
+                    exception.getExpectedStage(),
+                    exception
+            );
         } catch (RuntimeException exception) {
-            handleTransientFailure(rawMessage, jobMessage, channel, deliveryTag, exception);
+            handleTransientFailure(
+                    rawMessage,
+                    jobMessage,
+                    channel,
+                    deliveryTag,
+                    RETRY_EXHAUSTED_CODE,
+                    null,
+                    exception
+            );
         } finally {
             MDC.remove("messageId");
             MDC.remove("strategyCaseId");
@@ -128,6 +154,8 @@ public class StrategyGenerationJobListener {
             StrategyGenerationJobMessage jobMessage,
             Channel channel,
             long deliveryTag,
+            String failureCode,
+            StrategyGenerationStage expectedStage,
             RuntimeException exception
     ) throws IOException {
         int retryCount = readRetryCount(rawMessage);
@@ -152,7 +180,15 @@ public class StrategyGenerationJobListener {
             }
         }
 
-        recordFailure(jobMessage, RETRY_EXHAUSTED_CODE, exception.getMessage());
+        String failureMessage = failureCode == null
+                ? exception.getMessage()
+                : "[" + failureCode + "] " + exception.getMessage();
+        recordFailure(
+                jobMessage,
+                expectedStage,
+                RETRY_EXHAUSTED_CODE,
+                failureMessage
+        );
         log.error(
                 "AI strategy generation retries exhausted; routing to DLQ. attempts={}",
                 properties.getMaxAttempts(),
@@ -161,8 +197,34 @@ public class StrategyGenerationJobListener {
         channel.basicReject(deliveryTag, false);
     }
 
+    private void handleBusy(
+            Message rawMessage,
+            StrategyGenerationJobMessage jobMessage,
+            Channel channel,
+            long deliveryTag,
+            StrategyGenerationBusyException exception
+    ) throws IOException {
+        int retryCount = readRetryCount(rawMessage);
+        try {
+            retryPublisher.publishForRetry(jobMessage, retryCount);
+            channel.basicAck(deliveryTag, false);
+            log.info(
+                    "AI strategy generation is owned by another worker; delaying without "
+                            + "consuming an API retry. retryCount={}",
+                    retryCount
+            );
+        } catch (RuntimeException retryPublishException) {
+            log.error(
+                    "Failed to delay busy AI strategy message; requeueing original",
+                    retryPublishException
+            );
+            channel.basicNack(deliveryTag, false, true);
+        }
+    }
+
     private void recordFailure(
             StrategyGenerationJobMessage message,
+            StrategyGenerationStage expectedStage,
             String failureCode,
             String failureMessage
     ) {
@@ -172,6 +234,7 @@ public class StrategyGenerationJobListener {
         try {
             failureService.markFailed(
                     message.strategyCaseId(),
+                    expectedStage,
                     failureCode,
                     failureMessage
             );

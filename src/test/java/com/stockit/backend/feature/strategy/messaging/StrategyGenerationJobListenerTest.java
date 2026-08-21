@@ -24,6 +24,7 @@ import com.rabbitmq.client.Channel;
 import com.stockit.backend.feature.strategy.service.StrategyGenerationFailureService;
 import com.stockit.backend.feature.strategy.service.StrategyGenerationJobHandler;
 import com.stockit.backend.feature.strategy.service.StrategyGenerationRetryPublisher;
+import com.stockit.backend.feature.strategy.domain.StrategyGenerationStage;
 
 @ExtendWith(MockitoExtension.class)
 class StrategyGenerationJobListenerTest {
@@ -94,8 +95,9 @@ class StrategyGenerationJobListenerTest {
 
         verify(failureService).markFailed(
                 12345L,
+                null,
                 "MQ_RETRY_EXHAUSTED",
-                "temporary database failure"
+                "[MQ_RETRY_EXHAUSTED] temporary database failure"
         );
         verify(channel).basicReject(DELIVERY_TAG, false);
         verify(retryPublisher, never()).publishForRetry(any(), any(Integer.class));
@@ -106,6 +108,7 @@ class StrategyGenerationJobListenerTest {
         StrategyGenerationJobMessage message = message();
         doThrow(new PermanentStrategyGenerationException(
                 "MQ_PAYLOAD_INVALID",
+                StrategyGenerationStage.FORECASTING,
                 "stored payload is invalid"
         )).when(jobHandler).handle(message);
 
@@ -113,11 +116,25 @@ class StrategyGenerationJobListenerTest {
 
         verify(failureService).markFailed(
                 12345L,
+                StrategyGenerationStage.FORECASTING,
                 "MQ_PAYLOAD_INVALID",
                 "stored payload is invalid"
         );
         verify(channel).basicReject(DELIVERY_TAG, false);
         verify(retryPublisher, never()).publishForRetry(any(), any(Integer.class));
+    }
+
+    @Test
+    void delaysBusyCaseWithoutIncreasingApiRetryCount() throws Exception {
+        StrategyGenerationJobMessage message = message();
+        doThrow(new StrategyGenerationBusyException("owned by another worker"))
+                .when(jobHandler).handle(message);
+
+        listener.consume(rawMessage(message, 2), channel);
+
+        verify(retryPublisher).publishForRetry(message, 2);
+        verify(channel).basicAck(DELIVERY_TAG, false);
+        verify(failureService, never()).markFailed(any(), any(), any(), any());
     }
 
     @Test
@@ -143,7 +160,7 @@ class StrategyGenerationJobListenerTest {
 
         listener.consume(malformed, channel);
 
-        verify(failureService, never()).markFailed(any(), any(), any());
+        verify(failureService, never()).markFailed(any(), any(), any(), any());
         verify(channel).basicReject(DELIVERY_TAG, false);
     }
 
@@ -158,7 +175,7 @@ class StrategyGenerationJobListenerTest {
 
         verify(jobHandler, never()).handle(any());
         verify(retryPublisher, never()).publishForRetry(any(), any(Integer.class));
-        verify(failureService, never()).markFailed(any(), any(), any());
+        verify(failureService, never()).markFailed(any(), any(), any(), any());
         verify(channel).basicReject(DELIVERY_TAG, false);
     }
 
