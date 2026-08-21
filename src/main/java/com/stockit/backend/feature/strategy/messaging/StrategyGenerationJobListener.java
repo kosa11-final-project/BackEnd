@@ -243,12 +243,21 @@ public class StrategyGenerationJobListener {
             return;
         }
         try {
-            failureService.markFailed(
+            boolean updated = failureService.markFailed(
                     message.strategyCaseId(),
                     expectedStage,
                     failureCode,
                     failureMessage
             );
+            if (!updated) {
+                log.warn(
+                        "AI strategy failure was not persisted because case state changed. "
+                                + "strategyCaseId={}, expectedStage={}, failureCode={}",
+                        message.strategyCaseId(),
+                        expectedStage,
+                        failureCode
+                );
+            }
         } catch (RuntimeException exception) {
             log.error(
                     "Failed to persist AI strategy generation failure. strategyCaseId={}",

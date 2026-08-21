@@ -1,5 +1,6 @@
 package com.stockit.backend.feature.strategy.messaging;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
@@ -18,6 +19,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.core.MessageBuilder;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rabbitmq.client.Channel;
@@ -26,7 +29,7 @@ import com.stockit.backend.feature.strategy.service.StrategyGenerationJobHandler
 import com.stockit.backend.feature.strategy.service.StrategyGenerationRetryPublisher;
 import com.stockit.backend.feature.strategy.domain.StrategyGenerationStage;
 
-@ExtendWith(MockitoExtension.class)
+@ExtendWith({MockitoExtension.class, OutputCaptureExtension.class})
 class StrategyGenerationJobListenerTest {
 
     private static final long DELIVERY_TAG = 77L;
@@ -101,6 +104,55 @@ class StrategyGenerationJobListenerTest {
         );
         verify(channel).basicReject(DELIVERY_TAG, false);
         verify(retryPublisher, never()).publishForRetry(any(), any(Integer.class));
+    }
+
+    @Test
+    void recordsForecastingStageWhenTypedRetriesAreExhausted() throws Exception {
+        StrategyGenerationJobMessage message = message();
+        doThrow(new RetryableStrategyGenerationException(
+                "FORECAST_UNEXPECTED_ERROR",
+                StrategyGenerationStage.FORECASTING,
+                "Unexpected error occurred while processing demand forecast"
+        )).when(jobHandler).handle(message);
+
+        listener.consume(rawMessage(message, 2), channel);
+
+        verify(failureService).markFailed(
+                12345L,
+                StrategyGenerationStage.FORECASTING,
+                "MQ_RETRY_EXHAUSTED",
+                "[FORECAST_UNEXPECTED_ERROR] Unexpected error occurred while processing "
+                        + "demand forecast"
+        );
+        verify(channel).basicReject(DELIVERY_TAG, false);
+        verify(retryPublisher, never()).publishForRetry(any(), any(Integer.class));
+    }
+
+    @Test
+    void logsWhenConditionalFailureRecordDoesNotMatchCurrentCase(
+            CapturedOutput output
+    ) throws Exception {
+        StrategyGenerationJobMessage message = message();
+        doThrow(new PermanentStrategyGenerationException(
+                "FORECAST_UNAVAILABLE",
+                StrategyGenerationStage.FORECASTING,
+                "forecast unavailable"
+        )).when(jobHandler).handle(message);
+        org.mockito.Mockito.when(failureService.markFailed(
+                12345L,
+                StrategyGenerationStage.FORECASTING,
+                "FORECAST_UNAVAILABLE",
+                "forecast unavailable"
+        )).thenReturn(false);
+
+        listener.consume(rawMessage(message, 0), channel);
+
+        assertThat(output)
+                .contains("AI strategy failure was not persisted because case state changed")
+                .contains("strategyCaseId=12345")
+                .contains("expectedStage=FORECASTING")
+                .contains("failureCode=FORECAST_UNAVAILABLE");
+        verify(channel).basicReject(DELIVERY_TAG, false);
     }
 
     @Test
