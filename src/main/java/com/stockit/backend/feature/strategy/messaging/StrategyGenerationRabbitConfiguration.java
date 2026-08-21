@@ -11,7 +11,10 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * AI 전략 생성 작업의 Main, Retry, Dead Letter topology
+ * AI 전략 생성 작업의 Main, Retry, Dead Letter Queue 흐름 구성
+ *
+ * <p>일시 오류는 Retry Queue의 TTL 이후 Main Queue로 되돌리고, 영구 오류와
+ * 재시도 소진 작업은 DLQ에 격리해 자동 재처리 대상과 운영 확인 대상을 분리</p>
  */
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties(StrategyGenerationMessagingProperties.class)
@@ -68,6 +71,7 @@ public class StrategyGenerationRabbitConfiguration {
     Queue strategyGenerationRetryQueue(
             StrategyGenerationMessagingProperties properties
     ) {
+        // 별도 스케줄러 없이 Queue TTL과 Dead Letter 라우팅으로 지연 재시도
         return QueueBuilder
                 .durable(StrategyGenerationMessagingProperties.RETRY_QUEUE)
                 .ttl(Math.toIntExact(properties.getRetryDelay().toMillis()))

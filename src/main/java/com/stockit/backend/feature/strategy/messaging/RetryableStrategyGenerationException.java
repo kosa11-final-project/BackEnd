@@ -3,18 +3,14 @@ package com.stockit.backend.feature.strategy.messaging;
 import com.stockit.backend.feature.strategy.domain.StrategyGenerationStage;
 
 /**
- * 같은 메시지를 다시 처리해도 성공할 수 없어 DLQ로 격리해야 하는 오류
+ * 같은 Case를 지연 재시도하면 성공할 수 있는 전략 생성 오류
  */
-public class PermanentStrategyGenerationException extends RuntimeException {
+public class RetryableStrategyGenerationException extends RuntimeException {
 
     private final String failureCode;
     private final StrategyGenerationStage expectedStage;
 
-    public PermanentStrategyGenerationException(String failureCode, String message) {
-        this(failureCode, null, message, null);
-    }
-
-    public PermanentStrategyGenerationException(
+    public RetryableStrategyGenerationException(
             String failureCode,
             StrategyGenerationStage expectedStage,
             String message
@@ -22,15 +18,7 @@ public class PermanentStrategyGenerationException extends RuntimeException {
         this(failureCode, expectedStage, message, null);
     }
 
-    public PermanentStrategyGenerationException(
-            String failureCode,
-            String message,
-            Throwable cause
-    ) {
-        this(failureCode, null, message, cause);
-    }
-
-    public PermanentStrategyGenerationException(
+    public RetryableStrategyGenerationException(
             String failureCode,
             StrategyGenerationStage expectedStage,
             String message,

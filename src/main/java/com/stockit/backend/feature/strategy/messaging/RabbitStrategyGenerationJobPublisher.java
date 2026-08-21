@@ -18,7 +18,10 @@ import com.stockit.backend.feature.strategy.service.StrategyGenerationJobPublish
 import com.stockit.backend.feature.strategy.service.StrategyGenerationRetryPublisher;
 
 /**
- * persistent JSON 메시지를 발행하고 broker confirm과 routing 결과를 검증
+ * 전략 생성 작업을 영속 JSON 메시지로 발행하는 RabbitMQ Adapter
+ *
+ * <p>Broker 수신 여부와 Queue 라우팅 여부를 함께 검증해 발행 호출 성공만으로
+ * 작업 전달이 보장됐다고 판단하지 않음</p>
  */
 @Component
 @ConditionalOnProperty(
@@ -79,6 +82,7 @@ public class RabbitStrategyGenerationJobPublisher implements
 
         try {
             rabbitTemplate.send(exchange, routingKey, message, correlationData);
+            // Broker 저장 여부를 확인한 뒤에만 발행 성공으로 간주
             CorrelationData.Confirm confirm = correlationData.getFuture().get(
                     properties.getConfirmTimeout().toMillis(),
                     TimeUnit.MILLISECONDS
@@ -88,6 +92,7 @@ public class RabbitStrategyGenerationJobPublisher implements
                         "RabbitMQ publisher confirm NACK: " + confirm.getReason()
                 );
             }
+            // Confirm ACK와 별개로 바인딩 실패 메시지가 반환될 수 있어 추가 검증
             ReturnedMessage returned = correlationData.getReturned();
             if (returned != null) {
                 throw new StrategyGenerationPublishException(

@@ -29,12 +29,16 @@ import com.stockit.backend.feature.strategy.service.StrategyCaseRequestPayloadSe
 import com.stockit.backend.feature.strategy.service.StrategyCaseService;
 import com.stockit.backend.feature.strategy.service.StrategyDateTimeProvider;
 import com.stockit.backend.feature.strategy.service.StrategyForecastDateRangeResolver;
+import com.stockit.backend.feature.strategy.service.StrategySalesPointQuerySupport;
 import com.stockit.backend.feature.strategy.vo.StrategyCaseVO;
 import com.stockit.backend.feature.strategy.vo.StrategyLotReferenceVO;
 import com.stockit.backend.feature.strategy.vo.StrategySkuReferenceVO;
 
 /**
- * AI 전략 생성 요청의 도메인 검증과 최초 영속화를 수행하는 서비스 구현체
+ * AI 전략 생성 요청의 도메인 검증과 최초 영속화를 담당하는 서비스
+ *
+ * <p>비동기 Worker가 사용자 요청과 무관하게 작업을 복원할 수 있도록 선택 조건과
+ * 확정 예측 기간을 Case에 먼저 저장한 뒤, DB 식별자와 생성 시각을 담은 내부 이벤트를 발행</p>
  */
 @Service
 public class StrategyCaseServiceImpl implements StrategyCaseService {
@@ -68,7 +72,7 @@ public class StrategyCaseServiceImpl implements StrategyCaseService {
     }
 
     /**
-     * 참조 무결성과 사용자 우선순위를 검증한 뒤 비동기 처리 대기 상태로 요청 저장
+     * 참조 무결성과 사용자 우선순위를 검증하고 비동기 처리의 복구 기준이 될 Case 생성
      */
     @Override
     @Transactional
@@ -118,6 +122,7 @@ public class StrategyCaseServiceImpl implements StrategyCaseService {
         );
         strategyCaseMapper.insertStrategyCase(strategyCase);
 
+        // 메시지에는 DB 식별자와 생성 시각만 전달하므로 작업 발행보다 Case 영속화가 항상 선행
         if (strategyCase.getStrategyCaseId() == null) {
             throw new AppException(ErrorCode.INTERNAL_SERVER_ERROR);
         }
@@ -128,6 +133,7 @@ public class StrategyCaseServiceImpl implements StrategyCaseService {
         if (persisted == null) {
             throw new AppException(ErrorCode.INTERNAL_SERVER_ERROR);
         }
+        // 현재 트랜잭션이 커밋된 뒤 RabbitMQ로 전달하기 위한 내부 이벤트 발행
         eventPublisher.publishEvent(new StrategyGenerationRequestedEvent(
                 persisted.getStrategyCaseId(),
                 persisted.getCreatedAt()
@@ -191,7 +197,8 @@ public class StrategyCaseServiceImpl implements StrategyCaseService {
             return;
         }
 
-        List<Long> activeIds = strategyCaseMapper.selectActiveSalesPointIds(
+        List<Long> activeIds = StrategySalesPointQuerySupport.selectActiveSalesPointIds(
+                strategyCaseMapper,
                 List.copyOf(requestedIds)
         );
         if (activeIds.size() != requestedIds.size()

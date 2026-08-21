@@ -3,14 +3,20 @@ package com.stockit.backend.feature.strategy.messaging;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.when;
 
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.locks.LockSupport;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.amqp.core.Message;
@@ -24,6 +30,9 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.jdbc.Sql;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.RabbitMQContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -35,6 +44,12 @@ import com.stockit.backend.feature.strategy.domain.StrategyCaseCreated;
 import com.stockit.backend.feature.strategy.domain.StrategyGenerationStage;
 import com.stockit.backend.feature.strategy.domain.StrategyType;
 import com.stockit.backend.feature.strategy.mapper.StrategyCaseMapper;
+import com.stockit.backend.feature.strategy.forecast.DailyForecastPrediction;
+import com.stockit.backend.feature.strategy.forecast.ForecastProvider;
+import com.stockit.backend.feature.strategy.forecast.RedisForecastCheckpointStore;
+import com.stockit.backend.feature.strategy.forecast.SalesPointForecast;
+import com.stockit.backend.feature.strategy.forecast.StrategyForecastRequest;
+import com.stockit.backend.feature.strategy.forecast.StrategyForecastResponse;
 import com.stockit.backend.feature.strategy.service.StrategyCaseService;
 import com.stockit.backend.feature.strategy.service.StrategyGenerationRetryPublisher;
 import com.stockit.backend.feature.strategy.vo.StrategyCaseVO;
@@ -55,6 +70,11 @@ class StrategyGenerationRabbitIntegrationTest {
             DockerImageName.parse("rabbitmq:4-management")
     );
 
+    @Container
+    static final GenericContainer<?> REDIS = new GenericContainer<>(
+            DockerImageName.parse("redis:7.4-alpine")
+    ).withExposedPorts(6379);
+
     @DynamicPropertySource
     static void rabbitProperties(DynamicPropertyRegistry registry) {
         registry.add("app.ai-strategy.messaging.enabled", () -> true);
@@ -63,6 +83,8 @@ class StrategyGenerationRabbitIntegrationTest {
         registry.add("spring.rabbitmq.port", RABBITMQ::getAmqpPort);
         registry.add("spring.rabbitmq.username", RABBITMQ::getAdminUsername);
         registry.add("spring.rabbitmq.password", RABBITMQ::getAdminPassword);
+        registry.add("spring.data.redis.host", REDIS::getHost);
+        registry.add("spring.data.redis.port", () -> REDIS.getMappedPort(6379));
     }
 
     @Autowired
@@ -83,8 +105,17 @@ class StrategyGenerationRabbitIntegrationTest {
     @Autowired
     private RabbitListenerEndpointRegistry listenerRegistry;
 
+    @Autowired
+    private StringRedisTemplate redisTemplate;
+
+    @MockitoBean
+    private ForecastProvider forecastProvider;
+
     @Test
-    void commitsCaseThenPublishesConsumesAndMovesItToForecasting() {
+    void commitsCaseThenForecastsCachesAndMovesToStrategyGenerating() {
+        when(forecastProvider.forecast(any())).thenAnswer(invocation ->
+                responseFor(invocation.getArgument(0))
+        );
         StrategyCaseCreated created = strategyCaseService.createStrategyCase(
                 new CreateStrategyCaseCommand(
                         "RabbitMQ 통합 테스트 전략",
@@ -104,7 +135,48 @@ class StrategyGenerationRabbitIntegrationTest {
                     created.strategyCaseId()
             );
             assertThat(updated.getGenerationStage())
-                    .isEqualTo(StrategyGenerationStage.FORECASTING);
+                    .isEqualTo(StrategyGenerationStage.STRATEGY_GENERATING);
+            assertThat(redisTemplate.hasKey(
+                    RedisForecastCheckpointStore.key(created.strategyCaseId())
+            )).isTrue();
+        });
+    }
+
+    @Test
+    void retriesTransientForecastFailureAndResumesForecastingStage() {
+        AtomicInteger attempts = new AtomicInteger();
+        when(forecastProvider.forecast(any())).thenAnswer(invocation -> {
+            if (attempts.incrementAndGet() == 1) {
+                throw new RetryableStrategyGenerationException(
+                        "FORECAST_API_UNAVAILABLE",
+                        StrategyGenerationStage.FORECASTING,
+                        "temporary ML failure"
+                );
+            }
+            return responseFor(invocation.getArgument(0));
+        });
+
+        StrategyCaseCreated created = strategyCaseService.createStrategyCase(
+                new CreateStrategyCaseCommand(
+                        "RabbitMQ 수요예측 재시도 테스트",
+                        101L,
+                        10L,
+                        List.of(),
+                        List.of(),
+                        List.of(StrategyType.PRICE_DISCOUNT),
+                        null,
+                        null
+                ),
+                99L
+        );
+
+        await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
+            StrategyCaseVO updated = strategyCaseMapper.selectStrategyCaseById(
+                    created.strategyCaseId()
+            );
+            assertThat(updated.getGenerationStage())
+                    .isEqualTo(StrategyGenerationStage.STRATEGY_GENERATING);
+            assertThat(attempts).hasValue(2);
         });
     }
 
@@ -254,6 +326,40 @@ class StrategyGenerationRabbitIntegrationTest {
                         0,
                         ZoneOffset.ofHours(9)
                 )
+        );
+    }
+
+    private static StrategyForecastResponse responseFor(
+            StrategyForecastRequest request
+    ) {
+        List<LocalDate> dates = request.forecastStartDate()
+                .datesUntil(request.forecastEndDate().plusDays(1))
+                .toList();
+        List<SalesPointForecast> forecasts = new ArrayList<>();
+        for (Long salesPointId : List.of(10L, 20L)) {
+            forecasts.add(new SalesPointForecast(
+                    salesPointId,
+                    salesPointId.equals(request.sourceSalesPointId()),
+                    dates.stream()
+                            .map(date -> new DailyForecastPrediction(
+                                    date,
+                                    BigDecimal.ONE
+                            ))
+                            .toList()
+            ));
+        }
+        return new StrategyForecastResponse(
+                request.strategyRequestId(),
+                request.skuId(),
+                request.sourceSalesPointId(),
+                request.candidateSalesPointIds(),
+                request.forecastStartDate(),
+                request.forecastEndDate(),
+                dates.size(),
+                "integration-forecast-run",
+                1L,
+                OffsetDateTime.parse("2026-08-20T10:15:30+09:00"),
+                forecasts
         );
     }
 

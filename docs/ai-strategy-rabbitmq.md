@@ -9,22 +9,28 @@ strategy_case 저장
   -> Publisher Confirm
   -> Main Queue
   -> Consumer가 Case와 request_payload_json 재조회
+  -> Redis forecast checkpoint 확인 및 실행 lock 획득
   -> generation_stage=FORECASTING 조건부 갱신
+  -> ML 일별 수요예측 API 호출 및 응답 계약 검증
+  -> Redis forecast checkpoint 저장
+  -> generation_stage=STRATEGY_GENERATING 조건부 갱신
   -> ACK
 ```
 
-이번 구현에서 Consumer의 성공 책임은 `FORECASTING` 단계 진입까지다. ML 수요예측,
-전략 후보 계산, Redis 결과 저장과 SSE 알림은 후속 Workflow에서 연결한다.
+현재 Consumer의 성공 책임은 실제 수요예측 결과를 Redis에 저장하고
+`STRATEGY_GENERATING` 단계에 진입하는 데까지다. 전략 후보 계산, LLM 추천과 SSE 알림은
+후속 Workflow에서 연결한다.
 
-## 로컬 RabbitMQ 실행
+## 로컬 RabbitMQ와 Redis 실행
 
 ```bash
-docker compose -f compose.rabbitmq.yml up -d
+docker compose -f compose.rabbitmq.yml -f compose.redis.yml up -d
 SPRING_PROFILES_ACTIVE=local ./gradlew bootRun
 ```
 
 - AMQP: `localhost:5672`
 - Management UI: `http://localhost:15672`
+- Redis: `localhost:6379`
 - 로컬 기본 계정: `stockit_local`
 - 로컬 기본 비밀번호: `stockit_local`
 
@@ -36,7 +42,7 @@ Broker 자격 증명 누락이 로컬 설정으로 조용히 대체되지 않고
 구분이다. 로컬 RabbitMQ를 중지할 때는 다음 명령을 사용한다.
 
 ```bash
-docker compose -f compose.rabbitmq.yml down
+docker compose -f compose.rabbitmq.yml -f compose.redis.yml down
 ```
 
 ## Queue topology
@@ -67,7 +73,35 @@ RABBITMQ_PASSWORD=stockit_local
 AI_STRATEGY_MAX_ATTEMPTS=3
 AI_STRATEGY_RETRY_DELAY=30s
 AI_STRATEGY_CONFIRM_TIMEOUT=5s
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_USERNAME=
+REDIS_PASSWORD=
+REDIS_CONNECT_TIMEOUT=3s
+REDIS_COMMAND_TIMEOUT=3s
+ML_FORECAST_BASE_URL=https://example.internal
+ML_FORECAST_PATH=/api/v1/demand-forecasts/daily
+ML_FORECAST_CONNECT_TIMEOUT=3s
+ML_FORECAST_READ_TIMEOUT=60s
+AI_STRATEGY_FORECAST_TTL=3d
+AI_STRATEGY_FORECAST_LOCK_TTL=180s
+STOCKIT_INTERNAL_API_KEY=replace-with-secret
 ```
+
+`STOCKIT_INTERNAL_API_KEY`는 수요예측 요청의 `X-API-Key` 헤더에 사용한다. 실제 값은
+추적되는 YAML이나 문서에 저장하지 않는다.
+
+## 수요예측 Redis 계약
+
+| 구분 | Key | TTL |
+| --- | --- | --- |
+| 결과 checkpoint | `ai-strategy:case:{strategyCaseId}:forecast:v1` | 저장 후 3일 |
+| 실행 lock | `ai-strategy:case:{strategyCaseId}:lock:forecast` | 180초 |
+
+체크포인트에는 schema version, Case ID, canonical Request의 SHA-256, 기대 판매처 ID,
+저장시각과 ML Response를 저장한다. 같은 Request hash의 유효한 결과가 있으면 ML API를
+다시 호출하지 않는다. 실행 lock은 `SET NX`와 무작위 소유 토큰을 사용하며 해제 시 Lua
+compare-and-delete로 소유자를 확인한다.
 
 일반 런타임에서는 메시징이 활성화된다. RabbitMQ와 무관한 기존 테스트는
 `application-test.yml`에서 비활성화하고, Testcontainers 통합 테스트만 동적으로 다시
@@ -80,11 +114,13 @@ AI_STRATEGY_CONFIRM_TIMEOUT=5s
   재시도 없이 `GENERATION_FAILED` 및 DLQ로 보낸다. Case ID를 복원할 수 없는 메시지는
   DB 실패 상태를 기록하지 않고 DLQ에 원본만 보존한다.
 - 일시 오류가 총 3회 실패하면 `MQ_RETRY_EXHAUSTED`로 기록하고 DLQ로 보낸다.
+- 연결 실패, timeout, HTTP 408·429·5xx와 `FORECAST_NOT_READY`는 일시 오류다.
+- 인증 실패, 잘못된 요청, `FORECAST_UNAVAILABLE`과 성공 응답 계약 불일치는 영구 오류다.
 - Retry 메시지의 Publisher Confirm을 받기 전에는 원본 메시지를 ACK하지 않는다.
-- 동일 Case의 중복 메시지는 조건부 DB 갱신 결과를 이용해 no-op ACK한다.
-- 실패 전이는 `case_status=GENERATING AND generation_stage IS NULL`인 Case에만 허용한다.
-  이미 `FORECASTING`에 진입한 Case가 뒤늦은 손상·중복 메시지 때문에 실패로 덮어써지는
-  것을 방지한다.
+- 다른 Worker가 lock을 가진 경우 retry count를 증가시키지 않고 Retry Queue로 지연한다.
+- Redis 저장 후 DB 단계 전이 전에 종료되면 재전달 Worker가 체크포인트를 사용해 DB 전이만
+  복구한다.
+- 실패 전이는 오류가 발생한 예상 `generation_stage`가 현재 값과 일치할 때만 허용한다.
 
 ## 테스트
 
@@ -93,8 +129,8 @@ AI_STRATEGY_CONFIRM_TIMEOUT=5s
   "com.stockit.backend.feature.strategy.messaging.StrategyGenerationRabbitIntegrationTest"
 ```
 
-Docker가 실행 중이면 Testcontainers가 실제 RabbitMQ로 정상 소비, Retry TTL과 DLQ
-라우팅을 검증한다. 영구 오류 테스트는 잘못된 메시지를 Main Exchange에 발행하고 Listener의
+Docker가 실행 중이면 Testcontainers가 실제 RabbitMQ와 Redis로 정상 소비, 수요예측
+체크포인트, Retry TTL과 DLQ 라우팅을 검증한다. 영구 오류 테스트는 잘못된 메시지를 Main Exchange에 발행하고 Listener의
 Reject와 Main Queue의 dead-letter 설정을 거쳐 동일 `messageId`가 DLQ에 도착하는 전체
 경로를 확인한다. DLX와 DLQ의 직접 Binding 검증은 별도 테스트로 분리한다. Retry 테스트는
 Listener 종료를 확인한 뒤 공유 Queue를 비우고 기대한 `messageId`만 수신해 이전 테스트
@@ -107,13 +143,9 @@ Listener 종료를 확인한 뒤 공유 Queue를 비우고 기대한 `messageId`
 
 - DB COMMIT 직후 프로세스가 종료되면 메시지가 발행되지 않을 수 있다. Transactional
   Outbox와 미발행 Case 복구 배치는 후속 안정화 범위다.
-- 현재 멱등성은 단일 Consumer, 종료 상태 확인과 `generation_stage IS NULL` 조건부 갱신을
-  사용한다. 장시간 실행되는 ML·AI Workflow를 연결하기 전 Redis Case lock 또는 실행 lease가
-  필요하다.
-- 현재 실패 UPDATE의 `generation_stage IS NULL` 조건은 Consumer 진입 단계에서 중복 오류가
-  진행 중 Case를 덮어쓰지 못하게 하는 보호 장치다. 실제 ML·AI 실행을 연결할 때는
-  `FORECASTING`, `STRATEGY_GENERATING` 등 예상 단계를 조건으로 하는 단계별 실패 전이를
-  별도로 구현해야 한다.
+- 수요예측 단계는 Redis checkpoint와 소유 토큰 lock으로 복구 가능하지만 이후 전략 후보와
+  LLM 단계의 checkpoint·lock은 후속 구현이 필요하다.
+- 수요예측 결과는 3일 후 만료되며 만료된 중간 결과를 영구 DB에서 복원하지 않는다.
 - DLQ 메시지의 조회와 수동 재발행 API는 아직 제공하지 않는다.
 - Queue TTL은 Queue 선언 인자이므로 운영 중 retry delay를 변경할 때는 Queue 재생성 또는
   versioning 절차가 필요하다.
