@@ -201,6 +201,35 @@ class StrategyGenerationJobHandlerImplTest {
     }
 
     @Test
+    void wrapsUnexpectedForecastingFailureWithCurrentStageAndReleasesLock() {
+        StrategyCaseVO forecasting = generatingCase(StrategyGenerationStage.FORECASTING);
+        IllegalStateException cause = new IllegalStateException("unexpected client failure");
+        givenContextFor(forecasting);
+        when(strategyCaseMapper.selectStrategyCaseById(12345L))
+                .thenReturn(forecasting, forecasting);
+        when(checkpointStore.find(12345L, "request-hash", List.of(10L)))
+                .thenReturn(Optional.empty());
+        when(lockManager.tryAcquire(12345L)).thenReturn(Optional.of(lock()));
+        when(forecastProvider.forecast(context().request())).thenThrow(cause);
+
+        assertThatThrownBy(() -> handler.handle(message()))
+                .isInstanceOfSatisfying(
+                        RetryableStrategyGenerationException.class,
+                        exception -> {
+                            assertThat(exception.getFailureCode())
+                                    .isEqualTo("FORECAST_UNEXPECTED_ERROR");
+                            assertThat(exception.getExpectedStage())
+                                    .isEqualTo(StrategyGenerationStage.FORECASTING);
+                            assertThat(exception.getCause()).isSameAs(cause);
+                        }
+                );
+
+        verify(lockManager).release(lock());
+        verify(checkpointStore, never()).save(any());
+        verify(stageService, never()).completeForecasting(12345L);
+    }
+
+    @Test
     void releasesLockAndSkipsCheckpointWhenResponseValidationFails() {
         StrategyCaseVO forecasting = generatingCase(StrategyGenerationStage.FORECASTING);
         givenContextFor(forecasting);
@@ -222,6 +251,106 @@ class StrategyGenerationJobHandlerImplTest {
         verify(lockManager).release(lock());
         verify(checkpointStore, never()).save(any());
         verify(stageService, never()).completeForecasting(12345L);
+    }
+
+    @Test
+    void preservesRetryableForecastingFailureWithoutReplacingItsCode() {
+        StrategyCaseVO forecasting = generatingCase(StrategyGenerationStage.FORECASTING);
+        RetryableStrategyGenerationException cause =
+                new RetryableStrategyGenerationException(
+                        "FORECAST_API_UNAVAILABLE",
+                        StrategyGenerationStage.FORECASTING,
+                        "forecast api unavailable"
+                );
+        givenContextFor(forecasting);
+        when(strategyCaseMapper.selectStrategyCaseById(12345L))
+                .thenReturn(forecasting, forecasting);
+        when(checkpointStore.find(12345L, "request-hash", List.of(10L)))
+                .thenReturn(Optional.empty());
+        when(lockManager.tryAcquire(12345L)).thenReturn(Optional.of(lock()));
+        when(forecastProvider.forecast(context().request())).thenThrow(cause);
+
+        assertThatThrownBy(() -> handler.handle(message())).isSameAs(cause);
+
+        verify(lockManager).release(lock());
+    }
+
+    @Test
+    void wrapsUnexpectedCheckpointRecoveryFailureAtForecastingStage() {
+        StrategyCaseVO forecasting = generatingCase(StrategyGenerationStage.FORECASTING);
+        ForecastCheckpoint checkpoint = ForecastCheckpoint.create(
+                context(),
+                response(),
+                Instant.parse("2026-08-20T00:00:00Z")
+        );
+        IllegalStateException cause = new IllegalStateException("unexpected validation failure");
+        givenContextFor(forecasting);
+        when(strategyCaseMapper.selectStrategyCaseById(12345L))
+                .thenReturn(forecasting);
+        when(checkpointStore.find(12345L, "request-hash", List.of(10L)))
+                .thenReturn(Optional.of(checkpoint));
+        doThrow(cause).when(responseValidator).validate(context(), response());
+
+        assertThatThrownBy(() -> handler.handle(message()))
+                .isInstanceOfSatisfying(
+                        RetryableStrategyGenerationException.class,
+                        exception -> {
+                            assertThat(exception.getFailureCode())
+                                    .isEqualTo("FORECAST_UNEXPECTED_ERROR");
+                            assertThat(exception.getExpectedStage())
+                                    .isEqualTo(StrategyGenerationStage.FORECASTING);
+                            assertThat(exception.getCause()).isSameAs(cause);
+                        }
+                );
+
+        verify(forecastProvider, never()).forecast(any());
+        verify(lockManager, never()).tryAcquire(any());
+    }
+
+    @Test
+    void wrapsUnexpectedCheckpointAccessFailureAtForecastingStage() {
+        StrategyCaseVO forecasting = generatingCase(StrategyGenerationStage.FORECASTING);
+        IllegalStateException cause = new IllegalStateException("unexpected redis failure");
+        givenContextFor(forecasting);
+        when(strategyCaseMapper.selectStrategyCaseById(12345L)).thenReturn(forecasting);
+        when(checkpointStore.find(12345L, "request-hash", List.of(10L)))
+                .thenThrow(cause);
+
+        assertThatThrownBy(() -> handler.handle(message()))
+                .isInstanceOfSatisfying(
+                        RetryableStrategyGenerationException.class,
+                        exception -> {
+                            assertThat(exception.getFailureCode())
+                                    .isEqualTo("FORECAST_UNEXPECTED_ERROR");
+                            assertThat(exception.getExpectedStage())
+                                    .isEqualTo(StrategyGenerationStage.FORECASTING);
+                            assertThat(exception.getCause()).isSameAs(cause);
+                        }
+                );
+
+        verify(lockManager, never()).tryAcquire(any());
+        verify(forecastProvider, never()).forecast(any());
+    }
+
+    @Test
+    void doesNotLabelUnexpectedPendingCheckpointFailureAsForecasting() {
+        StrategyCaseVO pending = generatingCase(null);
+        ForecastCheckpoint checkpoint = ForecastCheckpoint.create(
+                context(),
+                response(),
+                Instant.parse("2026-08-20T00:00:00Z")
+        );
+        IllegalStateException cause = new IllegalStateException("unexpected validation failure");
+        givenContextFor(pending);
+        when(strategyCaseMapper.selectStrategyCaseById(12345L)).thenReturn(pending);
+        when(checkpointStore.find(12345L, "request-hash", List.of(10L)))
+                .thenReturn(Optional.of(checkpoint));
+        doThrow(cause).when(responseValidator).validate(context(), response());
+
+        assertThatThrownBy(() -> handler.handle(message())).isSameAs(cause);
+
+        verify(stageService, never()).enterForecasting(any());
+        verify(stageService, never()).completeForecasting(any());
     }
 
     @Test
