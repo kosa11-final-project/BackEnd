@@ -1,0 +1,292 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.stockit.backend.feature.inventorysync.mapper.InventorySyncSourcePageMapper">
+    <!-- sourceType 하나만 page scan합니다. 네 source를 매번 UNION 전체 scan하지 않습니다. -->
+    <select id="selectCanonicalPage" resultType="com.stockit.backend.feature.inventorysync.adapter.CanonicalInventoryRecord">
+        SELECT m.source_type, m.source_record_key, m.product_id, category.category_id, m.sku_id,
+               m.sales_point_id, m.warehouse_id, m.lot_id, m.inventory_balance_id,
+               m.sku_channel_price_id, m.sku_cost_id, m.inventory_policy_id,
+               src.product_name, src.brand_name, src.product_status, src.sale_available_yn,
+               src.sku_name, src.net_weight, src.weight_unit, src.package_quantity, src.unit_code, src.storage_type,
+               src.selling_price, src.actual_price, src.product_cost, src.payment_fee, src.logistics_cost,
+               src.price_effective_from, src.price_effective_to, src.sku_unit_cost,
+               src.manufactured_date, src.received_date, src.expiry_date, src.sale_stop_date, src.lot_status,
+               src.safety_stock_qty, src.target_stock_qty,
+               src.on_hand_qty, src.reserved_qty, src.record_hash,
+               st.current_version AS source_version, src.row_version
+          FROM inventory_source_row_map m
+          JOIN inventory_source_state st ON st.source_type = m.source_type
+          JOIN (
+            <choose>
+              <when test="sourceType == 'OFFLINE'">
+                SELECT source_record_key, 'OFFLINE' AS source_type,
+                       COALESCE(category_small_name, category_middle_name, category_large_name) AS category_name,
+                       item_name AS product_name, brand_label AS brand_name,
+                       merchandise_state_code AS product_status, sale_flag AS sale_available_yn,
+                       branch_option_name AS sku_name,
+                       content_value AS net_weight, content_unit_label AS weight_unit,
+                       sell_pack_count AS package_quantity, sell_unit_label AS unit_code,
+                       storage_method_text AS storage_type,
+                       tag_price_amount AS selling_price, store_sale_price_amount AS actual_price,
+                       store_unit_cost_amount AS product_cost, CAST(NULL AS NUMBER(18,2)) AS payment_fee,
+                       CAST(NULL AS NUMBER(18,2)) AS logistics_cost,
+                       price_valid_from AS price_effective_from, price_valid_to AS price_effective_to,
+                       store_unit_cost_amount AS sku_unit_cost,
+                       TO_DATE(made_date_text, 'YYYY-MM-DD') AS manufactured_date,
+                       TO_DATE(received_date_text, 'YYYY-MM-DD') AS received_date,
+                       TO_DATE(use_by_date_text, 'YYYY-MM-DD') AS expiry_date,
+                       TO_DATE(sale_stop_date_text, 'YYYY-MM-DD') AS sale_stop_date,
+                       store_lot_state_code AS lot_status,
+                       safe_stock_count AS safety_stock_qty, target_stock_count AS target_stock_qty,
+                       available_stock_count AS on_hand_qty, reserved_stock_count AS reserved_qty,
+                       record_hash, synced_record_hash, row_version
+                  FROM inventory_source_offline WHERE active_yn = 'Y' AND is_deleted = 0
+              </when>
+              <when test="sourceType == 'ECOMMERCE'">
+                SELECT source_record_key, 'ECOMMERCE' AS source_type,
+                       TRIM(REGEXP_SUBSTR(display_category_path, '[^&gt;]+$')) AS category_name,
+                       display_product_title AS product_name, seller_brand_label AS brand_name,
+                       catalog_state_code AS product_status, option_enabled_flag AS sale_available_yn,
+                       seller_option_name AS sku_name,
+                       content_amount AS net_weight, content_uom_label AS weight_unit,
+                       order_pack_count AS package_quantity, order_unit_label AS unit_code,
+                       delivery_temperature_code AS storage_type,
+                       display_list_price AS selling_price, discounted_sale_price AS actual_price,
+                       seller_unit_cost_amount AS product_cost, payment_fee_amount AS payment_fee,
+                       delivery_cost_amount AS logistics_cost,
+                       price_started_on AS price_effective_from, price_ended_on AS price_effective_to,
+                       seller_unit_cost_amount AS sku_unit_cost,
+                       TO_DATE(made_on_text, 'YYYY-MM-DD') AS manufactured_date,
+                       TO_DATE(stocked_on_text, 'YYYY-MM-DD') AS received_date,
+                       TO_DATE(expires_on_text, 'YYYY-MM-DD') AS expiry_date,
+                       TO_DATE(blocked_on_text, 'YYYY-MM-DD') AS sale_stop_date,
+                       batch_state_code AS lot_status,
+                       safety_quantity AS safety_stock_qty, target_quantity AS target_stock_qty,
+                       sellable_quantity AS on_hand_qty, ordered_quantity AS reserved_qty,
+                       record_hash, synced_record_hash, row_version
+                  FROM inventory_source_ecommerce WHERE active_yn = 'Y' AND is_deleted = 0
+              </when>
+              <when test="sourceType == 'GREETING'">
+                SELECT source_record_key, 'GREETING' AS source_type,
+                       COALESCE(menu_group_small, menu_group_middle, menu_group_large) AS category_name,
+                       menu_name AS product_name, COALESCE(brand_display_name, maker_name) AS brand_name,
+                       menu_sale_state AS product_status,
+                       CASE sold_out_flag WHEN 'Y' THEN 'N' WHEN 'N' THEN 'Y' END AS sale_available_yn,
+                       greeting_sku_name AS sku_name,
+                       net_content_amount AS net_weight, net_content_unit_label AS weight_unit,
+                       package_count AS package_quantity, sale_unit_label AS unit_code,
+                       cold_chain_type AS storage_type,
+                       normal_price_amount AS selling_price, member_price_amount AS actual_price,
+                       menu_unit_cost_amount AS product_cost, payment_fee_amount AS payment_fee,
+                       shipping_cost_amount AS logistics_cost,
+                       membership_price_from AS price_effective_from, membership_price_to AS price_effective_to,
+                       menu_unit_cost_amount AS sku_unit_cost,
+                       TO_DATE(cooked_date_text, 'YYYY-MM-DD') AS manufactured_date,
+                       TO_DATE(received_date_text, 'YYYY-MM-DD') AS received_date,
+                       TO_DATE(consume_by_text, 'YYYY-MM-DD') AS expiry_date,
+                       TO_DATE(sale_block_date_text, 'YYYY-MM-DD') AS sale_stop_date,
+                       production_batch_state AS lot_status,
+                       minimum_stock_count AS safety_stock_qty, target_stock_count AS target_stock_qty,
+                       saleable_meal_count AS on_hand_qty, committed_meal_count AS reserved_qty,
+                       record_hash, synced_record_hash, row_version
+                  FROM inventory_source_greeting WHERE active_yn = 'Y' AND is_deleted = 0
+              </when>
+              <when test="sourceType == 'WAREHOUSE'">
+                SELECT source_record_key, 'WAREHOUSE' AS source_type,
+                       TRIM(REGEXP_SUBSTR(goods_category_name, '[^&gt;]+$')) AS category_name,
+                       center_product_name AS product_name, goods_brand_name AS brand_name,
+                       goods_state_code AS product_status, CAST(NULL AS CHAR(1)) AS sale_available_yn,
+                       center_sku_name AS sku_name,
+                       stock_net_weight AS net_weight, stock_weight_unit AS weight_unit,
+                       units_per_case AS package_quantity, stock_unit_code AS unit_code,
+                       temperature_zone_code AS storage_type,
+                       CAST(NULL AS NUMBER(18,2)) AS selling_price,
+                       CAST(NULL AS NUMBER(18,2)) AS actual_price,
+                       CAST(NULL AS NUMBER(18,2)) AS product_cost,
+                       CAST(NULL AS NUMBER(18,2)) AS payment_fee,
+                       CAST(NULL AS NUMBER(18,2)) AS logistics_cost,
+                       CAST(NULL AS DATE) AS price_effective_from,
+                       CAST(NULL AS DATE) AS price_effective_to,
+                       standard_unit_cost AS sku_unit_cost,
+                       TO_DATE(manufactured_date_text, 'YYYY-MM-DD') AS manufactured_date,
+                       TO_DATE(inbound_date_text, 'YYYY-MM-DD') AS received_date,
+                       TO_DATE(expiry_date_text, 'YYYY-MM-DD') AS expiry_date,
+                       TO_DATE(shipping_stop_date_text, 'YYYY-MM-DD') AS sale_stop_date,
+                       lot_quality_state AS lot_status,
+                       center_safety_qty AS safety_stock_qty, center_target_qty AS target_stock_qty,
+                       physical_available_qty AS on_hand_qty, physical_reserved_qty AS reserved_qty,
+                       record_hash, synced_record_hash, row_version
+                  FROM inventory_source_warehouse WHERE active_yn = 'Y' AND is_deleted = 0
+              </when>
+              <otherwise>
+                SELECT CAST(NULL AS VARCHAR2(300)) AS source_record_key,
+                       CAST(NULL AS VARCHAR2(20)) AS source_type,
+                       CAST(NULL AS VARCHAR2(200)) AS category_name,
+                       CAST(NULL AS VARCHAR2(300)) AS product_name, CAST(NULL AS VARCHAR2(150)) AS brand_name,
+                       CAST(NULL AS VARCHAR2(30)) AS product_status, CAST(NULL AS CHAR(1)) AS sale_available_yn,
+                       CAST(NULL AS VARCHAR2(300)) AS sku_name,
+                       CAST(NULL AS NUMBER(15,3)) AS net_weight, CAST(NULL AS VARCHAR2(30)) AS weight_unit,
+                       CAST(NULL AS NUMBER(15,3)) AS package_quantity, CAST(NULL AS VARCHAR2(30)) AS unit_code,
+                       CAST(NULL AS VARCHAR2(30)) AS storage_type,
+                       CAST(NULL AS NUMBER(18,2)) AS selling_price, CAST(NULL AS NUMBER(18,2)) AS actual_price,
+                       CAST(NULL AS NUMBER(18,2)) AS product_cost, CAST(NULL AS NUMBER(18,2)) AS payment_fee,
+                       CAST(NULL AS NUMBER(18,2)) AS logistics_cost, CAST(NULL AS DATE) AS price_effective_from,
+                       CAST(NULL AS DATE) AS price_effective_to, CAST(NULL AS NUMBER(18,2)) AS sku_unit_cost,
+                       CAST(NULL AS DATE) AS manufactured_date, CAST(NULL AS DATE) AS received_date,
+                       CAST(NULL AS DATE) AS expiry_date, CAST(NULL AS DATE) AS sale_stop_date,
+                       CAST(NULL AS VARCHAR2(30)) AS lot_status,
+                       CAST(NULL AS NUMBER(15,3)) AS safety_stock_qty,
+                       CAST(NULL AS NUMBER(15,3)) AS target_stock_qty,
+                       CAST(NULL AS NUMBER(15,3)) AS on_hand_qty,
+                       CAST(NULL AS NUMBER(15,3)) AS reserved_qty,
+                       CAST(NULL AS CHAR(64)) AS record_hash,
+                       CAST(NULL AS CHAR(64)) AS synced_record_hash,
+                       CAST(NULL AS NUMBER(19)) AS row_version
+                  FROM dual WHERE 1 = 0
+              </otherwise>
+            </choose>
+          ) src ON src.source_type = m.source_type AND src.source_record_key = m.source_record_key
+          LEFT JOIN category category ON category.category_name = src.category_name AND category.is_deleted = 0
+         WHERE m.source_type = #{sourceType}
+           AND m.mapping_status = 'MAPPED' AND m.is_deleted = 0
+           AND st.current_version = #{sourceVersion}
+           AND (src.synced_record_hash IS NULL OR src.record_hash != src.synced_record_hash)
+           <if test="lastSourceRecordKey != null">
+             AND m.source_record_key &gt; #{lastSourceRecordKey}
+           </if>
+         ORDER BY m.source_record_key
+         FETCH NEXT #{limit} ROWS ONLY
+    </select>
+
+    <select id="countActiveRows" resultType="int">
+        <choose>
+            <when test="sourceType == 'OFFLINE'">SELECT COUNT(*) FROM inventory_source_offline WHERE active_yn = 'Y' AND is_deleted = 0</when>
+            <when test="sourceType == 'ECOMMERCE'">SELECT COUNT(*) FROM inventory_source_ecommerce WHERE active_yn = 'Y' AND is_deleted = 0</when>
+            <when test="sourceType == 'GREETING'">SELECT COUNT(*) FROM inventory_source_greeting WHERE active_yn = 'Y' AND is_deleted = 0</when>
+            <when test="sourceType == 'WAREHOUSE'">SELECT COUNT(*) FROM inventory_source_warehouse WHERE active_yn = 'Y' AND is_deleted = 0</when>
+            <otherwise>SELECT 0 FROM dual</otherwise>
+        </choose>
+    </select>
+
+    <select id="countInvalidOrUnmapped" resultType="int">
+        <choose>
+            <when test="sourceType == 'OFFLINE'">
+                SELECT COUNT(*) FROM (
+                    SELECT 1 FROM inventory_source_offline src
+                     WHERE src.active_yn = 'Y' AND src.is_deleted = 0
+                       AND NOT EXISTS (
+                           SELECT 1 FROM inventory_source_row_map m
+                            WHERE m.source_type = 'OFFLINE' AND m.source_record_key = src.source_record_key
+                              AND m.mapping_status = 'MAPPED' AND m.is_deleted = 0
+                       )
+                    UNION ALL
+                    SELECT 1 FROM inventory_source_row_map m
+                     WHERE m.source_type = 'OFFLINE' AND m.is_deleted = 0
+                       AND (
+                           m.mapping_status != 'MAPPED'
+                           OR m.sku_id IS NULL OR m.warehouse_id IS NULL OR m.inventory_balance_id IS NULL
+                           OR NOT EXISTS (
+                               SELECT 1 FROM inventory_source_offline src
+                               WHERE src.source_record_key = m.source_record_key
+                                  AND src.active_yn = 'Y' AND src.is_deleted = 0
+                           )
+                       )
+                    UNION ALL
+                    SELECT 1 FROM inventory_source_row_map m
+                     WHERE m.mapping_status = 'MAPPED' AND m.is_deleted = 0
+                       AND m.inventory_balance_id IS NOT NULL
+                     GROUP BY m.inventory_balance_id
+                    HAVING COUNT(*) > 1
+                )
+            </when>
+            <when test="sourceType == 'ECOMMERCE'">
+                SELECT COUNT(*) FROM (
+                    SELECT 1 FROM inventory_source_ecommerce src
+                     WHERE src.active_yn = 'Y' AND src.is_deleted = 0
+                       AND NOT EXISTS (
+                           SELECT 1 FROM inventory_source_row_map m
+                            WHERE m.source_type = 'ECOMMERCE' AND m.source_record_key = src.source_record_key
+                              AND m.mapping_status = 'MAPPED' AND m.is_deleted = 0
+                       )
+                    UNION ALL
+                    SELECT 1 FROM inventory_source_row_map m
+                     WHERE m.source_type = 'ECOMMERCE' AND m.is_deleted = 0
+                       AND (
+                           m.mapping_status != 'MAPPED'
+                           OR m.sku_id IS NULL OR m.warehouse_id IS NULL OR m.inventory_balance_id IS NULL
+                           OR NOT EXISTS (
+                               SELECT 1 FROM inventory_source_ecommerce src
+                               WHERE src.source_record_key = m.source_record_key
+                                  AND src.active_yn = 'Y' AND src.is_deleted = 0
+                           )
+                       )
+                    UNION ALL
+                    SELECT 1 FROM inventory_source_row_map m
+                     WHERE m.mapping_status = 'MAPPED' AND m.is_deleted = 0
+                       AND m.inventory_balance_id IS NOT NULL
+                     GROUP BY m.inventory_balance_id
+                    HAVING COUNT(*) > 1
+                )
+            </when>
+            <when test="sourceType == 'GREETING'">
+                SELECT COUNT(*) FROM (
+                    SELECT 1 FROM inventory_source_greeting src
+                     WHERE src.active_yn = 'Y' AND src.is_deleted = 0
+                       AND NOT EXISTS (
+                           SELECT 1 FROM inventory_source_row_map m
+                            WHERE m.source_type = 'GREETING' AND m.source_record_key = src.source_record_key
+                              AND m.mapping_status = 'MAPPED' AND m.is_deleted = 0
+                       )
+                    UNION ALL
+                    SELECT 1 FROM inventory_source_row_map m
+                     WHERE m.source_type = 'GREETING' AND m.is_deleted = 0
+                       AND (
+                           m.mapping_status != 'MAPPED'
+                           OR m.sku_id IS NULL OR m.warehouse_id IS NULL OR m.inventory_balance_id IS NULL
+                           OR NOT EXISTS (
+                               SELECT 1 FROM inventory_source_greeting src
+                               WHERE src.source_record_key = m.source_record_key
+                                  AND src.active_yn = 'Y' AND src.is_deleted = 0
+                           )
+                       )
+                    UNION ALL
+                    SELECT 1 FROM inventory_source_row_map m
+                     WHERE m.mapping_status = 'MAPPED' AND m.is_deleted = 0
+                       AND m.inventory_balance_id IS NOT NULL
+                     GROUP BY m.inventory_balance_id
+                    HAVING COUNT(*) > 1
+                )
+            </when>
+            <when test="sourceType == 'WAREHOUSE'">
+                SELECT COUNT(*) FROM (
+                    SELECT 1 FROM inventory_source_warehouse src
+                     WHERE src.active_yn = 'Y' AND src.is_deleted = 0
+                       AND NOT EXISTS (
+                           SELECT 1 FROM inventory_source_row_map m
+                            WHERE m.source_type = 'WAREHOUSE' AND m.source_record_key = src.source_record_key
+                              AND m.mapping_status = 'MAPPED' AND m.is_deleted = 0
+                       )
+                    UNION ALL
+                    SELECT 1 FROM inventory_source_row_map m
+                     WHERE m.source_type = 'WAREHOUSE' AND m.is_deleted = 0
+                       AND (
+                           m.mapping_status != 'MAPPED'
+                           OR m.sku_id IS NULL OR m.warehouse_id IS NULL OR m.inventory_balance_id IS NULL
+                           OR NOT EXISTS (
+                               SELECT 1 FROM inventory_source_warehouse src
+                               WHERE src.source_record_key = m.source_record_key
+                                  AND src.active_yn = 'Y' AND src.is_deleted = 0
+                           )
+                       )
+                    UNION ALL
+                    SELECT 1 FROM inventory_source_row_map m
+                     WHERE m.mapping_status = 'MAPPED' AND m.is_deleted = 0
+                       AND m.inventory_balance_id IS NOT NULL
+                     GROUP BY m.inventory_balance_id
+                    HAVING COUNT(*) > 1
+                )
+            </when>
+            <otherwise>SELECT 0 FROM dual</otherwise>
+        </choose>
+    </select>
+</mapper>

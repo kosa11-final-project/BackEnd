@@ -1,0 +1,68 @@
+package com.stockit.backend.feature.inventorysync;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anySet;
+import static org.mockito.Mockito.when;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.List;
+import java.util.Set;
+
+import org.junit.jupiter.api.Test;
+
+import com.stockit.backend.feature.inventorysync.risk.InventorySyncRiskScopeSnapshotLoader;
+import com.stockit.backend.feature.inventorysync.risk.InventorySyncRiskSnapshotMapper;
+
+class InventorySyncRiskScopeSnapshotLoaderTest {
+
+    @Test
+    void aggregatesAllLotsInSkuSalesPointScopeAndSelectsStableAnchor() {
+        InventorySyncRiskSnapshotMapper mapper = org.mockito.Mockito.mock(InventorySyncRiskSnapshotMapper.class);
+        when(mapper.selectAffectedScopeSnapshot(anySet(), any(LocalDate.class))).thenReturn(List.of(
+                row(20L, "SKU-1", "DEPT-1", "LOT-2", new BigDecimal("7")),
+                row(10L, "SKU-1", "DEPT-1", "LOT-1", new BigDecimal("3"))
+        ));
+
+        var snapshots = new InventorySyncRiskScopeSnapshotLoader(mapper).load(Set.of("SKU-1:DEPT-1"));
+
+        assertThat(snapshots).hasSize(1);
+        var snapshot = snapshots.get(0);
+        assertThat(snapshot.inventoryBalanceId()).isEqualTo(10L);
+        assertThat(snapshot.input().onHandQty()).isEqualByComparingTo("10");
+        assertThat(snapshot.input().lots()).hasSize(2);
+        assertThat(snapshot.siblingInventoryBalanceIds()).containsExactly(20L);
+    }
+
+    @Test
+    void keepsUnassignedScopeForWarehouseCommonStock() {
+        InventorySyncRiskSnapshotMapper mapper = org.mockito.Mockito.mock(InventorySyncRiskSnapshotMapper.class);
+        var common = row(30L, "SKU-1", "UNASSIGNED", "LOT-COMMON", new BigDecimal("12"));
+        when(mapper.selectAffectedScopeSnapshot(anySet(), any(LocalDate.class))).thenReturn(List.of(common));
+
+        var snapshots = new InventorySyncRiskScopeSnapshotLoader(mapper).load(Set.of("SKU-1:UNASSIGNED"));
+
+        assertThat(snapshots).singleElement().extracting(snapshot -> snapshot.input().salesPointCode())
+                .isEqualTo("UNASSIGNED");
+    }
+
+    private static InventorySyncRiskSnapshotMapper.RiskScopeRow row(
+            Long balanceId, String skuCode, String salesPointCode, String lotNumber, BigDecimal onHandQty) {
+        var row = new InventorySyncRiskSnapshotMapper.RiskScopeRow();
+        row.setInventoryBalanceId(balanceId);
+        row.setSkuCode(skuCode);
+        row.setSalesPointCode(salesPointCode);
+        row.setLotId(String.valueOf(balanceId));
+        row.setLotNumber(lotNumber);
+        row.setLotQty(onHandQty);
+        row.setOnHandQty(onHandQty);
+        row.setPredictedQtyD7(BigDecimal.ONE);
+        row.setPredictedQtyD30(BigDecimal.TEN);
+        row.setSafetyStockQty(BigDecimal.ONE);
+        row.setForecastBaseDate(LocalDate.now());
+        row.setExpiryDate(LocalDate.now().plusDays(90));
+        row.setReceivedDate(LocalDate.now().minusDays(3));
+        return row;
+    }
+}

@@ -9,6 +9,7 @@ public record StrategyCaseCreated(
         Long strategyCaseId,
         String caseName,
         StrategyCaseStatus caseStatus,
+        StrategyGenerationStage generationStage,
         LocalDateTime createdAt
 ) {
 }

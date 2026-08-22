@@ -22,7 +22,19 @@ public record RiskAssessmentInput(
             LocalDate expiryDate,
             LocalDate saleStopDate,
             LocalDate receivedDate,
-            BigDecimal quantity
+            BigDecimal quantity,
+            String lotStatus
     ) {
+        /** 기존 호출부와 fixture의 6개 인자 계약을 유지합니다. */
+        public LotRiskItem(
+                String lotId,
+                String lotNumber,
+                LocalDate expiryDate,
+                LocalDate saleStopDate,
+                LocalDate receivedDate,
+                BigDecimal quantity
+        ) {
+            this(lotId, lotNumber, expiryDate, saleStopDate, receivedDate, quantity, null);
+        }
     }
 }

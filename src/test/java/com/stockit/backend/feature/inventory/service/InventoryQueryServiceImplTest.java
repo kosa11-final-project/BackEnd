@@ -49,6 +49,7 @@ class InventoryQueryServiceImplTest {
     @Test
     void detailReturnsHeaderWithoutAssemblingLots() {
         InventoryItemVO item = createItemVO("SKU-1", "GREETING");
+        item.setSupplierName("테스트 공급사");
         given(inventoryMapper.selectInventoryDetail(eq("SKU-1"), eq("GREETING"), any(LocalDate.class)))
                 .willReturn(item);
 
@@ -56,6 +57,7 @@ class InventoryQueryServiceImplTest {
 
         assertThat(response.rowId()).isEqualTo("SKU-1:GREETING");
         assertThat(response.skuCode()).isEqualTo("SKU-1");
+        assertThat(response.supplierName()).isEqualTo("테스트 공급사");
         assertThat(response.salesPointCode()).isEqualTo("GREETING");
         assertThat(response.category()).isNotNull();
         assertThat(response.category().path()).extracting(path -> path.name())
@@ -75,6 +77,36 @@ class InventoryQueryServiceImplTest {
 
         assertThat(response.channelPrices()).isEmpty();
         verify(inventoryMapper, never()).selectSkuChannelPrices(eq("SKU-1"), any(LocalDate.class));
+    }
+
+    @Test
+    void detailCarriesCenterOnlyInventorySeparatelyFromSelectedSeller() {
+        InventoryItemVO item = createItemVO("SKU-1", "GREETING");
+        item.setUnassignedCurrentQty(new BigDecimal("12"));
+        item.setUnassignedAvailableQty(new BigDecimal("10"));
+        item.setUnassignedReservedQty(new BigDecimal("2"));
+        item.setUnassignedInventoryFactState("AVAILABLE");
+        item.setUnassignedRiskGrade("CAUTION");
+        item.setUnassignedAssessmentStatus("ASSESSED");
+        item.setUnassignedRiskReason("미할당 공용재고 예측 데이터 없음");
+        item.setUnassignedLocationsJson("[{\"warehouseCode\":\"DC-A\",\"warehouseName\":\"센터 A\",\"quantity\":12}]");
+        item.setUnassignedLocationCount(1);
+        item.setSalesPointsJson("[{\"salesPointCode\":\"GREETING\",\"salesPointName\":\"그리팅\",\"channelType\":\"GREETING\",\"warehouseName\":\"센터 A\"}]");
+        given(inventoryMapper.selectInventoryDetail(eq("SKU-1"), eq("GREETING"), any(LocalDate.class)))
+                .willReturn(item);
+
+        InventoryDetailResponse response = inventoryQueryService.detail("SKU-1", "GREETING");
+
+        assertThat(response.salesPoints()).singleElement().satisfies(point -> {
+            assertThat(point.salesPointCode()).isEqualTo("GREETING");
+            assertThat(point.warehouseName()).isNull();
+        });
+        assertThat(response.unassignedInventory().currentQuantity()).isEqualByComparingTo("12");
+        assertThat(response.unassignedInventory().riskGrade()).isEqualTo("CAUTION");
+        assertThat(response.unassignedInventory().assessmentStatus()).isEqualTo("ASSESSED");
+        assertThat(response.unassignedInventory().riskReason()).contains("예측 데이터 없음");
+        assertThat(response.unassignedInventory().locations()).extracting(location -> location.warehouseCode())
+                .containsExactly("DC-A");
     }
 
     @Test
@@ -98,6 +130,31 @@ class InventoryQueryServiceImplTest {
         assertThat(response.size()).isEqualTo(2);
         assertThat(response.totalCount()).isEqualTo(5);
         assertThat(response.totalPages()).isEqualTo(3);
+    }
+
+    @Test
+    void findSeparatesCenterOnlyInventoryFromNamedSalesPoints() {
+        InventoryItemVO item = createItemVO("SKU-1", "GREETING");
+        item.setLocationsJson("[{\"warehouseCode\":\"DC-A\",\"warehouseName\":\"센터 A\",\"quantity\":40}]");
+        item.setSalesPointsJson("["
+                + "{\"salesPointCode\":\"GREETING\",\"salesPointName\":\"그리팅\",\"channelType\":\"GREETING\","
+                + "\"currentQuantity\":60,\"availableQuantity\":55,\"reservedQuantity\":5,\"warehouseName\":\"센터 A\",\"salesPointState\":\"OWNED\"},"
+                + "{\"salesPointCode\":\"UNASSIGNED\",\"salesPointName\":\"판매처 미할당\",\"channelType\":\"CENTER\","
+                + "\"currentQuantity\":40,\"availableQuantity\":35,\"reservedQuantity\":5,\"salesPointState\":\"CENTER_ONLY\"}"
+                + "]");
+
+        given(inventoryMapper.countInventory(any())).willReturn(1L);
+        given(inventoryMapper.selectInventoryList(any())).willReturn(List.of(item));
+
+        var response = inventoryQueryService.find(new InventoryQueryRequest().toQuery(LocalDate.of(2026, 8, 14)));
+
+        assertThat(response.items()).singleElement().satisfies(mapped -> {
+            assertThat(mapped.salesPoints()).extracting(point -> point.salesPointCode()).containsExactly("GREETING");
+            assertThat(mapped.salesPoints().get(0).warehouseName()).isNull();
+            assertThat(mapped.unassignedInventory().currentQuantity()).isEqualByComparingTo("40");
+            assertThat(mapped.unassignedInventory().availableQuantity()).isEqualByComparingTo("35");
+            assertThat(mapped.unassignedInventory().locations()).hasSize(1);
+        });
     }
 
     @Test

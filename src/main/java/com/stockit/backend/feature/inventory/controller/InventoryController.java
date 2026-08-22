@@ -32,7 +32,7 @@ import jakarta.servlet.http.HttpServletRequest;
 @RestController
 @RequestMapping("/api/v1/inventories")
 @Validated
-@Tag(name = "재고", description = "SKU 단위 행과 소유 판매처 중첩 정보를 제공하는 통합 재고 조회 API")
+@Tag(name = "재고", description = "SKU 단위 행, 판매처별 재고와 물류센터 미할당 재고를 구분해 제공하는 통합 재고 조회 API")
 public class InventoryController {
 
     private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Seoul");
@@ -46,7 +46,7 @@ public class InventoryController {
     @GetMapping
     @Operation(
             summary = "통합 재고 목록 조회",
-            description = "기존 canonical 재고 테이블을 SKU grain으로 집계하고 소유 판매처는 salesPoints로 중첩해 반환합니다. page는 1부터 시작하고 기본 size는 20, 최대 size는 100입니다."
+            description = "기존 canonical 재고 테이블을 SKU grain으로 집계하고 판매처 재고는 salesPoints, 판매처에 귀속되지 않은 센터 재고는 unassignedInventory로 분리해 반환합니다. page는 1부터 시작하고 기본 size는 20, 최대 size는 100입니다."
     )
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "목록 조회 성공"),
@@ -93,7 +93,7 @@ public class InventoryController {
     @GetMapping("/{skuCode}/sales-points/{salesPointCode}")
     @Operation(
             summary = "선택 재고 상세 조회",
-            description = "목록의 SKU 행에서 선택한 skuCode와 salesPointCode 조합으로 판매처별 기본 재고·센터·LOT 요약을 반환합니다."
+            description = "목록의 SKU 행에서 선택한 skuCode와 salesPointCode 조합으로 판매처별 재고를 반환하고, 별도 unassignedInventory에 판매처 미할당 센터 재고·보관 위치를 제공합니다."
     )
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "상세 조회 성공"),

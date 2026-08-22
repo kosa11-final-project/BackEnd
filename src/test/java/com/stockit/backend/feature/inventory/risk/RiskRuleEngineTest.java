@@ -80,7 +80,39 @@ class RiskRuleEngineTest {
 
         assertThat(result.dbRiskGrade()).isEqualTo("CRITICAL");
         assertThat(result.apiRiskGrade()).isEqualTo("DANGER");
+        assertThat(result.availableQty()).isEqualByComparingTo("100");
         assertThat(result.reasons()).extracting(RiskReason::code).contains("LOT_EXPIRED");
+    }
+
+    @Test
+    @DisplayName("만료 LOT가 있어도 현재 가용수량은 canonical on_hand_qty를 유지한다")
+    void availableQty_keepsCanonicalOnHandUntilSeparateColumnExists() {
+        RiskAssessmentInput.LotRiskItem expired = new RiskAssessmentInput.LotRiskItem(
+                "1", "LOT-EXPIRED", BASE_DATE.minusDays(1), null, BASE_DATE.minusDays(30), BigDecimal.valueOf(40), "EXPIRED");
+        RiskAssessmentInput.LotRiskItem valid = new RiskAssessmentInput.LotRiskItem(
+                "2", "LOT-VALID", BASE_DATE.plusDays(30), null, BASE_DATE.minusDays(3), BigDecimal.valueOf(60), "AVAILABLE");
+
+        RiskAssessmentResult result = engine.evaluate(input(BigDecimal.valueOf(100),
+                BigDecimal.valueOf(20), BigDecimal.valueOf(80), BigDecimal.valueOf(30), List.of(expired, valid), true, false));
+
+        assertThat(result.availableQty()).isEqualByComparingTo("100");
+        assertThat(result.reasons()).extracting(RiskReason::code).contains("LOT_EXPIRED");
+    }
+
+    @Test
+    @DisplayName("판매중지 LOT는 미할당 scope에서도 가용수량과 위험판정에 반영한다")
+    void unassignedScope_marksSaleStoppedLotWithoutChangingAvailableQty() {
+        RiskAssessmentInput.LotRiskItem stopped = new RiskAssessmentInput.LotRiskItem(
+                "1", "LOT-STOPPED", BASE_DATE.plusDays(30), BASE_DATE.minusDays(1), BASE_DATE.minusDays(3), BigDecimal.valueOf(25), "SALE_STOPPED");
+
+        RiskAssessmentResult result = engine.evaluate(new RiskAssessmentInput(
+                "SKU-001", "UNASSIGNED", BigDecimal.valueOf(25),
+                BigDecimal.ONE, BigDecimal.TEN, BigDecimal.valueOf(5), BASE_DATE,
+                List.of(stopped), true, false));
+
+        assertThat(result.availableQty()).isEqualByComparingTo("25");
+        assertThat(result.dbRiskGrade()).isEqualTo("CRITICAL");
+        assertThat(result.reasons()).extracting(RiskReason::code).contains("LOT_SALE_STOPPED");
     }
 
     @Test

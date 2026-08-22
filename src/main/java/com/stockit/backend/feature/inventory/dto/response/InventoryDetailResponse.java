@@ -16,6 +16,7 @@ public record InventoryDetailResponse(
         String rowId,
         String productCode,
         String productName,
+        String supplierName,
         String skuCode,
         String skuName,
         String imageUrl,
@@ -36,6 +37,7 @@ public record InventoryDetailResponse(
         List<LocationResponse> locations,
         int locationCount,
         List<SalesPointResponse> salesPoints,
+        UnassignedInventoryResponse unassignedInventory,
         Integer lotCount,
         Integer nearestExpiryDays,
         LocalDate nearestExpiryDate,
@@ -47,6 +49,7 @@ public record InventoryDetailResponse(
     public InventoryDetailResponse {
         locations = List.copyOf(locations == null ? List.of() : locations);
         salesPoints = List.copyOf(salesPoints == null ? List.of() : salesPoints);
+        unassignedInventory = unassignedInventory == null ? UnassignedInventoryResponse.empty() : unassignedInventory;
         lots = List.copyOf(lots == null ? List.of() : lots);
         channelPrices = List.copyOf(channelPrices == null ? List.of() : channelPrices);
     }
@@ -82,10 +85,10 @@ public record InventoryDetailResponse(
             Instant updatedAt,
             List<InventoryLotResponse> lots
     ) {
-        this(rowId, productCode, productName, skuCode, skuName, imageUrl, categoryId, categoryName, category,
+        this(rowId, productCode, productName, null, skuCode, skuName, imageUrl, categoryId, categoryName, category,
                 channelType, salesPointCode, salesPointName, storageType, sellingPrice, currentQuantity,
                 availableQuantity, reservedQuantity, safetyQuantity, inventoryFactState, risk, locations,
-                locationCount, salesPoints, lotCount, nearestExpiryDays, nearestExpiryDate,
+                locationCount, salesPoints, UnassignedInventoryResponse.empty(), lotCount, nearestExpiryDays, nearestExpiryDate,
                 updatedAt, lots, List.of());
     }
 
@@ -117,9 +120,9 @@ public record InventoryDetailResponse(
             Instant updatedAt,
             List<InventoryLotResponse> lots
     ) {
-        this(rowId, productCode, productName, skuCode, skuName, imageUrl, null, null, null, channelType,
+        this(rowId, productCode, productName, null, skuCode, skuName, imageUrl, null, null, null, channelType,
                 salesPointCode, salesPointName, storageType, sellingPrice, currentQuantity, availableQuantity,
                 reservedQuantity, safetyQuantity, inventoryFactState, risk, locations, locationCount, salesPoints,
-                lotCount, nearestExpiryDays, nearestExpiryDate, updatedAt, lots, List.of());
+                UnassignedInventoryResponse.empty(), lotCount, nearestExpiryDays, nearestExpiryDate, updatedAt, lots, List.of());
     }
 }
