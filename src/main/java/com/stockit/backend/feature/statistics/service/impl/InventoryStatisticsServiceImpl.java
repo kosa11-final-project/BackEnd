@@ -4,6 +4,8 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -22,6 +24,7 @@ import com.stockit.backend.feature.statistics.dto.response.InventoryStatisticsLo
 import com.stockit.backend.feature.statistics.dto.response.InventoryStatisticsResponse;
 import com.stockit.backend.feature.statistics.dto.response.InventoryStatisticsSummaryResponse;
 import com.stockit.backend.feature.statistics.dto.response.InventoryStatisticsTrendPointResponse;
+import com.stockit.backend.feature.statistics.dto.response.RiskGradeStatisticsResponse;
 import com.stockit.backend.feature.statistics.mapper.StatisticsSnapshotMapper;
 import com.stockit.backend.feature.statistics.service.InventoryStatisticsService;
 import com.stockit.backend.feature.statistics.vo.StatisticsSnapshotVO;
@@ -152,11 +155,48 @@ public class InventoryStatisticsServiceImpl implements InventoryStatisticsServic
 
     private InventoryStatisticsTrendPointResponse toTrendPoint(StatisticsSnapshotVO snapshot) {
         InventoryStatisticsSummaryResponse summary = deserialize(snapshot).inventory();
+        RiskGradeStatisticsResponse warning = riskGrade(summary, "WARNING");
+        BigDecimal criticalStockQty = nullToZero(summary.criticalStockQty());
+        BigDecimal warningStockQty = nullToZero(warning.stockQty());
+        BigDecimal riskStockQty = criticalStockQty.add(warningStockQty);
+        BigDecimal totalStockQty = nullToZero(summary.totalStockQty());
+        BigDecimal riskStockRatio = totalStockQty.signum() == 0
+                ? BigDecimal.ZERO
+                : riskStockQty.multiply(BigDecimal.valueOf(100))
+                        .divide(totalStockQty, 4, RoundingMode.HALF_UP);
         return new InventoryStatisticsTrendPointResponse(
                 snapshot.getAsOfDate(),
+                totalStockQty,
                 summary.criticalSkuCount(),
-                summary.criticalStockQty()
+                warning.skuCount(),
+                summary.criticalSkuCount() + warning.skuCount(),
+                criticalStockQty,
+                warningStockQty,
+                riskStockQty,
+                riskStockRatio,
+                nullToZero(summary.expectedDisposalQty30d()),
+                summary.financialSummary() == null
+                        ? BigDecimal.ZERO
+                        : nullToZero(summary.financialSummary().expectedDisposalLossAmount30d()),
+                summary.shortageSkuCount()
         );
+    }
+
+    private static RiskGradeStatisticsResponse riskGrade(
+            InventoryStatisticsSummaryResponse summary,
+            String grade
+    ) {
+        if (summary.riskDistribution() == null) {
+            return new RiskGradeStatisticsResponse(grade, 0, BigDecimal.ZERO);
+        }
+        return summary.riskDistribution().stream()
+                .filter(item -> grade.equals(item.riskGrade()))
+                .findFirst()
+                .orElseGet(() -> new RiskGradeStatisticsResponse(grade, 0, BigDecimal.ZERO));
+    }
+
+    private static BigDecimal nullToZero(BigDecimal value) {
+        return value == null ? BigDecimal.ZERO : value;
     }
 
     private StatisticsSnapshotPayload deserialize(StatisticsSnapshotVO snapshot) {
