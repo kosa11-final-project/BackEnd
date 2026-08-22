@@ -3,6 +3,22 @@
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.stockit.backend.feature.dashboard.mapper.DashboardMapper">
 
+    <!-- 대시보드 지도에서 실제 사용하는 전국 5개 운영 물류센터만 포함한다. -->
+    <sql id="dashboardWarehouseScope">
+        w.warehouse_code IN (
+            'GYEONGIN_1',
+            'GYEONGIN_2',
+            'SUJI',
+            'YEONGNAM',
+            'HONAM'
+        )
+    </sql>
+
+    <!-- 지도에서 비교하는 실제 온라인 판매처. DEMO_SP_* 데이터는 운영 집계에서 제외한다. -->
+    <sql id="dashboardOnlineSalesPointCodes">
+        'GREETING', 'MODU_MATJIP'
+    </sql>
+
     <!-- 모든 대시보드 조회가 동일한 최신 위험평가, 수요예측, 재고 위치 판정 기준을 공유한다. -->
     <sql id="dashboardBaseCtes">
         WITH latest_risk_ranked AS (
@@ -50,7 +66,7 @@
              AND mv.status = 'ACTIVE'
              AND mv.is_deleted = 0
             WHERE df.is_deleted = 0
-              AND df.base_date &lt;= TRUNC(#{asOfDate,jdbcType=DATE})
+              AND df.base_date &lt;= TRUNC(CAST(#{asOfDate,jdbcType=DATE} AS DATE))
               AND df.forecast_source &lt;&gt; 'DUMMY_BASELINE'
         ),
         latest_forecast AS (
@@ -69,19 +85,28 @@
                    s.sku_code,
                    s.sku_name,
                    CASE
-                       WHEN ib.stock_sales_point_id IS NOT NULL THEN 'SALES_POINT'
+                       WHEN ib.stock_sales_point_id IS NULL
+                        AND ib.allocated_sales_point_id IS NULL THEN 'UNASSIGNED'
+                       WHEN demand_ch.channel_type = 'ONLINE'
+                         OR stock_ch.channel_type = 'ONLINE' THEN 'ONLINE'
+                       WHEN stock_ch.channel_type = 'OFFLINE'
+                         OR demand_ch.channel_type = 'OFFLINE' THEN 'OFFLINE'
+                       ELSE 'UNCLASSIFIED'
+                   END AS inventory_scope,
+                   CASE
+                       WHEN stock_ch.channel_type = 'OFFLINE' THEN 'SALES_POINT'
                        ELSE 'WAREHOUSE'
                    END AS stock_location_type,
                    CASE
-                       WHEN ib.stock_sales_point_id IS NOT NULL THEN ib.stock_sales_point_id
+                       WHEN stock_ch.channel_type = 'OFFLINE' THEN ib.stock_sales_point_id
                        ELSE ib.warehouse_id
                    END AS stock_location_id,
                    CASE
-                       WHEN ib.stock_sales_point_id IS NOT NULL THEN stock_sp.sales_point_code
+                       WHEN stock_ch.channel_type = 'OFFLINE' THEN stock_sp.sales_point_code
                        ELSE w.warehouse_code
                    END AS stock_location_code,
                    CASE
-                       WHEN ib.stock_sales_point_id IS NOT NULL THEN stock_sp.sales_point_name
+                       WHEN stock_ch.channel_type = 'OFFLINE' THEN stock_sp.sales_point_name
                        ELSE w.warehouse_name
                    END AS stock_location_name,
                    ib.warehouse_id,
@@ -98,7 +123,7 @@
                    CASE
                        WHEN l.lot_status = 'AVAILABLE'
                         AND COALESCE(l.sale_stop_date, l.expiry_date) IS NOT NULL
-                        AND TRUNC(#{asOfDate,jdbcType=DATE}) &lt; TRUNC(COALESCE(l.sale_stop_date, l.expiry_date))
+                        AND TRUNC(CAST(#{asOfDate,jdbcType=DATE} AS DATE)) &lt; TRUNC(COALESCE(l.sale_stop_date, l.expiry_date))
                         AND s.active_yn = 'Y'
                         AND p.product_status = 'ACTIVE'
                         AND p.sale_available_yn = 'Y'
@@ -107,7 +132,8 @@
                    END AS available_qty,
                    CASE
                        WHEN l.lot_status IN ('AVAILABLE', 'SALE_STOPPED')
-                        AND TRUNC(l.expiry_date) - TRUNC(#{asOfDate,jdbcType=DATE}) BETWEEN 0 AND 30
+                        AND TRUNC(l.expiry_date) &gt;= TRUNC(CAST(#{asOfDate,jdbcType=DATE} AS DATE))
+                        AND TRUNC(l.expiry_date) &lt;= TRUNC(CAST(#{asOfDate,jdbcType=DATE} AS DATE)) + 30
                        THEN ib.on_hand_qty
                        ELSE 0
                    END AS near_expiry_qty,
@@ -143,12 +169,15 @@
             LEFT JOIN sales_point demand_sp
               ON demand_sp.sales_point_id = COALESCE(ib.allocated_sales_point_id, ib.stock_sales_point_id)
              AND demand_sp.is_deleted = 0
+            LEFT JOIN sales_channel demand_ch
+              ON demand_ch.sales_channel_id = demand_sp.sales_channel_id
+             AND demand_ch.is_deleted = 0
             LEFT JOIN latest_risk lr
               ON lr.inventory_balance_id = ib.inventory_balance_id
             LEFT JOIN demand_forecast linked_df
               ON linked_df.forecast_id = lr.forecast_id
              AND linked_df.is_deleted = 0
-             AND linked_df.base_date &lt;= TRUNC(#{asOfDate,jdbcType=DATE})
+             AND linked_df.base_date &lt;= TRUNC(CAST(#{asOfDate,jdbcType=DATE} AS DATE))
              AND linked_df.forecast_source &lt;&gt; 'DUMMY_BASELINE'
              AND EXISTS (
                     SELECT 1
@@ -167,43 +196,55 @@
               )
               AND (
                     (
-                        ib.stock_sales_point_id IS NOT NULL
-                        AND stock_sp.active_yn = 'Y'
-                        AND stock_ch.active_yn = 'Y'
-                    )
-                    OR (
                         ib.stock_sales_point_id IS NULL
+                        AND ib.allocated_sales_point_id IS NULL
                         AND ib.warehouse_id IS NOT NULL
                         AND w.active_yn = 'Y'
+                        AND <include refid="dashboardWarehouseScope"/>
+                    )
+                    OR (
+                        demand_ch.channel_type = 'ONLINE'
+                        AND demand_ch.active_yn = 'Y'
+                        AND demand_sp.active_yn = 'Y'
+                        AND demand_sp.sales_point_code IN (
+                            <include refid="dashboardOnlineSalesPointCodes"/>
+                        )
+                        AND ib.warehouse_id IS NOT NULL
+                        AND w.active_yn = 'Y'
+                        AND <include refid="dashboardWarehouseScope"/>
+                    )
+                    OR (
+                        demand_ch.channel_type = 'OFFLINE'
+                        AND demand_sp.active_yn = 'Y'
+                        AND demand_ch.active_yn = 'Y'
                     )
               )
         ),
         disposal_groups AS (
             SELECT sku_id,
-                   stock_location_type,
-                   stock_location_id,
+                   inventory_scope,
                    sales_point_id,
                    selected_forecast_id,
                    SUM(
                        CASE
-                           WHEN effective_sale_stop_date &gt; TRUNC(#{asOfDate,jdbcType=DATE})
-                            AND effective_sale_stop_date &lt;= TRUNC(#{asOfDate,jdbcType=DATE}) + 7
+                           WHEN effective_sale_stop_date &gt; TRUNC(CAST(#{asOfDate,jdbcType=DATE} AS DATE))
+                            AND effective_sale_stop_date &lt;= TRUNC(CAST(#{asOfDate,jdbcType=DATE} AS DATE)) + 7
                            THEN available_qty
                            ELSE 0
                        END
                    ) AS expiring_qty_d7,
                    SUM(
                        CASE
-                           WHEN effective_sale_stop_date &gt; TRUNC(#{asOfDate,jdbcType=DATE})
-                            AND effective_sale_stop_date &lt;= TRUNC(#{asOfDate,jdbcType=DATE}) + 14
+                           WHEN effective_sale_stop_date &gt; TRUNC(CAST(#{asOfDate,jdbcType=DATE} AS DATE))
+                            AND effective_sale_stop_date &lt;= TRUNC(CAST(#{asOfDate,jdbcType=DATE} AS DATE)) + 14
                            THEN available_qty
                            ELSE 0
                        END
                    ) AS expiring_qty_d14,
                    SUM(
                        CASE
-                           WHEN effective_sale_stop_date &gt; TRUNC(#{asOfDate,jdbcType=DATE})
-                            AND effective_sale_stop_date &lt;= TRUNC(#{asOfDate,jdbcType=DATE}) + 30
+                           WHEN effective_sale_stop_date &gt; TRUNC(CAST(#{asOfDate,jdbcType=DATE} AS DATE))
+                            AND effective_sale_stop_date &lt;= TRUNC(CAST(#{asOfDate,jdbcType=DATE} AS DATE)) + 30
                            THEN available_qty
                            ELSE 0
                        END
@@ -214,15 +255,13 @@
             FROM inventory_base
             WHERE selected_forecast_id IS NOT NULL
             GROUP BY sku_id,
-                     stock_location_type,
-                     stock_location_id,
+                     inventory_scope,
                      sales_point_id,
                      selected_forecast_id
         ),
         expected_disposal_groups AS (
             SELECT sku_id,
-                   stock_location_type,
-                   stock_location_id,
+                   inventory_scope,
                    sales_point_id,
                    GREATEST(
                        0,
@@ -251,7 +290,8 @@
             FROM inventory_base
             GROUP BY sku_id
         )
-        SELECT COALESCE((SELECT SUM(available_qty) FROM inventory_base), 0) AS total_available_stock,
+        SELECT COALESCE((SELECT SUM(current_qty) FROM inventory_base), 0) AS total_current_stock,
+               COALESCE((SELECT SUM(available_qty) FROM inventory_base), 0) AS total_available_stock,
                COALESCE((SELECT SUM(CASE WHEN risk_severity = 4 THEN 1 ELSE 0 END) FROM sku_risk), 0)
                    AS critical_sku_count,
                COALESCE((SELECT SUM(CASE WHEN risk_severity = 3 THEN 1 ELSE 0 END) FROM sku_risk), 0)
@@ -270,15 +310,15 @@
             resultType="com.stockit.backend.feature.dashboard.vo.WarehouseInventoryVO">
         <include refid="dashboardBaseCtes"/>,
         warehouse_inventory AS (
-            SELECT stock_location_id AS warehouse_id,
+            SELECT warehouse_id,
                    SUM(current_qty) AS current_stock,
                    SUM(available_qty) AS available_stock,
                    SUM(near_expiry_qty) AS near_expiry_stock,
                    SUM(reserved_qty) AS outbound_stock,
                    COUNT(DISTINCT CASE WHEN risk_grade = 'CRITICAL' THEN sku_id END) AS risk_sku_count
             FROM inventory_base
-            WHERE stock_location_type = 'WAREHOUSE'
-            GROUP BY stock_location_id
+            WHERE inventory_scope = 'UNASSIGNED'
+            GROUP BY warehouse_id
         )
         SELECT w.warehouse_id,
                w.warehouse_code,
@@ -295,28 +335,79 @@
           ON wi.warehouse_id = w.warehouse_id
         WHERE w.active_yn = 'Y'
           AND w.is_deleted = 0
+          AND <include refid="dashboardWarehouseScope"/>
         ORDER BY w.warehouse_id
+    </select>
+
+    <select id="selectOnlineSalesPointInventories"
+            resultType="com.stockit.backend.feature.dashboard.vo.OnlineSalesPointInventoryVO">
+        <include refid="dashboardBaseCtes"/>,
+        online_inventory AS (
+            SELECT sales_point_id,
+                   COUNT(DISTINCT warehouse_id) AS storage_warehouse_count,
+                   SUM(current_qty) AS current_stock,
+                   SUM(available_qty) AS available_stock,
+                   SUM(near_expiry_qty) AS near_expiry_stock,
+                   COUNT(DISTINCT CASE WHEN risk_grade = 'CRITICAL' THEN sku_id END) AS risk_sku_count
+            FROM inventory_base
+            WHERE inventory_scope = 'ONLINE'
+            GROUP BY sales_point_id
+        ),
+        online_disposal AS (
+            SELECT sales_point_id,
+                   SUM(expected_disposal_qty) AS expected_disposal_qty
+            FROM expected_disposal_groups
+            WHERE inventory_scope = 'ONLINE'
+            GROUP BY sales_point_id
+        )
+        SELECT sp.sales_point_id,
+               sp.sales_point_code,
+               sp.sales_point_name,
+               sp.region_code,
+               sp.address,
+               COALESCE(oi.storage_warehouse_count, 0) AS storage_warehouse_count,
+               COALESCE(oi.current_stock, 0) AS current_stock,
+               COALESCE(oi.available_stock, 0) AS available_stock,
+               COALESCE(oi.near_expiry_stock, 0) AS near_expiry_stock,
+               COALESCE(od.expected_disposal_qty, 0) AS expected_disposal_qty,
+               COALESCE(oi.risk_sku_count, 0) AS risk_sku_count
+        FROM sales_point sp
+        JOIN sales_channel sc
+          ON sc.sales_channel_id = sp.sales_channel_id
+         AND sc.channel_type = 'ONLINE'
+         AND sc.active_yn = 'Y'
+         AND sc.is_deleted = 0
+        LEFT JOIN online_inventory oi
+          ON oi.sales_point_id = sp.sales_point_id
+        LEFT JOIN online_disposal od
+          ON od.sales_point_id = sp.sales_point_id
+        WHERE sp.active_yn = 'Y'
+          AND sp.is_deleted = 0
+          AND sp.sales_point_code IN (
+              <include refid="dashboardOnlineSalesPointCodes"/>
+          )
+        ORDER BY sp.sales_point_id
     </select>
 
     <select id="selectOfflineStoreInventories"
             resultType="com.stockit.backend.feature.dashboard.vo.OfflineStoreInventoryVO">
         <include refid="dashboardBaseCtes"/>,
         store_inventory AS (
-            SELECT stock_location_id AS sales_point_id,
+            SELECT sales_point_id,
                    SUM(current_qty) AS current_stock,
                    SUM(available_qty) AS available_stock,
                    SUM(near_expiry_qty) AS near_expiry_stock,
                    COUNT(DISTINCT CASE WHEN risk_grade = 'CRITICAL' THEN sku_id END) AS risk_sku_count
             FROM inventory_base
-            WHERE stock_location_type = 'SALES_POINT'
-            GROUP BY stock_location_id
+            WHERE inventory_scope = 'OFFLINE'
+            GROUP BY sales_point_id
         ),
         store_disposal AS (
-            SELECT stock_location_id AS sales_point_id,
+            SELECT sales_point_id,
                    SUM(expected_disposal_qty) AS expected_disposal_qty
             FROM expected_disposal_groups
-            WHERE stock_location_type = 'SALES_POINT'
-            GROUP BY stock_location_id
+            WHERE inventory_scope = 'OFFLINE'
+            GROUP BY sales_point_id
         )
         SELECT sp.sales_point_id,
                sp.sales_point_code,
@@ -401,15 +492,15 @@
                    MIN(
                        CASE
                            WHEN available_qty &gt; 0
-                            AND effective_sale_stop_date &gt; TRUNC(#{asOfDate,jdbcType=DATE})
-                           THEN TRUNC(effective_sale_stop_date) - TRUNC(#{asOfDate,jdbcType=DATE})
+                            AND effective_sale_stop_date &gt; TRUNC(CAST(#{asOfDate,jdbcType=DATE} AS DATE))
+                           THEN TRUNC(effective_sale_stop_date) - TRUNC(CAST(#{asOfDate,jdbcType=DATE} AS DATE))
                        END
                    ) AS sale_stop_days_left,
                    MIN(
                        CASE
                            WHEN available_qty &gt; 0
-                            AND expiry_date &gt;= TRUNC(#{asOfDate,jdbcType=DATE})
-                           THEN TRUNC(expiry_date) - TRUNC(#{asOfDate,jdbcType=DATE})
+                            AND expiry_date &gt;= TRUNC(CAST(#{asOfDate,jdbcType=DATE} AS DATE))
+                           THEN TRUNC(expiry_date) - TRUNC(CAST(#{asOfDate,jdbcType=DATE} AS DATE))
                        END
                    ) AS expiry_days_left
             FROM inventory_base
@@ -431,11 +522,10 @@
         ),
         urgent_disposal AS (
             SELECT sku_id,
-                   stock_location_type,
-                   stock_location_id,
+                   sales_point_id,
                    SUM(expected_disposal_qty) AS expected_disposal_qty
             FROM expected_disposal_groups
-            GROUP BY sku_id, stock_location_type, stock_location_id
+            GROUP BY sku_id, sales_point_id
         )
         SELECT representative.sku_id,
                representative.sku_code,
@@ -458,8 +548,7 @@
          AND metrics.stock_location_id = representative.stock_location_id
         LEFT JOIN urgent_disposal disposal
           ON disposal.sku_id = representative.sku_id
-         AND disposal.stock_location_type = representative.stock_location_type
-         AND disposal.stock_location_id = representative.stock_location_id
+         AND disposal.sales_point_id = representative.sales_point_id
         WHERE representative.row_no = 1
         ORDER BY metrics.max_risk_score DESC,
                  COALESCE(disposal.expected_disposal_qty, 0) DESC,

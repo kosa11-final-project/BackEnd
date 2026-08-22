@@ -6,7 +6,7 @@ import com.stockit.backend.feature.dashboard.vo.WarehouseInventoryVO;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 
-@Schema(description = "물류센터별 재고 현황")
+@Schema(description = "물류센터별 판매처 미할당 재고 현황")
 public record WarehouseInventoryResponse(
         @Schema(description = "물류센터 ID", example = "1") Long warehouseId,
         @Schema(description = "물류센터 코드", example = "SEONGNAM") String warehouseCode,

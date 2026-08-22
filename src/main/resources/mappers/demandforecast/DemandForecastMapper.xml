@@ -26,6 +26,21 @@
         <result property="isDeleted" column="is_deleted"/>
     </resultMap>
 
+    <resultMap id="demandForecastRunResultMap" type="com.stockit.backend.feature.demandforecast.vo.DemandForecastRunVO">
+        <id property="forecastRunId" column="forecast_run_id"/>
+        <result property="clientRequestId" column="client_request_id"/>
+        <result property="triggerType" column="trigger_type"/>
+        <result property="baseDate" column="base_date"/>
+        <result property="modelVersionId" column="model_version_id"/>
+        <result property="azureJobId" column="azure_job_id"/>
+        <result property="runStatus" column="run_status"/>
+        <result property="currentStage" column="current_stage"/>
+        <result property="totalBatches" column="total_batches"/>
+        <result property="totalItems" column="total_items"/>
+        <result property="receivedBatches" column="received_batches"/>
+        <result property="receivedItems" column="received_items"/>
+    </resultMap>
+
     <select id="selectModelVersionId" resultType="long">
         SELECT model_version_id
         FROM ml_model_version
@@ -102,6 +117,235 @@
                     source.forecast_source, source.confidence_level,
                     CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, source.created_by,
                     source.updated_by, 0)
+    </update>
+
+    <select id="selectRunByAzureJobIdForUpdate" resultMap="demandForecastRunResultMap">
+        SELECT forecast_run_id,
+               client_request_id,
+               trigger_type,
+               base_date,
+               model_version_id,
+               azure_job_id,
+               run_status,
+               current_stage,
+               total_batches,
+               total_items,
+               received_batches,
+               received_items
+        FROM demand_forecast_run
+        WHERE azure_job_id = #{azureJobId}
+          AND is_deleted = 0
+        FOR UPDATE
+    </select>
+
+    <update id="initializeImportManifest">
+        UPDATE demand_forecast_run
+        SET model_version_id = COALESCE(model_version_id, #{modelVersionId}),
+            total_batches = COALESCE(total_batches, #{totalBatches}),
+            total_items = COALESCE(total_items, #{totalItems,jdbcType=NUMERIC}),
+            current_stage = 'IMPORTING',
+            import_requested_at = COALESCE(import_requested_at, SYSTIMESTAMP),
+            updated_at = SYSTIMESTAMP,
+            updated_by = #{userId}
+        WHERE forecast_run_id = #{runId}
+          AND run_status = 'RUNNING'
+          AND base_date = #{baseDate}
+          AND #{modelVersionId,jdbcType=NUMERIC} IS NOT NULL
+          AND #{totalBatches,jdbcType=NUMERIC} IS NOT NULL
+          AND (model_version_id IS NULL OR model_version_id = #{modelVersionId})
+          AND (total_batches IS NULL OR total_batches = #{totalBatches})
+          AND (#{totalItems,jdbcType=NUMERIC} IS NULL
+               OR total_items IS NULL
+               OR total_items = #{totalItems,jdbcType=NUMERIC})
+    </update>
+
+    <select id="selectBatchPayloadHash" resultType="string">
+        SELECT payload_hash
+        FROM demand_forecast_import_batch
+        WHERE forecast_run_id = #{runId}
+          AND batch_number = #{batchNumber}
+    </select>
+
+    <insert id="insertStagingForecasts">
+        INSERT INTO demand_forecast_staging (
+            forecast_run_id,
+            batch_number,
+            sku_id,
+            sales_point_id,
+            predicted_qty_d7,
+            predicted_qty_d14,
+            predicted_qty_d30,
+            predicted_qty_d60,
+            predicted_qty_d90,
+            forecast_source,
+            confidence_level,
+            created_at,
+            created_by
+        )
+        <foreach collection="forecasts" item="forecast" separator=" UNION ALL ">
+            SELECT CAST(#{forecast.forecastRunId} AS NUMBER),
+                   CAST(#{forecast.batchNumber} AS NUMBER),
+                   CAST(#{forecast.skuId} AS NUMBER),
+                   CAST(#{forecast.salesPointId} AS NUMBER),
+                   CAST(#{forecast.predictedQtyD7} AS NUMBER(15,3)),
+                   CAST(#{forecast.predictedQtyD14} AS NUMBER(15,3)),
+                   CAST(#{forecast.predictedQtyD30} AS NUMBER(15,3)),
+                   CAST(#{forecast.predictedQtyD60} AS NUMBER(15,3)),
+                   CAST(#{forecast.predictedQtyD90} AS NUMBER(15,3)),
+                   CAST(#{forecast.forecastSource} AS VARCHAR2(40)),
+                   CAST(#{forecast.confidenceLevel} AS VARCHAR2(10)),
+                   CURRENT_TIMESTAMP,
+                   CAST(#{forecast.createdBy} AS NUMBER)
+            FROM dual
+        </foreach>
+    </insert>
+
+    <insert id="insertImportBatch">
+        INSERT INTO demand_forecast_import_batch (
+            forecast_run_id,
+            batch_number,
+            item_count,
+            payload_hash,
+            received_at,
+            created_at,
+            created_by
+        ) VALUES (
+            #{runId},
+            #{batchNumber},
+            #{itemCount},
+            #{payloadHash},
+            SYSTIMESTAMP,
+            SYSTIMESTAMP,
+            #{userId}
+        )
+    </insert>
+
+    <select id="countReceivedBatches" resultType="int">
+        SELECT COUNT(*)
+        FROM demand_forecast_import_batch
+        WHERE forecast_run_id = #{runId}
+    </select>
+
+    <select id="sumReceivedItems" resultType="long">
+        SELECT COALESCE(SUM(item_count), 0)
+        FROM demand_forecast_import_batch
+        WHERE forecast_run_id = #{runId}
+    </select>
+
+    <select id="countStagingForecasts" resultType="int">
+        SELECT COUNT(*)
+        FROM demand_forecast_staging
+        WHERE forecast_run_id = #{runId}
+    </select>
+
+    <update id="updateImportProgress">
+        UPDATE demand_forecast_run
+        SET total_items = COALESCE(total_items, #{totalItems,jdbcType=NUMERIC}),
+            received_batches = #{receivedBatches},
+            received_items = #{receivedItems},
+            current_stage = CASE
+                WHEN #{receivedBatches} = total_batches THEN 'FINALIZING'
+                ELSE 'IMPORTING'
+            END,
+            all_batches_received_at = CASE
+                WHEN #{receivedBatches} = total_batches THEN SYSTIMESTAMP
+                ELSE all_batches_received_at
+            END,
+            updated_at = SYSTIMESTAMP,
+            updated_by = #{userId}
+        WHERE forecast_run_id = #{runId}
+          AND run_status = 'RUNNING'
+          AND (#{totalItems,jdbcType=NUMERIC} IS NULL
+               OR total_items IS NULL
+               OR total_items = #{totalItems,jdbcType=NUMERIC})
+    </update>
+
+    <update id="softDeleteObsoleteForecasts">
+        UPDATE demand_forecast target
+        SET target.is_deleted = 1,
+            target.updated_at = SYSTIMESTAMP,
+            target.updated_by = #{userId}
+        WHERE target.is_deleted = 0
+          AND (target.model_version_id, target.base_date) IN (
+              SELECT run.model_version_id, run.base_date
+              FROM demand_forecast_run run
+              WHERE run.forecast_run_id = #{runId}
+          )
+          AND NOT EXISTS (
+              SELECT 1
+              FROM demand_forecast_staging staging
+              WHERE staging.forecast_run_id = #{runId}
+                AND staging.sku_id = target.sku_id
+                AND staging.sales_point_id = target.sales_point_id
+          )
+    </update>
+
+    <update id="mergeStagingForecasts">
+        MERGE INTO demand_forecast target
+        USING (
+            SELECT staging.forecast_run_id,
+                   staging.sku_id,
+                   staging.sales_point_id,
+                   run.model_version_id,
+                   run.base_date,
+                   staging.predicted_qty_d7,
+                   staging.predicted_qty_d14,
+                   staging.predicted_qty_d30,
+                   staging.predicted_qty_d60,
+                   staging.predicted_qty_d90,
+                   staging.forecast_source,
+                   staging.confidence_level
+            FROM demand_forecast_staging staging
+            INNER JOIN demand_forecast_run run
+                    ON run.forecast_run_id = staging.forecast_run_id
+            WHERE staging.forecast_run_id = #{runId}
+              AND run.model_version_id IS NOT NULL
+        ) source
+        ON (target.sku_id = source.sku_id
+            AND target.sales_point_id = source.sales_point_id
+            AND target.model_version_id = source.model_version_id
+            AND target.base_date = source.base_date)
+        WHEN MATCHED THEN
+            UPDATE SET target.forecast_run_id = source.forecast_run_id,
+                       target.predicted_qty_d7 = source.predicted_qty_d7,
+                       target.predicted_qty_d14 = source.predicted_qty_d14,
+                       target.predicted_qty_d30 = source.predicted_qty_d30,
+                       target.predicted_qty_d60 = source.predicted_qty_d60,
+                       target.predicted_qty_d90 = source.predicted_qty_d90,
+                       target.forecast_source = source.forecast_source,
+                       target.confidence_level = source.confidence_level,
+                       target.updated_at = SYSTIMESTAMP,
+                       target.updated_by = #{userId},
+                       target.is_deleted = 0
+        WHEN NOT MATCHED THEN
+            INSERT (forecast_run_id, sku_id, sales_point_id, model_version_id,
+                    base_date, predicted_qty_d7, predicted_qty_d14, predicted_qty_d30,
+                    predicted_qty_d60, predicted_qty_d90, forecast_source,
+                    confidence_level, created_at, updated_at, created_by,
+                    updated_by, is_deleted)
+            VALUES (source.forecast_run_id, source.sku_id, source.sales_point_id,
+                    source.model_version_id, source.base_date, source.predicted_qty_d7,
+                    source.predicted_qty_d14, source.predicted_qty_d30,
+                    source.predicted_qty_d60, source.predicted_qty_d90,
+                    source.forecast_source, source.confidence_level,
+                    SYSTIMESTAMP, SYSTIMESTAMP, #{userId}, #{userId}, 0)
+    </update>
+
+    <update id="markRunSucceeded">
+        UPDATE demand_forecast_run
+        SET run_status = 'SUCCEEDED',
+            current_stage = NULL,
+            completed_at = SYSTIMESTAMP,
+            updated_at = SYSTIMESTAMP,
+            updated_by = #{userId}
+        WHERE forecast_run_id = #{runId}
+          AND run_status = 'RUNNING'
+          AND current_stage = 'FINALIZING'
+          AND model_version_id IS NOT NULL
+          AND total_batches IS NOT NULL
+          AND total_items IS NOT NULL
+          AND received_batches = total_batches
+          AND received_items = total_items
     </update>
     <select id="selectDemandForecast" resultMap="demandForecastResultMap">
         SELECT *

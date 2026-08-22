@@ -11,6 +11,8 @@ import java.util.HashSet;
 import java.util.Set;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,8 +25,12 @@ import com.stockit.backend.feature.demandforecast.dto.response.CumulativeForecas
 import com.stockit.backend.feature.demandforecast.dto.response.DemandForecastResponse;
 import com.stockit.backend.feature.demandforecast.dto.response.FreshnessDto;
 import com.stockit.backend.feature.demandforecast.dto.response.ProjectedInventoryDto;
+import com.stockit.backend.feature.demandforecast.domain.DemandForecastRunNotificationEvent;
 import com.stockit.backend.feature.demandforecast.mapper.DemandForecastMapper;
+import com.stockit.backend.feature.demandforecast.service.DemandForecastPayloadHash;
 import com.stockit.backend.feature.demandforecast.service.DemandForecastService;
+import com.stockit.backend.feature.demandforecast.vo.DemandForecastRunVO;
+import com.stockit.backend.feature.demandforecast.vo.DemandForecastStagingVO;
 import com.stockit.backend.feature.demandforecast.vo.DemandForecastVO;
 
 @Service
@@ -34,15 +40,32 @@ public class DemandForecastServiceImpl implements DemandForecastService {
     private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Seoul");
     private final DemandForecastMapper demandForecastMapper;
     private final Clock clock;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Autowired
+    public DemandForecastServiceImpl(
+            DemandForecastMapper demandForecastMapper,
+            ApplicationEventPublisher eventPublisher
+    ) {
+        this(demandForecastMapper, Clock.system(BUSINESS_ZONE), eventPublisher);
+    }
+
     public DemandForecastServiceImpl(DemandForecastMapper demandForecastMapper) {
-        this(demandForecastMapper, Clock.system(BUSINESS_ZONE));
+        this(demandForecastMapper, Clock.system(BUSINESS_ZONE), event -> { });
     }
 
     DemandForecastServiceImpl(DemandForecastMapper demandForecastMapper, Clock clock) {
+        this(demandForecastMapper, clock, event -> { });
+    }
+
+    DemandForecastServiceImpl(
+            DemandForecastMapper demandForecastMapper,
+            Clock clock,
+            ApplicationEventPublisher eventPublisher
+    ) {
         this.demandForecastMapper = demandForecastMapper;
         this.clock = clock;
+        this.eventPublisher = eventPublisher;
     }
 
     @Override
@@ -279,12 +302,55 @@ public class DemandForecastServiceImpl implements DemandForecastService {
             DemandForecastImportRequest request,
             Long userId
     ) {
+        DemandForecastRunVO run = demandForecastMapper.selectRunByAzureJobIdForUpdate(
+                request.azureJobId()
+        );
+        if (run == null) {
+            throw new AppException(ErrorCode.DEMAND_FORECAST_RUN_NOT_FOUND);
+        }
+
+        String payloadHash = DemandForecastPayloadHash.calculate(request);
+        String existingPayloadHash = demandForecastMapper.selectBatchPayloadHash(
+                run.getForecastRunId(),
+                request.batchNumber()
+        );
+        if (existingPayloadHash != null) {
+            if (!existingPayloadHash.equals(payloadHash)) {
+                throw new AppException(ErrorCode.DEMAND_FORECAST_BATCH_CONFLICT);
+            }
+            return DemandForecastImportResponse.from(
+                    request,
+                    run.getModelVersionId(),
+                    0,
+                    run.getReceivedBatches(),
+                    run.getReceivedItems(),
+                    true,
+                    run.getRunStatus()
+            );
+        }
+
+        if (!"RUNNING".equals(run.getRunStatus())) {
+            throw new AppException(ErrorCode.DEMAND_FORECAST_RUN_CONFLICT);
+        }
+
         Long modelVersionId = demandForecastMapper.selectModelVersionId(
                 request.modelName(),
                 request.modelVersion()
         );
         if (modelVersionId == null) {
             throw new AppException(ErrorCode.DEMAND_FORECAST_MODEL_NOT_FOUND);
+        }
+
+        int initialized = demandForecastMapper.initializeImportManifest(
+                run.getForecastRunId(),
+                modelVersionId,
+                request.forecastBaseDate(),
+                request.totalBatches(),
+                request.totalItems(),
+                userId
+        );
+        if (initialized != 1) {
+            throw new AppException(ErrorCode.DEMAND_FORECAST_RUN_CONFLICT);
         }
 
         Set<ForecastTarget> targets = new HashSet<>();
@@ -309,25 +375,101 @@ public class DemandForecastServiceImpl implements DemandForecastService {
             throw new AppException(ErrorCode.DEMAND_FORECAST_SALES_POINT_NOT_FOUND);
         }
 
-        List<DemandForecastVO> forecasts = request.forecasts().stream()
-                .map(item -> DemandForecastVO.forImport(
-                        item.skuId(),
-                        item.salesPointId(),
-                        modelVersionId,
-                        request.forecastBaseDate(),
-                        item.predictedQtyD7(),
-                        item.predictedQtyD14(),
-                        item.predictedQtyD30(),
-                        item.predictedQtyD60(),
-                        item.predictedQtyD90(),
-                        item.forecastSource(),
-                        item.confidenceLevel(),
-                        userId
-                ))
+        List<DemandForecastStagingVO> forecasts = request.forecasts().stream()
+                .map(item -> stagingForecast(run.getForecastRunId(), request.batchNumber(), item, userId))
                 .toList();
 
-        demandForecastMapper.mergeDemandForecasts(forecasts);
-        return DemandForecastImportResponse.from(request, modelVersionId, forecasts.size());
+        try {
+            demandForecastMapper.insertStagingForecasts(forecasts);
+        } catch (DuplicateKeyException exception) {
+            throw new AppException(
+                    ErrorCode.DEMAND_FORECAST_DUPLICATE_TARGET,
+                    "서로 다른 배치에 동일한 SKU와 판매처 조합이 포함되어 있습니다."
+            );
+        }
+        demandForecastMapper.insertImportBatch(
+                run.getForecastRunId(),
+                request.batchNumber(),
+                forecasts.size(),
+                payloadHash,
+                userId
+        );
+
+        int receivedBatches = demandForecastMapper.countReceivedBatches(run.getForecastRunId());
+        long receivedItems = demandForecastMapper.sumReceivedItems(run.getForecastRunId());
+        Long effectiveTotalItems = request.totalItems();
+        if (effectiveTotalItems == null && receivedBatches == request.totalBatches()) {
+            effectiveTotalItems = receivedItems;
+        }
+        if (receivedBatches > request.totalBatches()
+                || (effectiveTotalItems != null && receivedItems > effectiveTotalItems)) {
+            throw new AppException(ErrorCode.DEMAND_FORECAST_RUN_CONFLICT);
+        }
+        if (demandForecastMapper.updateImportProgress(
+                run.getForecastRunId(), receivedBatches, receivedItems, effectiveTotalItems, userId
+        ) != 1) {
+            throw new AppException(ErrorCode.DEMAND_FORECAST_RUN_CONFLICT);
+        }
+
+        String runStatus = "RUNNING";
+        if (receivedBatches == request.totalBatches()) {
+            int stagingCount = demandForecastMapper.countStagingForecasts(run.getForecastRunId());
+            if (effectiveTotalItems == null
+                    || receivedItems != effectiveTotalItems
+                    || stagingCount != effectiveTotalItems) {
+                throw new AppException(
+                        ErrorCode.DEMAND_FORECAST_RUN_CONFLICT,
+                        "전체 배치 수신 건수와 전체 예측 데이터 건수가 일치하지 않습니다."
+                );
+            }
+            demandForecastMapper.softDeleteObsoleteForecasts(run.getForecastRunId(), userId);
+            demandForecastMapper.mergeStagingForecasts(run.getForecastRunId(), userId);
+            if (demandForecastMapper.markRunSucceeded(run.getForecastRunId(), userId) != 1) {
+                throw new AppException(ErrorCode.DEMAND_FORECAST_RUN_CONFLICT);
+            }
+            runStatus = "SUCCEEDED";
+            eventPublisher.publishEvent(new DemandForecastRunNotificationEvent(
+                    run.getForecastRunId(),
+                    "DEMAND_FORECAST_COMPLETED",
+                    "INFO",
+                    "일일 수요예측 완료",
+                    request.forecastBaseDate() + " 기준 수요예측 " + receivedItems
+                            + "건이 정상 반영되었습니다.",
+                    "DEMAND_FORECAST:" + run.getForecastRunId() + ":COMPLETED"
+            ));
+        }
+
+        return DemandForecastImportResponse.from(
+                request,
+                modelVersionId,
+                forecasts.size(),
+                receivedBatches,
+                receivedItems,
+                false,
+                runStatus
+        );
+    }
+
+    private static DemandForecastStagingVO stagingForecast(
+            Long runId,
+            Integer batchNumber,
+            DemandForecastImportItemRequest item,
+            Long userId
+    ) {
+        DemandForecastStagingVO forecast = new DemandForecastStagingVO();
+        forecast.setForecastRunId(runId);
+        forecast.setBatchNumber(batchNumber);
+        forecast.setSkuId(item.skuId());
+        forecast.setSalesPointId(item.salesPointId());
+        forecast.setPredictedQtyD7(item.predictedQtyD7());
+        forecast.setPredictedQtyD14(item.predictedQtyD14());
+        forecast.setPredictedQtyD30(item.predictedQtyD30());
+        forecast.setPredictedQtyD60(item.predictedQtyD60());
+        forecast.setPredictedQtyD90(item.predictedQtyD90());
+        forecast.setForecastSource(item.forecastSource());
+        forecast.setConfidenceLevel(item.confidenceLevel());
+        forecast.setCreatedBy(userId);
+        return forecast;
     }
 
     private record ForecastTarget(Long skuId, Long salesPointId) {

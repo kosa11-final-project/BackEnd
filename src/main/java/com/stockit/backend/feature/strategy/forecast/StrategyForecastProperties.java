@@ -4,11 +4,15 @@ import java.time.Duration;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
+import jakarta.annotation.PostConstruct;
+
 /**
  * AI 전략 생성용 일별 수요예측 API와 Redis 보존 설정
  */
 @ConfigurationProperties(prefix = "app.ai-strategy.forecast")
 public class StrategyForecastProperties {
+
+    static final Duration LOCK_SAFETY_MARGIN = Duration.ofSeconds(30);
 
     private String baseUrl = "";
     private String path = "/api/v1/demand-forecasts/daily";
@@ -63,6 +67,22 @@ public class StrategyForecastProperties {
 
     public void setLockTtl(Duration lockTtl) {
         this.lockTtl = requirePositive(lockTtl, "lockTtl");
+    }
+
+    @PostConstruct
+    void validateLockTtl() {
+        Duration minimumLockTtl = connectTimeout
+                .plus(readTimeout)
+                .plus(LOCK_SAFETY_MARGIN);
+        if (lockTtl.compareTo(minimumLockTtl) < 0) {
+            throw new IllegalStateException(
+                    "Forecast lockTtl is too short: required at least "
+                            + minimumLockTtl.toSeconds()
+                            + "s, actual "
+                            + lockTtl.toSeconds()
+                            + "s"
+            );
+        }
     }
 
     private static Duration requirePositive(Duration value, String name) {
