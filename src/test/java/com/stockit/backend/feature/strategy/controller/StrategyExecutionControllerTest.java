@@ -20,7 +20,9 @@ import org.springframework.test.web.servlet.MockMvc;
 import com.stockit.backend.common.exception.AppException;
 import com.stockit.backend.common.exception.ErrorCode;
 import com.stockit.backend.feature.strategy.dto.response.StrategyExecutionResponse;
+import com.stockit.backend.feature.strategy.dto.response.StrategyExecutionPageResponse;
 import com.stockit.backend.feature.strategy.service.StrategyExecutionService;
+import com.stockit.backend.feature.strategy.vo.StrategyExecutionQuery;
 
 @SpringBootTest
 @AutoConfigureMockMvc(addFilters = false)
@@ -36,20 +38,65 @@ class StrategyExecutionControllerTest {
     @Test
     void exposesListAndDetailUsingStrategyCaseId() throws Exception {
         StrategyExecutionResponse response = response();
-        when(service.findAll()).thenReturn(List.of(response));
+        StrategyExecutionQuery defaultQuery = new StrategyExecutionQuery(0, 10, null, null, null, "DESC");
+        when(service.findAll(defaultQuery)).thenReturn(new StrategyExecutionPageResponse(
+                List.of(response), 0, 10, 1, 1, true, true
+        ));
         when(service.findByStrategyCaseId(101L)).thenReturn(response);
 
         mockMvc.perform(get("/api/v1/strategy-executions"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data[0].id").value(101))
-                .andExpect(jsonPath("$.data[0].product.imageUrl").value("https://example.com/product.jpg"))
-                .andExpect(jsonPath("$.data[0].lastSyncedAt").value(nullValue()));
+                .andExpect(jsonPath("$.data.content[0].id").value(101))
+                .andExpect(jsonPath("$.data.content[0].product.imageUrl").value("https://example.com/product.jpg"))
+                .andExpect(jsonPath("$.data.content[0].lastSyncedAt").value(nullValue()))
+                .andExpect(jsonPath("$.data.page").value(0))
+                .andExpect(jsonPath("$.data.size").value(10))
+                .andExpect(jsonPath("$.data.totalElements").value(1))
+                .andExpect(jsonPath("$.data.totalPages").value(1))
+                .andExpect(jsonPath("$.data.first").value(true))
+                .andExpect(jsonPath("$.data.last").value(true));
 
         mockMvc.perform(get("/api/v1/strategy-executions/101"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.id").value(101))
                 .andExpect(jsonPath("$.data.actions").isArray())
                 .andExpect(jsonPath("$.data.salesDaily").isArray());
+    }
+
+    @Test
+    void normalizesAndCombinesListParameters() throws Exception {
+        StrategyExecutionQuery query = new StrategyExecutionQuery(
+                1, 20, "두부", "EXECUTING", "PRICE_DISCOUNT", "ASC"
+        );
+        when(service.findAll(query)).thenReturn(new StrategyExecutionPageResponse(
+                List.of(), 1, 20, 21, 2, false, true
+        ));
+
+        mockMvc.perform(get("/api/v1/strategy-executions")
+                        .param("page", "1")
+                        .param("size", "20")
+                        .param("query", "  두부  ")
+                        .param("status", "executing")
+                        .param("actionType", "price_discount")
+                        .param("sort", "establishedAt,asc"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.page").value(1))
+                .andExpect(jsonPath("$.data.last").value(true));
+    }
+
+    @Test
+    void rejectsInvalidOrUnknownListParameters() throws Exception {
+        mockMvc.perform(get("/api/v1/strategy-executions").param("size", "101"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON-002"));
+
+        mockMvc.perform(get("/api/v1/strategy-executions").param("status", "UNKNOWN"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON-002"));
+
+        mockMvc.perform(get("/api/v1/strategy-executions").param("unexpected", "value"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON-002"));
     }
 
     @Test
@@ -70,6 +117,10 @@ class StrategyExecutionControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.paths['/api/v1/strategy-executions'].get.summary")
                         .value("AI 전략 실행 관제 목록 조회"))
+                .andExpect(jsonPath("$.paths['/api/v1/strategy-executions'].get.parameters[?(@.name == 'page')]").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/strategy-executions'].get.parameters[?(@.name == 'actionType')]").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/strategy-executions'].get.responses['400'].content['*/*'].schema['$ref']")
+                        .value("#/components/schemas/ApiErrorResponse"))
                 .andExpect(jsonPath(detailOperation + ".summary")
                         .value("AI 전략 실행 관제 상세 조회"))
                 .andExpect(jsonPath(detailOperation + ".responses['200']").exists())
