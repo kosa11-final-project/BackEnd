@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.stockit.backend.feature.inventorysync.demo.InventoryDemoAdjustmentMapper">
+    <select id="selectByRequestId" resultType="com.stockit.backend.feature.inventorysync.demo.InventoryDemoAdjustmentMapper$DemoAuditRow">
+        SELECT request_id, request_hash, adjustment_status AS status,
+               COUNT(*) OVER (PARTITION BY request_id) AS applied_count, MAX(applied_at) OVER (PARTITION BY request_id) AS applied_at
+          FROM inventory_demo_adjustment WHERE request_id = #{requestId}
+         ORDER BY inventory_demo_adjustment_id FETCH FIRST 1 ROW ONLY
+    </select>
+    <select id="countRecentApplied" resultType="int">
+        SELECT COUNT(DISTINCT request_id) FROM inventory_demo_adjustment
+         WHERE requested_by = #{requestedBy} AND requested_at &gt;= #{since} AND adjustment_status = 'APPLIED'
+    </select>
+    <select id="selectLastAppliedAt" resultType="java.time.Instant">
+        SELECT MAX(applied_at) FROM inventory_demo_adjustment
+         WHERE requested_by = #{requestedBy} AND adjustment_status = 'APPLIED'
+    </select>
+    <select id="lockSourceState" resultType="int">
+        SELECT 1 FROM inventory_source_state WHERE source_type = #{sourceType} FOR UPDATE
+    </select>
+    <select id="lockSourceRow" resultType="com.stockit.backend.feature.inventorysync.demo.InventoryDemoAdjustmentMapper$DemoSourceRow">
+        <choose>
+            <when test="sourceType == 'OFFLINE'">
+                SELECT available_stock_count AS on_hand_qty, reserved_stock_count AS reserved_qty,
+                       row_version, record_hash, synced_record_hash FROM inventory_source_offline
+                 WHERE source_record_key = #{sourceRecordKey} AND active_yn = 'Y' AND is_deleted = 0 FOR UPDATE
+            </when>
+            <when test="sourceType == 'ECOMMERCE'">
+                SELECT sellable_quantity AS on_hand_qty, ordered_quantity AS reserved_qty,
+                       row_version, record_hash, synced_record_hash FROM inventory_source_ecommerce
+                 WHERE source_record_key = #{sourceRecordKey} AND active_yn = 'Y' AND is_deleted = 0 FOR UPDATE
+            </when>
+            <when test="sourceType == 'GREETING'">
+                SELECT saleable_meal_count AS on_hand_qty, committed_meal_count AS reserved_qty,
+                       row_version, record_hash, synced_record_hash FROM inventory_source_greeting
+                 WHERE source_record_key = #{sourceRecordKey} AND active_yn = 'Y' AND is_deleted = 0 FOR UPDATE
+            </when>
+            <otherwise>
+                SELECT physical_available_qty AS on_hand_qty, physical_reserved_qty AS reserved_qty,
+                       row_version, record_hash, synced_record_hash FROM inventory_source_warehouse
+                 WHERE source_record_key = #{sourceRecordKey} AND active_yn = 'Y' AND is_deleted = 0 FOR UPDATE
+            </otherwise>
+        </choose>
+    </select>
+    <update id="updateSource">
+        <choose>
+            <when test="sourceType == 'OFFLINE'">
+                UPDATE inventory_source_offline SET available_stock_count = available_stock_count - #{decreaseQty},
+                    row_version = row_version + 1, record_hash = #{sourceHashAfter}, updated_at = SYSTIMESTAMP
+                 WHERE source_record_key = #{sourceRecordKey} AND available_stock_count &gt;= #{decreaseQty}
+            </when>
+            <when test="sourceType == 'ECOMMERCE'">
+                UPDATE inventory_source_ecommerce SET sellable_quantity = sellable_quantity - #{decreaseQty},
+                    row_version = row_version + 1, record_hash = #{sourceHashAfter}, updated_at = SYSTIMESTAMP
+                 WHERE source_record_key = #{sourceRecordKey} AND sellable_quantity &gt;= #{decreaseQty}
+            </when>
+            <when test="sourceType == 'GREETING'">
+                UPDATE inventory_source_greeting SET saleable_meal_count = saleable_meal_count - #{decreaseQty},
+                    row_version = row_version + 1, record_hash = #{sourceHashAfter}, updated_at = SYSTIMESTAMP
+                 WHERE source_record_key = #{sourceRecordKey} AND saleable_meal_count &gt;= #{decreaseQty}
+            </when>
+            <otherwise>
+                UPDATE inventory_source_warehouse SET physical_available_qty = physical_available_qty - #{decreaseQty},
+                    row_version = row_version + 1, record_hash = #{sourceHashAfter}, updated_at = SYSTIMESTAMP
+                 WHERE source_record_key = #{sourceRecordKey} AND physical_available_qty &gt;= #{decreaseQty}
+            </otherwise>
+        </choose>
+    </update>
+    <update id="updatePendingCount">
+        UPDATE inventory_source_state
+           SET pending_record_count = pending_record_count + CASE WHEN #{wasSynced} = 1 THEN 1 ELSE 0 END,
+               current_version = current_version + 1, last_changed_at = SYSTIMESTAMP, updated_at = SYSTIMESTAMP
+         WHERE source_type = #{sourceType}
+    </update>
+    <insert id="insertAudit">
+        INSERT INTO inventory_demo_adjustment (
+            request_id, request_hash, source_type, source_record_key, decrease_qty,
+            source_row_version_before, source_row_version_after, source_hash_before, source_hash_after,
+            adjustment_status, requested_by, requested_at, applied_at, payload_json
+        ) VALUES (
+            #{requestId}, #{requestHash}, #{sourceType}, #{sourceRecordKey}, #{decreaseQty},
+            #{sourceRowVersionBefore}, #{sourceRowVersionAfter}, #{sourceHashBefore}, #{sourceHashAfter},
+            'APPLIED', #{requestedBy}, SYSTIMESTAMP, SYSTIMESTAMP, #{payloadJson}
+        )
+    </insert>
+</mapper>

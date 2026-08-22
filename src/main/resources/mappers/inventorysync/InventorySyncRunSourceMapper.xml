@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.stockit.backend.feature.inventorysync.mapper.InventorySyncRunSourceMapper">
+    <insert id="insertPendingSources">
+        MERGE INTO inventory_sync_run_source target
+        USING (SELECT CAST(#{runId} AS NUMBER) AS run_id, source_type, current_version FROM inventory_source_state) source
+           ON (target.inventory_sync_run_id = source.run_id AND target.source_type = source.source_type)
+        WHEN MATCHED THEN UPDATE SET target.start_version = source.current_version, target.end_version = NULL,
+             target.source_status = 'PENDING', target.read_count = 0, target.mapped_count = 0,
+             target.changed_count = 0, target.error_count = 0, target.started_at = NULL, target.completed_at = NULL
+        WHEN NOT MATCHED THEN INSERT (inventory_sync_run_id, source_type, start_version, source_status)
+             VALUES (source.run_id, source.source_type, source.current_version, 'PENDING')
+    </insert>
+    <insert id="insertRunSource">
+        MERGE INTO inventory_sync_run_source target
+        USING (SELECT CAST(#{runId} AS NUMBER) AS inventory_sync_run_id,
+                      CAST(#{sourceType} AS VARCHAR2(20)) AS source_type,
+                      CAST(#{startVersion} AS NUMBER) AS start_version FROM dual) source
+           ON (target.inventory_sync_run_id = source.inventory_sync_run_id AND target.source_type = source.source_type)
+        WHEN MATCHED THEN UPDATE SET target.start_version = source.start_version, target.end_version = NULL,
+             target.source_status = 'RUNNING', target.read_count = 0, target.mapped_count = 0,
+             target.changed_count = 0, target.error_count = 0, target.started_at = SYSTIMESTAMP, target.completed_at = NULL
+        WHEN NOT MATCHED THEN INSERT (
+            inventory_sync_run_id, source_type, start_version, source_status, started_at
+        ) VALUES (source.inventory_sync_run_id, source.source_type, source.start_version, 'RUNNING', SYSTIMESTAMP)
+    </insert>
+    <update id="updateProgress">
+        UPDATE inventory_sync_run_source
+           SET read_count = #{readCount}, mapped_count = #{mappedCount}
+         WHERE inventory_sync_run_id = #{runId} AND source_type = #{sourceType}
+    </update>
+    <update id="completeSource">
+        UPDATE inventory_sync_run_source
+           SET end_version = #{endVersion}, source_status = #{status}, completed_at = SYSTIMESTAMP
+         WHERE inventory_sync_run_id = #{runId} AND source_type = #{sourceType}
+    </update>
+    <update id="incrementChanged">
+        UPDATE inventory_sync_run_source
+           SET changed_count = changed_count + #{changedCount}
+         WHERE inventory_sync_run_id = #{runId} AND source_type = #{sourceType}
+    </update>
+    <update id="markFailed">
+        UPDATE inventory_sync_run_source
+           SET source_status = 'FAILED', completed_at = SYSTIMESTAMP
+         WHERE inventory_sync_run_id = #{runId} AND source_status IN ('PENDING', 'RUNNING')
+    </update>
+</mapper>

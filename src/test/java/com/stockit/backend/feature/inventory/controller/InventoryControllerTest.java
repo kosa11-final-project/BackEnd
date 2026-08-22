@@ -87,6 +87,7 @@ class InventoryControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.items[0].rowId").value("SKU-1"))
                 .andExpect(jsonPath("$.data.items[0].salesPoints[0].salesPointCode").value("SP-1"))
+                .andExpect(jsonPath("$.data.items[0].unassignedInventory").exists())
                 .andExpect(jsonPath("$.data.items[0].risk.assessmentStatus").value("UNASSESSED"))
                 .andExpect(jsonPath("$.data.totalCount").value(1));
 

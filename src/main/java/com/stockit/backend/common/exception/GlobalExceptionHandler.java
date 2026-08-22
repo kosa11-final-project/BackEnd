@@ -20,6 +20,7 @@ import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import com.stockit.backend.common.api.ApiErrorResponse;
 import com.stockit.backend.common.api.FieldErrorDetail;
+import com.stockit.backend.feature.inventorysync.demo.InventoryDemoAdjustmentService.DemoRateLimitException;
 
 import jakarta.servlet.http.HttpServletRequest;
 
@@ -33,6 +34,14 @@ import jakarta.servlet.http.HttpServletRequest;
 public class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
+    @ExceptionHandler(DemoRateLimitException.class)
+    public ResponseEntity<ApiErrorResponse> handleDemoRateLimit(DemoRateLimitException exception, HttpServletRequest request) {
+        ErrorCode errorCode = ErrorCode.RATE_LIMITED;
+        return ResponseEntity.status(errorCode.getHttpStatus())
+                .header("Retry-After", Integer.toString(exception.retryAfterSeconds()))
+                .body(ApiErrorResponse.of(errorCode, errorCode.getMessage(), request.getRequestURI()));
+    }
 
     /**
      * 비즈니스 예외({@link AppException})를 처리합니다.

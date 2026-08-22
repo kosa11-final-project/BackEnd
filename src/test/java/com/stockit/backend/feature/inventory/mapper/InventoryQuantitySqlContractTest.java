@@ -57,6 +57,33 @@ class InventoryQuantitySqlContractTest {
     }
 
     @Test
+    void integratedInventoryLocationsAreRestrictedToCenterOnlyStock() throws IOException {
+        String inventorySql = read("inventory/InventoryMapper.xml");
+
+        assertThat(inventorySql)
+                .contains("unassigned_balance_base")
+                .contains("AND ib.allocated_sales_point_id IS NULL")
+                .contains("LEFT JOIN risk_latest ur ON ur.sku_id = ua.sku_id AND ur.sales_point_id = -1")
+                .contains("AND r.sales_point_id = -1")
+                .contains("unassigned_current_qty")
+                .contains("unassigned_risk_grade")
+                .contains("unassigned_assessment_status")
+                .contains("unassigned_risk_reason")
+                .contains("unassigned_locations_json")
+                .contains("'warehouseName' VALUE CAST(NULL AS VARCHAR2(200))")
+                .contains("CASE WHEN #{salesPointCode} = 'UNASSIGNED'");
+    }
+
+    @Test
+    void inventoryListAndDetailExposeTheProductSupplierName() throws IOException {
+        String inventorySql = read("inventory/InventoryMapper.xml");
+
+        assertThat(inventorySql)
+                .contains("sup.supplier_name AS supplier_name")
+                .contains("LEFT JOIN supplier sup ON sup.supplier_id = p.supplier_id");
+    }
+
+    @Test
     void sellerRiskAggregationPrioritizesTheMostSevereLot() throws IOException {
         String inventorySql = read("inventory/InventoryMapper.xml");
 
@@ -68,14 +95,31 @@ class InventoryQuantitySqlContractTest {
     }
 
     @Test
+    void inventoryDetailCteDoesNotLeaveADanglingDelimiterBeforeTheSelect() throws IOException {
+        String inventorySql = read("inventory/InventoryMapper.xml");
+
+        assertThat(inventorySql).doesNotContain("        ),\n        )\n        SELECT p.product_code");
+    }
+
+    @Test
     void centerOnlyPolicyIsNotAppliedToNamedSalesPoint() throws IOException {
         String riskSql = read("inventory/RiskAssessmentMapper.xml");
 
         assertThat(riskSql)
                 .contains("#{salesPointCode} != 'UNASSIGNED' AND sp.sales_point_code = #{salesPointCode}")
                 .contains("#{salesPointCode} = 'UNASSIGNED'")
-                .contains("ip.stock_sales_point_id IS NULL")
-                .contains("ip.allocated_sales_point_id IS NULL");
+                .contains("ip.allocated_sales_point_id IS NULL")
+                .doesNotContain("ip.stock_sales_point_id IS NULL");
+    }
+
+    @Test
+    void syncRiskSnapshotKeepsAllocatedNullAsUnassignedScope() throws IOException {
+        String syncRiskSql = read("inventorysync/InventorySyncRiskSnapshotMapper.xml");
+
+        assertThat(syncRiskSql)
+                .contains("COALESCE(TO_CHAR(ib.allocated_sales_point_id), 'UNASSIGNED')")
+                .contains("l.lot_status")
+                .doesNotContain("COALESCE(TO_CHAR(COALESCE(ib.allocated_sales_point_id, ib.stock_sales_point_id))");
     }
 
     private static String read(String relativePath) throws IOException {
