@@ -48,6 +48,8 @@ public class StrategyGenerationJobHandlerImpl implements StrategyGenerationJobHa
     private static final String INVALID_MESSAGE_CODE = "MQ_MESSAGE_INVALID";
     private static final String CASE_NOT_FOUND_CODE = "MQ_CASE_NOT_FOUND";
     private static final String PAYLOAD_INVALID_CODE = "MQ_PAYLOAD_INVALID";
+    private static final String UNEXPECTED_FORECAST_ERROR_CODE =
+            "FORECAST_UNEXPECTED_ERROR";
 
     private final StrategyCaseMapper strategyCaseMapper;
     private final StrategyCaseRequestPayloadSerializer payloadSerializer;
@@ -132,11 +134,28 @@ public class StrategyGenerationJobHandlerImpl implements StrategyGenerationJobHa
         if (!ensureForecasting(latest)) {
             return;
         }
-        StrategyForecastResponse response = forecastProvider.forecast(context.request());
-        responseValidator.validate(context, response);
-        // Redis 저장 후 DB 단계를 전환해 중단 시 체크포인트로 전환만 재개할 수 있도록 구성
-        saveCheckpoint(ForecastCheckpoint.create(context, response, Instant.now()));
-        completeForecasting(strategyCaseId);
+        executeForecasting(strategyCaseId, context);
+    }
+
+    private void executeForecasting(
+            Long strategyCaseId,
+        StrategyForecastRequestContext context
+    ) {
+        try {
+            StrategyForecastResponse response = forecastProvider.forecast(
+                    context.request()
+            );
+            responseValidator.validate(context, response);
+            // Redis 저장 후 DB 단계를 전환해 중단 시 체크포인트로 전환만 재개할 수 있도록 구성
+            saveCheckpoint(ForecastCheckpoint.create(context, response, Instant.now()));
+            completeForecasting(strategyCaseId);
+        } catch (PermanentStrategyGenerationException
+                 | RetryableStrategyGenerationException
+                 | StrategyGenerationBusyException exception) {
+            throw exception;
+        } catch (RuntimeException exception) {
+            throw unexpectedForecastingException(exception);
+        }
     }
 
     private StrategyCaseVO loadCase(Long strategyCaseId) {
@@ -201,6 +220,11 @@ public class StrategyGenerationJobHandlerImpl implements StrategyGenerationJobHa
                     exception.getMessage(),
                     exception
             );
+        } catch (RuntimeException exception) {
+            if (expectedStage == StrategyGenerationStage.FORECASTING) {
+                throw unexpectedForecastingException(exception);
+            }
+            throw exception;
         }
     }
 
@@ -234,6 +258,8 @@ public class StrategyGenerationJobHandlerImpl implements StrategyGenerationJobHa
                             "Demand forecast is already being processed: "
                                     + strategyCaseId
                     ));
+        } catch (StrategyGenerationBusyException exception) {
+            throw exception;
         } catch (ForecastLockAccessException exception) {
             throw new RetryableStrategyGenerationException(
                     "FORECAST_CACHE_UNAVAILABLE",
@@ -241,6 +267,11 @@ public class StrategyGenerationJobHandlerImpl implements StrategyGenerationJobHa
                     exception.getMessage(),
                     exception
             );
+        } catch (RuntimeException exception) {
+            if (expectedStage == StrategyGenerationStage.FORECASTING) {
+                throw unexpectedForecastingException(exception);
+            }
+            throw exception;
         }
     }
 
@@ -275,22 +306,34 @@ public class StrategyGenerationJobHandlerImpl implements StrategyGenerationJobHa
             StrategyForecastRequestContext context,
             ForecastCheckpoint checkpoint
     ) {
-        responseValidator.validate(context, checkpoint.forecastResponse());
-        if (strategyCase.getGenerationStage() == null
-                && !enterForecasting(strategyCase.getStrategyCaseId())) {
-            StrategyCaseVO latest = loadCase(strategyCase.getStrategyCaseId());
-            if (isForecastStepCompleteOrTerminal(latest)) {
-                return;
+        try {
+            responseValidator.validate(context, checkpoint.forecastResponse());
+            if (strategyCase.getGenerationStage() == null
+                    && !enterForecasting(strategyCase.getStrategyCaseId())) {
+                StrategyCaseVO latest = loadCase(strategyCase.getStrategyCaseId());
+                if (isForecastStepCompleteOrTerminal(latest)) {
+                    return;
+                }
+                if (latest.getGenerationStage() != StrategyGenerationStage.FORECASTING) {
+                    throw new RetryableStrategyGenerationException(
+                            "FORECAST_STAGE_TRANSITION_FAILED",
+                            null,
+                            "AI strategy case could not recover FORECASTING"
+                    );
+                }
             }
-            if (latest.getGenerationStage() != StrategyGenerationStage.FORECASTING) {
-                throw new RetryableStrategyGenerationException(
-                        "FORECAST_STAGE_TRANSITION_FAILED",
-                        null,
-                        "AI strategy case could not recover FORECASTING"
-                );
+            completeForecasting(strategyCase.getStrategyCaseId());
+        } catch (PermanentStrategyGenerationException
+                 | RetryableStrategyGenerationException
+                 | StrategyGenerationBusyException exception) {
+            throw exception;
+        } catch (RuntimeException exception) {
+            if (strategyCase.getGenerationStage()
+                    == StrategyGenerationStage.FORECASTING) {
+                throw unexpectedForecastingException(exception);
             }
+            throw exception;
         }
-        completeForecasting(strategyCase.getStrategyCaseId());
     }
 
     private void completeForecasting(Long strategyCaseId) {
@@ -354,6 +397,17 @@ public class StrategyGenerationJobHandlerImpl implements StrategyGenerationJobHa
     private static boolean isAfterForecasting(StrategyGenerationStage stage) {
         return stage == StrategyGenerationStage.STRATEGY_GENERATING
                 || stage == StrategyGenerationStage.COMPARISON_READY;
+    }
+
+    private static RetryableStrategyGenerationException unexpectedForecastingException(
+            RuntimeException exception
+    ) {
+        return new RetryableStrategyGenerationException(
+                UNEXPECTED_FORECAST_ERROR_CODE,
+                StrategyGenerationStage.FORECASTING,
+                "Unexpected error occurred while processing demand forecast",
+                exception
+        );
     }
 
     private static void validateMessage(StrategyGenerationJobMessage message) {

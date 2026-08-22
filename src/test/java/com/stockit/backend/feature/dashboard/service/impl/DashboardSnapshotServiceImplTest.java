@@ -65,13 +65,14 @@ class DashboardSnapshotServiceImplTest {
         verify(snapshotMapper).insertSnapshot(
                 eq(SNAPSHOT_ID),
                 eq(SYNC_JOB_ID),
-                eq(1),
+                eq(2),
                 payloadCaptor.capture()
         );
         DashboardSnapshotPayload payload = objectMapper.readValue(
                 payloadCaptor.getValue(),
                 DashboardSnapshotPayload.class
         );
+        assertThat(payload.summary().totalCurrentStock()).isEqualByComparingTo("4800");
         assertThat(payload.summary().totalAvailableStock()).isEqualByComparingTo("4062");
         assertThat(payload.warehouses()).isEmpty();
     }
@@ -89,6 +90,7 @@ class DashboardSnapshotServiceImplTest {
 
     private static DashboardResponse dashboard() {
         DashboardSummaryResponse summary = new DashboardSummaryResponse(
+                new BigDecimal("4800"),
                 new BigDecimal("4062"),
                 5,
                 7,
@@ -98,6 +100,7 @@ class DashboardSnapshotServiceImplTest {
         );
         return new DashboardResponse(
                 summary,
+                List.of(),
                 List.of(),
                 List.of(),
                 List.of(),
