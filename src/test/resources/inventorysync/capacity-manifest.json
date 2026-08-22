@@ -1,0 +1,8 @@
+{
+  "rowCounts": [100000],
+  "snapshotRowCountSource": "G0 approved canonical_inventory_balance_current.csv manifest",
+  "batchSize": 500,
+  "maxHeapBytes": 1073741824,
+  "oracleRequired": true,
+  "oracleMeasurement": "approved-test-schema-only"
+}

@@ -22,6 +22,7 @@ import com.stockit.backend.feature.inventory.dto.response.LocationResponse;
 import com.stockit.backend.feature.inventory.dto.response.RiskResponse;
 import com.stockit.backend.feature.inventory.dto.response.SalesPointResponse;
 import com.stockit.backend.feature.inventory.dto.response.SkuChannelPriceResponse;
+import com.stockit.backend.feature.inventory.dto.response.UnassignedInventoryResponse;
 import com.stockit.backend.feature.inventory.vo.InventoryItemVO;
 import com.stockit.backend.feature.inventory.vo.InventoryLotVO;
 import com.stockit.backend.feature.inventory.vo.InventoryOptionVO;
@@ -45,13 +46,16 @@ public class InventoryResponseMapper {
 
     public InventoryItemResponse toItemResponse(InventoryItemVO item) {
         List<LocationResponse> locations = readJson(item.getLocationsJson(), LOCATIONS_TYPE);
-        List<SalesPointResponse> salesPoints = readJson(item.getSalesPointsJson(), SALES_POINTS_TYPE);
+        List<SalesPointResponse> rawSalesPoints = readJson(item.getSalesPointsJson(), SALES_POINTS_TYPE);
+        UnassignedInventoryResponse unassignedInventory = toUnassignedInventory(item, locations, rawSalesPoints);
+        List<SalesPointResponse> salesPoints = namedSalesPoints(rawSalesPoints);
         String rowId = item.getSkuCode();
 
         return new InventoryItemResponse(
                 rowId,
                 item.getProductCode(),
                 item.getProductName(),
+                item.getSupplierName(),
                 item.getSkuCode(),
                 item.getSkuName(),
                 item.getImageUrl(),
@@ -77,6 +81,7 @@ public class InventoryResponseMapper {
                 item.getLocationCount() == null ? locations.size() : item.getLocationCount(),
                 salesPoints,
                 item.getOwnerSalesPointCount() == null ? salesPoints.size() : item.getOwnerSalesPointCount(),
+                unassignedInventory,
                 item.getLotCount(),
                 item.getNearestExpiryDays(),
                 item.getNearestExpiryDate() == null ? null : item.getNearestExpiryDate().toLocalDate(),
@@ -94,13 +99,16 @@ public class InventoryResponseMapper {
             List<SkuChannelPriceResponse> channelPrices
     ) {
         List<LocationResponse> locations = readJson(item.getLocationsJson(), LOCATIONS_TYPE);
-        List<SalesPointResponse> salesPoints = readJson(item.getSalesPointsJson(), SALES_POINTS_TYPE);
+        List<SalesPointResponse> rawSalesPoints = readJson(item.getSalesPointsJson(), SALES_POINTS_TYPE);
+        UnassignedInventoryResponse unassignedInventory = toUnassignedInventory(item, locations, rawSalesPoints);
+        List<SalesPointResponse> salesPoints = namedSalesPoints(rawSalesPoints);
         String rowId = item.getSkuCode() + ":" + item.getSalesPointCode();
 
         return new InventoryDetailResponse(
                 rowId,
                 item.getProductCode(),
                 item.getProductName(),
+                item.getSupplierName(),
                 item.getSkuCode(),
                 item.getSkuName(),
                 item.getImageUrl(),
@@ -125,6 +133,7 @@ public class InventoryResponseMapper {
                 locations,
                 item.getLocationCount() == null ? locations.size() : item.getLocationCount(),
                 salesPoints,
+                unassignedInventory,
                 item.getLotCount(),
                 item.getNearestExpiryDays(),
                 item.getNearestExpiryDate() == null ? null : item.getNearestExpiryDate().toLocalDate(),
@@ -227,5 +236,65 @@ public class InventoryResponseMapper {
                     typeRef.getType(), json.length(), e);
             throw new AppException(ErrorCode.INTERNAL_SERVER_ERROR);
         }
+    }
+
+    private List<SalesPointResponse> namedSalesPoints(List<SalesPointResponse> rawSalesPoints) {
+        return rawSalesPoints.stream()
+                .filter(point -> !isUnassigned(point))
+                .map(this::withoutWarehouse)
+                .toList();
+    }
+
+    private UnassignedInventoryResponse toUnassignedInventory(
+            InventoryItemVO item,
+            List<LocationResponse> locations,
+            List<SalesPointResponse> rawSalesPoints
+    ) {
+        List<LocationResponse> unassignedLocations = item.getUnassignedLocationsJson() == null
+                ? locations
+                : readJson(item.getUnassignedLocationsJson(), LOCATIONS_TYPE);
+        SalesPointResponse center = rawSalesPoints.stream()
+                .filter(this::isUnassigned)
+                .findFirst()
+                .orElse(null);
+
+        return new UnassignedInventoryResponse(
+                firstNonNull(item.getUnassignedCurrentQty(), center == null ? null : center.currentQuantity()),
+                firstNonNull(item.getUnassignedAvailableQty(), center == null ? null : center.availableQuantity()),
+                firstNonNull(item.getUnassignedReservedQty(), center == null ? null : center.reservedQuantity()),
+                firstNonNull(item.getUnassignedInventoryFactState(), center == null ? null : center.salesPointState()),
+                firstNonNull(item.getUnassignedRiskGrade(), center == null ? null : center.riskGrade()),
+                item.getUnassignedAssessmentStatus(),
+                item.getUnassignedRiskReason(),
+                unassignedLocations,
+                item.getUnassignedLocationCount() == null ? unassignedLocations.size() : item.getUnassignedLocationCount()
+        );
+    }
+
+    private SalesPointResponse withoutWarehouse(SalesPointResponse point) {
+        return new SalesPointResponse(
+                point.salesPointCode(),
+                point.salesPointName(),
+                point.channelType(),
+                point.currentQuantity(),
+                point.availableQuantity(),
+                point.reservedQuantity(),
+                point.riskGrade(),
+                null,
+                point.sellingPrice(),
+                point.salesPointState(),
+                point.priceStatus()
+        );
+    }
+
+    private boolean isUnassigned(SalesPointResponse point) {
+        return point != null
+                && ("UNASSIGNED".equalsIgnoreCase(point.salesPointCode())
+                || "CENTER".equalsIgnoreCase(point.channelType())
+                || "CENTER_ONLY".equalsIgnoreCase(point.salesPointState()));
+    }
+
+    private <T> T firstNonNull(T preferred, T fallback) {
+        return preferred != null ? preferred : fallback;
     }
 }

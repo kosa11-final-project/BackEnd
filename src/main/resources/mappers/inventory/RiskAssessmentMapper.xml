@@ -8,13 +8,12 @@
         FROM inventory_balance ib
         INNER JOIN sku s ON s.sku_id = ib.sku_id AND s.is_deleted = 0
         LEFT JOIN sales_point sp
-               ON sp.sales_point_id = COALESCE(ib.stock_sales_point_id, ib.allocated_sales_point_id)
+               ON sp.sales_point_id = ib.allocated_sales_point_id
               AND sp.is_deleted = 0
         WHERE s.sku_code = #{skuCode}
           AND (
               (#{salesPointCode} != 'UNASSIGNED' AND sp.sales_point_code = #{salesPointCode})
               OR (#{salesPointCode} = 'UNASSIGNED'
-                  AND ib.stock_sales_point_id IS NULL
                   AND ib.allocated_sales_point_id IS NULL)
           )
           AND ib.is_deleted = 0
@@ -26,13 +25,12 @@
             SELECT ip.safety_stock_qty
             FROM inventory_policy ip
             INNER JOIN sku s ON s.sku_id = ip.sku_id AND s.is_deleted = 0
-            LEFT JOIN sales_point sp ON sp.sales_point_id = COALESCE(ip.stock_sales_point_id, ip.allocated_sales_point_id)
+            LEFT JOIN sales_point sp ON sp.sales_point_id = ip.allocated_sales_point_id
                                      AND sp.is_deleted = 0
             WHERE s.sku_code = #{skuCode}
               AND (
                   (#{salesPointCode} != 'UNASSIGNED' AND sp.sales_point_code = #{salesPointCode})
                   OR (#{salesPointCode} = 'UNASSIGNED'
-                      AND ip.stock_sales_point_id IS NULL
                       AND ip.allocated_sales_point_id IS NULL)
               )
               AND ip.is_deleted = 0
@@ -72,13 +70,12 @@
         FROM lot l
         INNER JOIN inventory_balance ib ON ib.lot_id = l.lot_id AND ib.is_deleted = 0
         INNER JOIN sku s ON s.sku_id = ib.sku_id AND s.is_deleted = 0
-        LEFT JOIN sales_point sp ON sp.sales_point_id = COALESCE(ib.stock_sales_point_id, ib.allocated_sales_point_id)
+        LEFT JOIN sales_point sp ON sp.sales_point_id = ib.allocated_sales_point_id
                                  AND sp.is_deleted = 0
         WHERE s.sku_code = #{skuCode}
           AND (
               (#{salesPointCode} != 'UNASSIGNED' AND sp.sales_point_code = #{salesPointCode})
               OR (#{salesPointCode} = 'UNASSIGNED'
-                  AND ib.stock_sales_point_id IS NULL
                   AND ib.allocated_sales_point_id IS NULL)
           )
           AND l.is_deleted = 0

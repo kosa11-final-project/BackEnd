@@ -1,0 +1,179 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.stockit.backend.feature.inventorysync.mapper.InventorySyncCanonicalMapper">
+    <update id="updateProducts">
+        MERGE INTO product target
+        USING (
+            <foreach collection="records" item="record" separator=" UNION ALL ">
+                SELECT CAST(#{record.productId} AS NUMBER) AS product_id,
+                       CAST(#{record.categoryId} AS NUMBER) AS category_id,
+                       #{record.productName,jdbcType=VARCHAR} AS product_name,
+                       #{record.brandName,jdbcType=VARCHAR} AS brand_name,
+                       #{record.productStatus,jdbcType=VARCHAR} AS product_status,
+                       #{record.saleAvailableYn,jdbcType=VARCHAR} AS sale_available_yn
+                  FROM dual
+            </foreach>
+        ) source ON (target.product_id = source.product_id AND target.is_deleted = 0)
+        WHEN MATCHED THEN UPDATE SET
+             target.category_id = source.category_id,
+             target.product_name = source.product_name,
+             target.brand_name = source.brand_name,
+             target.product_status = source.product_status,
+             target.sale_available_yn = COALESCE(source.sale_available_yn, target.sale_available_yn),
+             target.updated_at = SYSTIMESTAMP,
+             target.updated_by = #{actorId}
+         WHERE target.category_id != source.category_id
+            OR target.product_name != source.product_name
+            OR NVL(target.brand_name, '#NULL#') != NVL(source.brand_name, '#NULL#')
+            OR target.product_status != source.product_status
+            OR (source.sale_available_yn IS NOT NULL AND target.sale_available_yn != source.sale_available_yn)
+    </update>
+
+    <update id="updateSkus">
+        MERGE INTO sku target
+        USING (
+            <foreach collection="records" item="record" separator=" UNION ALL ">
+                SELECT CAST(#{record.skuId} AS NUMBER) AS sku_id,
+                       #{record.skuName,jdbcType=VARCHAR} AS sku_name,
+                       CAST(#{record.netWeight,jdbcType=NUMERIC} AS NUMBER(12,3)) AS net_weight,
+                       #{record.weightUnit,jdbcType=VARCHAR} AS weight_unit,
+                       CAST(#{record.packageQuantity,jdbcType=NUMERIC} AS NUMBER(12,3)) AS package_quantity,
+                       #{record.unitCode,jdbcType=VARCHAR} AS unit_code,
+                       #{record.storageType,jdbcType=VARCHAR} AS storage_type
+                  FROM dual
+            </foreach>
+        ) source ON (target.sku_id = source.sku_id AND target.is_deleted = 0)
+        WHEN MATCHED THEN UPDATE SET
+             target.sku_name = source.sku_name,
+             target.net_weight = source.net_weight,
+             target.weight_unit = source.weight_unit,
+             target.package_quantity = source.package_quantity,
+             target.unit_code = source.unit_code,
+             target.storage_type = source.storage_type,
+             target.updated_at = SYSTIMESTAMP,
+             target.updated_by = #{actorId}
+         WHERE target.sku_name != source.sku_name
+            OR NVL(target.net_weight, -1) != NVL(source.net_weight, -1)
+            OR NVL(target.weight_unit, '#NULL#') != NVL(source.weight_unit, '#NULL#')
+            OR target.package_quantity != source.package_quantity
+            OR target.unit_code != source.unit_code
+            OR NVL(target.storage_type, '#NULL#') != NVL(source.storage_type, '#NULL#')
+    </update>
+
+    <update id="updatePrices">
+        MERGE INTO sku_channel_price target
+        USING (
+            <foreach collection="records" item="record" separator=" UNION ALL ">
+                SELECT CAST(#{record.skuChannelPriceId} AS NUMBER) AS sku_channel_price_id,
+                       CAST(#{record.sellingPrice,jdbcType=NUMERIC} AS NUMBER(18,2)) AS selling_price,
+                       CAST(#{record.actualPrice,jdbcType=NUMERIC} AS NUMBER(18,2)) AS actual_price,
+                       CAST(#{record.productCost,jdbcType=NUMERIC} AS NUMBER(18,2)) AS product_cost,
+                       CAST(#{record.paymentFee,jdbcType=NUMERIC} AS NUMBER(18,2)) AS payment_fee,
+                       CAST(#{record.logisticsCost,jdbcType=NUMERIC} AS NUMBER(18,2)) AS logistics_cost,
+                       #{record.priceEffectiveFrom,jdbcType=DATE} AS effective_from,
+                       #{record.priceEffectiveTo,jdbcType=DATE} AS effective_to
+                  FROM dual
+            </foreach>
+        ) source ON (target.sku_channel_price_id = source.sku_channel_price_id AND target.is_deleted = 0)
+        WHEN MATCHED THEN UPDATE SET
+             target.selling_price = source.selling_price,
+             target.actual_price = source.actual_price,
+             target.product_cost = source.product_cost,
+             target.payment_fee = COALESCE(source.payment_fee, target.payment_fee),
+             target.logistics_cost = COALESCE(source.logistics_cost, target.logistics_cost),
+             target.effective_from = source.effective_from,
+             target.effective_to = source.effective_to,
+             target.updated_at = SYSTIMESTAMP,
+             target.updated_by = #{actorId}
+         WHERE target.selling_price != source.selling_price
+            OR target.actual_price != source.actual_price
+            OR target.product_cost != source.product_cost
+            OR (source.payment_fee IS NOT NULL AND NVL(target.payment_fee, -1) != source.payment_fee)
+            OR (source.logistics_cost IS NOT NULL AND NVL(target.logistics_cost, -1) != source.logistics_cost)
+            OR target.effective_from != source.effective_from
+            OR NVL(target.effective_to, DATE '0001-01-01') != NVL(source.effective_to, DATE '0001-01-01')
+    </update>
+
+    <update id="updateSkuCosts">
+        MERGE INTO sku_cost target
+        USING (
+            <foreach collection="records" item="record" separator=" UNION ALL ">
+                SELECT CAST(#{record.skuCostId} AS NUMBER) AS sku_cost_id,
+                       CAST(#{record.skuUnitCost,jdbcType=NUMERIC} AS NUMBER(18,2)) AS unit_cost
+                  FROM dual
+            </foreach>
+        ) source ON (target.sku_cost_id = source.sku_cost_id AND target.is_deleted = 0)
+        WHEN MATCHED THEN UPDATE SET
+             target.unit_cost = source.unit_cost,
+             target.updated_at = SYSTIMESTAMP,
+             target.updated_by = #{actorId}
+         WHERE target.unit_cost != source.unit_cost
+    </update>
+
+    <update id="updateLots">
+        MERGE INTO lot target
+        USING (
+            <foreach collection="records" item="record" separator=" UNION ALL ">
+                SELECT CAST(#{record.lotId} AS NUMBER) AS lot_id,
+                       #{record.manufacturedDate,jdbcType=DATE} AS manufactured_date,
+                       #{record.receivedDate,jdbcType=DATE} AS received_date,
+                       #{record.expiryDate,jdbcType=DATE} AS expiry_date,
+                       #{record.saleStopDate,jdbcType=DATE} AS sale_stop_date,
+                       #{record.lotStatus,jdbcType=VARCHAR} AS lot_status
+                  FROM dual
+            </foreach>
+        ) source ON (target.lot_id = source.lot_id AND target.is_deleted = 0)
+        WHEN MATCHED THEN UPDATE SET
+             target.manufactured_date = source.manufactured_date,
+             target.received_date = source.received_date,
+             target.expiry_date = source.expiry_date,
+             target.sale_stop_date = source.sale_stop_date,
+             target.lot_status = source.lot_status,
+             target.updated_at = SYSTIMESTAMP,
+             target.updated_by = #{actorId}
+         WHERE NVL(target.manufactured_date, DATE '0001-01-01') != NVL(source.manufactured_date, DATE '0001-01-01')
+            OR NVL(target.received_date, DATE '0001-01-01') != NVL(source.received_date, DATE '0001-01-01')
+            OR NVL(target.expiry_date, DATE '0001-01-01') != NVL(source.expiry_date, DATE '0001-01-01')
+            OR NVL(target.sale_stop_date, DATE '0001-01-01') != NVL(source.sale_stop_date, DATE '0001-01-01')
+            OR target.lot_status != source.lot_status
+    </update>
+
+    <update id="updatePolicies">
+        MERGE INTO inventory_policy target
+        USING (
+            <foreach collection="records" item="record" separator=" UNION ALL ">
+                SELECT CAST(#{record.inventoryPolicyId} AS NUMBER) AS inventory_policy_id,
+                       CAST(#{record.safetyStockQty,jdbcType=NUMERIC} AS NUMBER(15,3)) AS safety_stock_qty,
+                       CAST(#{record.targetStockQty,jdbcType=NUMERIC} AS NUMBER(15,3)) AS target_stock_qty
+                  FROM dual
+            </foreach>
+        ) source ON (target.inventory_policy_id = source.inventory_policy_id AND target.is_deleted = 0)
+        WHEN MATCHED THEN UPDATE SET
+             target.safety_stock_qty = source.safety_stock_qty,
+             target.target_stock_qty = source.target_stock_qty,
+             target.updated_at = SYSTIMESTAMP,
+             target.updated_by = #{actorId}
+         WHERE target.safety_stock_qty != source.safety_stock_qty
+            OR NVL(target.target_stock_qty, -1) != NVL(source.target_stock_qty, -1)
+    </update>
+
+    <update id="updateInventoryBalances">
+        MERGE INTO inventory_balance target
+        USING (
+            <foreach collection="records" item="record" separator=" UNION ALL ">
+                SELECT CAST(#{record.inventoryBalanceId} AS NUMBER) AS inventory_balance_id,
+                       CAST(#{record.onHandQty} AS NUMBER(15,3)) AS on_hand_qty,
+                       CAST(#{record.reservedQty} AS NUMBER(15,3)) AS reserved_qty
+                  FROM dual
+            </foreach>
+        ) source
+           ON (target.inventory_balance_id = source.inventory_balance_id AND target.is_deleted = 0)
+        WHEN MATCHED THEN UPDATE SET
+             target.on_hand_qty = source.on_hand_qty,
+             target.reserved_qty = source.reserved_qty,
+             target.updated_at = SYSTIMESTAMP,
+             target.updated_by = #{actorId}
+         WHERE NVL(target.on_hand_qty, -1) != NVL(source.on_hand_qty, -1)
+            OR NVL(target.reserved_qty, -1) != NVL(source.reserved_qty, -1)
+    </update>
+</mapper>

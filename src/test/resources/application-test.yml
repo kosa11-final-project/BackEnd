@@ -16,6 +16,10 @@ spring:
     password: ${RABBITMQ_PASSWORD:stockit_test}
 
 app:
+  inventory-sync:
+    batch-enabled: false
+    schedule:
+      enabled: false
   ai-strategy:
     messaging:
       enabled: false

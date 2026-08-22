@@ -8,6 +8,7 @@ public class InventoryItemVO {
 
     private String productCode;
     private String productName;
+    private String supplierName;
     private String skuCode;
     private String skuName;
     private String imageUrl;
@@ -38,6 +39,15 @@ public class InventoryItemVO {
     private Integer locationCount;
     private String salesPointsJson;
     private Integer ownerSalesPointCount;
+    private BigDecimal unassignedCurrentQty;
+    private BigDecimal unassignedAvailableQty;
+    private BigDecimal unassignedReservedQty;
+    private String unassignedInventoryFactState;
+    private String unassignedRiskGrade;
+    private String unassignedAssessmentStatus;
+    private String unassignedRiskReason;
+    private String unassignedLocationsJson;
+    private Integer unassignedLocationCount;
     private Integer lotCount;
     private Integer nearestExpiryDays;
     private Date nearestExpiryDate;
@@ -47,6 +57,8 @@ public class InventoryItemVO {
     public void setProductCode(String productCode) { this.productCode = productCode; }
     public String getProductName() { return productName; }
     public void setProductName(String productName) { this.productName = productName; }
+    public String getSupplierName() { return supplierName; }
+    public void setSupplierName(String supplierName) { this.supplierName = supplierName; }
     public String getSkuCode() { return skuCode; }
     public void setSkuCode(String skuCode) { this.skuCode = skuCode; }
     public String getSkuName() { return skuName; }
@@ -107,6 +119,24 @@ public class InventoryItemVO {
     public void setSalesPointsJson(String salesPointsJson) { this.salesPointsJson = salesPointsJson; }
     public Integer getOwnerSalesPointCount() { return ownerSalesPointCount; }
     public void setOwnerSalesPointCount(Integer ownerSalesPointCount) { this.ownerSalesPointCount = ownerSalesPointCount; }
+    public BigDecimal getUnassignedCurrentQty() { return unassignedCurrentQty; }
+    public void setUnassignedCurrentQty(BigDecimal unassignedCurrentQty) { this.unassignedCurrentQty = unassignedCurrentQty; }
+    public BigDecimal getUnassignedAvailableQty() { return unassignedAvailableQty; }
+    public void setUnassignedAvailableQty(BigDecimal unassignedAvailableQty) { this.unassignedAvailableQty = unassignedAvailableQty; }
+    public BigDecimal getUnassignedReservedQty() { return unassignedReservedQty; }
+    public void setUnassignedReservedQty(BigDecimal unassignedReservedQty) { this.unassignedReservedQty = unassignedReservedQty; }
+    public String getUnassignedInventoryFactState() { return unassignedInventoryFactState; }
+    public void setUnassignedInventoryFactState(String unassignedInventoryFactState) { this.unassignedInventoryFactState = unassignedInventoryFactState; }
+    public String getUnassignedRiskGrade() { return unassignedRiskGrade; }
+    public void setUnassignedRiskGrade(String unassignedRiskGrade) { this.unassignedRiskGrade = unassignedRiskGrade; }
+    public String getUnassignedAssessmentStatus() { return unassignedAssessmentStatus; }
+    public void setUnassignedAssessmentStatus(String unassignedAssessmentStatus) { this.unassignedAssessmentStatus = unassignedAssessmentStatus; }
+    public String getUnassignedRiskReason() { return unassignedRiskReason; }
+    public void setUnassignedRiskReason(String unassignedRiskReason) { this.unassignedRiskReason = unassignedRiskReason; }
+    public String getUnassignedLocationsJson() { return unassignedLocationsJson; }
+    public void setUnassignedLocationsJson(String unassignedLocationsJson) { this.unassignedLocationsJson = unassignedLocationsJson; }
+    public Integer getUnassignedLocationCount() { return unassignedLocationCount; }
+    public void setUnassignedLocationCount(Integer unassignedLocationCount) { this.unassignedLocationCount = unassignedLocationCount; }
     public Integer getLotCount() { return lotCount; }
     public void setLotCount(Integer lotCount) { this.lotCount = lotCount; }
     public Integer getNearestExpiryDays() { return nearestExpiryDays; }
