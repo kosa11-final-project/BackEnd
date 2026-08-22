@@ -32,6 +32,7 @@ class StrategyExecutionResultMigrationContractTest {
              Statement statement = connection.createStatement()) {
             statement.execute("CREATE TABLE app_user (user_id NUMBER PRIMARY KEY)");
             statement.execute("CREATE TABLE final_strategy_selection (final_selection_id NUMBER PRIMARY KEY)");
+            statement.execute("CREATE TABLE inventory_sync_run (inventory_sync_run_id NUMBER PRIMARY KEY)");
             statement.execute("""
                     CREATE TABLE strategy_action (
                         strategy_action_id NUMBER PRIMARY KEY,
@@ -58,19 +59,19 @@ class StrategyExecutionResultMigrationContractTest {
             statement.execute("""
                     INSERT INTO strategy_execution_result (
                         final_selection_id,
-                        goal_metric_code,
+                        result_status,
+                        planned_start_date,
+                        planned_end_date,
                         goal_target_value,
-                        goal_actual_value,
-                        achievement_rate,
                         start_risk_stock_qty,
-                        end_risk_stock_qty,
                         start_expected_disposal_qty,
-                        end_expected_disposal_qty,
-                        estimated_loss_savings_amount,
-                        calculation_version,
+                        start_unit_cost,
                         created_by,
                         updated_by
-                    ) VALUES (10, 'RISK_STOCK_QTY', 100, 120, 120, 100, 40, 30, 10, 2000, 'v1', 1, 1)
+                    ) VALUES (
+                        10, 'RUNNING', DATE '2026-08-01', DATE '2026-08-10',
+                        100, 100, 30, 2000, 1, 1
+                    )
                     """);
             assertThatThrownBy(() -> statement.execute("""
                     INSERT INTO strategy_action VALUES (
@@ -91,6 +92,9 @@ class StrategyExecutionResultMigrationContractTest {
         assertThat(migration).contains(
                 "CREATE TABLE strategy_execution_result",
                 "UNIQUE (final_selection_id)",
+                "result_status",
+                "planned_start_date",
+                "planned_end_date",
                 "goal_target_value",
                 "goal_actual_value",
                 "start_risk_stock_qty",
@@ -98,7 +102,8 @@ class StrategyExecutionResultMigrationContractTest {
                 "start_expected_disposal_qty",
                 "end_expected_disposal_qty",
                 "estimated_loss_savings_amount",
-                "calculation_version"
+                "finalized_sync_run_id",
+                "SALES_ONLY_V1"
         );
     }
 

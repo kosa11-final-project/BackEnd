@@ -4,21 +4,351 @@
         "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.stockit.backend.feature.statistics.mapper.StrategyStatisticsMapper">
 
-    <select id="selectCompletedResults"
-            resultType="com.stockit.backend.feature.statistics.vo.StrategyStatisticsResultVO">
+    <select id="selectExecutionStartCandidates"
+            resultType="com.stockit.backend.feature.statistics.vo.StrategyExecutionStartCandidateVO">
         WITH action_period AS (
             SELECT strategy_option_id,
-                   MAX(end_date) AS execution_end_date
-            FROM strategy_action
-            WHERE is_deleted = 0
-              AND start_date IS NOT NULL
-              AND end_date IS NOT NULL
+                   MIN(start_date) AS planned_start_date,
+                   MAX(end_date) AS planned_end_date
+            FROM strategy_action action
+            WHERE action.is_deleted = 0
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM strategy_action incomplete
+                  WHERE incomplete.strategy_option_id = action.strategy_option_id
+                    AND incomplete.is_deleted = 0
+                    AND (incomplete.start_date IS NULL OR incomplete.end_date IS NULL)
+              )
             GROUP BY strategy_option_id
+        ),
+        simulation_ranked AS (
+            SELECT simulation.strategy_option_id,
+                   simulation.expected_sales_qty,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY simulation.strategy_option_id
+                       ORDER BY CASE simulation.input_source_type
+                                    WHEN 'USER_SELECT' THEN 0 ELSE 1
+                                END,
+                                simulation.updated_at DESC,
+                                simulation.simulation_id DESC
+                   ) AS row_no
+            FROM strategy_simulation simulation
+            WHERE simulation.is_deleted = 0
+        ),
+        latest_cost_ranked AS (
+            SELECT cost.sku_id,
+                   cost.unit_cost,
+                   period.strategy_option_id,
+                   period.planned_start_date,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY cost.sku_id, period.strategy_option_id
+                       ORDER BY cost.effective_from DESC,
+                                cost.updated_at DESC,
+                                cost.sku_cost_id DESC
+                   ) AS row_no
+            FROM sku_cost cost
+            JOIN strategy_case strategy_case
+              ON strategy_case.sku_id = cost.sku_id
+             AND strategy_case.is_deleted = 0
+            JOIN final_strategy_selection selection
+              ON selection.strategy_case_id = strategy_case.strategy_case_id
+             AND selection.is_deleted = 0
+            JOIN action_period period
+              ON period.strategy_option_id = selection.strategy_option_id
+            WHERE cost.is_deleted = 0
+              AND cost.effective_from &lt;= period.planned_start_date
+              AND (cost.effective_to IS NULL OR cost.effective_to &gt;= period.planned_start_date)
         )
+        SELECT selection.final_selection_id,
+               selection.created_by AS owner_user_id,
+               period.planned_start_date,
+               period.planned_end_date,
+               simulation.expected_sales_qty AS goal_target_value,
+               COUNT(snapshot.inventory_snapshot_id) AS snapshot_count,
+               SUM(snapshot.on_total_qty) AS start_risk_stock_qty,
+               SUM(
+                   CASE
+                       WHEN snapshot.expiry_date IS NOT NULL
+                        AND snapshot.expiry_date &lt;= period.planned_end_date
+                       THEN GREATEST(snapshot.on_hand_qty - COALESCE(snapshot.forecast_qty, 0), 0)
+                       ELSE 0
+                   END
+               ) AS start_expected_disposal_qty,
+               MAX(cost.unit_cost) AS start_unit_cost
+        FROM final_strategy_selection selection
+        JOIN strategy_case strategy_case
+          ON strategy_case.strategy_case_id = selection.strategy_case_id
+         AND strategy_case.is_deleted = 0
+         AND strategy_case.case_status IN ('READY_TO_EXECUTE', 'EXECUTING', 'EXECUTION_COMPLETED')
+        JOIN action_period period
+          ON period.strategy_option_id = selection.strategy_option_id
+        LEFT JOIN simulation_ranked simulation
+          ON simulation.strategy_option_id = selection.strategy_option_id
+         AND simulation.row_no = 1
+        LEFT JOIN strategy_inventory_snapshot snapshot
+          ON snapshot.strategy_case_id = selection.strategy_case_id
+         AND snapshot.is_deleted = 0
+        LEFT JOIN latest_cost_ranked cost
+          ON cost.sku_id = strategy_case.sku_id
+         AND cost.strategy_option_id = selection.strategy_option_id
+         AND cost.planned_start_date = period.planned_start_date
+         AND cost.row_no = 1
+        WHERE selection.is_deleted = 0
+          AND period.planned_start_date &lt;= #{businessDate,jdbcType=DATE}
+          AND NOT EXISTS (
+              SELECT 1
+              FROM strategy_execution_result existing
+              WHERE existing.final_selection_id = selection.final_selection_id
+                AND existing.is_deleted = 0
+          )
+        GROUP BY selection.final_selection_id,
+                 selection.created_by,
+                 period.planned_start_date,
+                 period.planned_end_date,
+                 simulation.expected_sales_qty
+        ORDER BY selection.final_selection_id
+    </select>
+
+    <insert id="insertExecutionStartResult"
+            parameterType="com.stockit.backend.feature.statistics.vo.StrategyExecutionStartCandidateVO">
+        INSERT INTO strategy_execution_result (
+            final_selection_id,
+            result_status,
+            planned_start_date,
+            planned_end_date,
+            goal_metric_code,
+            goal_target_value,
+            start_risk_stock_qty,
+            start_expected_disposal_qty,
+            start_unit_cost,
+            calculation_version,
+            failure_reason,
+            created_by,
+            updated_by
+        )
+        SELECT #{finalSelectionId},
+               CASE
+                   WHEN #{goalTargetValue} IS NOT NULL
+                    AND #{goalTargetValue} &gt; 0
+                    AND #{snapshotCount} &gt; 0
+                    AND #{startUnitCost} IS NOT NULL
+                   THEN 'RUNNING'
+                   ELSE 'PARTIAL'
+               END,
+               #{plannedStartDate,jdbcType=DATE},
+               #{plannedEndDate,jdbcType=DATE},
+               'SALES_QTY',
+               #{goalTargetValue},
+               #{startRiskStockQty},
+               #{startExpectedDisposalQty},
+               #{startUnitCost},
+               'SALES_ONLY_V1',
+               CASE
+                   WHEN #{goalTargetValue} IS NULL OR #{goalTargetValue} &lt;= 0
+                       THEN '유효한 목표 판매량이 없습니다.'
+                   WHEN #{snapshotCount} = 0 THEN '전략 시작 재고 스냅샷이 없습니다.'
+                   WHEN #{startUnitCost} IS NULL THEN '전략 시작 기준 원가가 없습니다.'
+                   ELSE NULL
+               END,
+               #{ownerUserId},
+               #{ownerUserId}
+        FROM dual
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM strategy_execution_result existing
+            WHERE existing.final_selection_id = #{finalSelectionId}
+              AND existing.is_deleted = 0
+        )
+    </insert>
+
+    <select id="selectDueExecutionResults"
+            resultType="com.stockit.backend.feature.statistics.vo.StrategyExecutionDueResultVO">
+        WITH pending_sync_ranked AS (
+            SELECT result.final_selection_id,
+                   result.planned_start_date,
+                   result.planned_end_date,
+                   result.goal_target_value,
+                   result.start_risk_stock_qty,
+                   result.start_expected_disposal_qty,
+                   result.start_unit_cost,
+                   selection.strategy_case_id,
+                   selection.strategy_option_id,
+                   selection.created_by AS owner_user_id,
+                   strategy_case.sku_id,
+                   sync_run.inventory_sync_run_id,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY result.final_selection_id
+                       ORDER BY sync_run.completed_at DESC, sync_run.inventory_sync_run_id DESC
+                   ) AS sync_row_no
+            FROM strategy_execution_result result
+            JOIN final_strategy_selection selection
+              ON selection.final_selection_id = result.final_selection_id
+             AND selection.is_deleted = 0
+            JOIN strategy_case strategy_case
+              ON strategy_case.strategy_case_id = selection.strategy_case_id
+             AND strategy_case.is_deleted = 0
+            JOIN inventory_sync_run sync_run
+              ON sync_run.run_status = 'SUCCEEDED'
+             AND TRUNC(sync_run.completed_at) &gt; result.planned_end_date
+            WHERE result.is_deleted = 0
+              AND result.result_status = 'RUNNING'
+              AND result.planned_end_date &lt; #{businessDate,jdbcType=DATE}
+              AND result.goal_target_value IS NOT NULL
+              AND result.start_risk_stock_qty IS NOT NULL
+              AND result.start_expected_disposal_qty IS NOT NULL
+              AND result.start_unit_cost IS NOT NULL
+        ),
+        pending AS (
+            SELECT *
+            FROM pending_sync_ranked
+            WHERE sync_row_no = 1
+        ),
+        latest_risk_ranked AS (
+            SELECT assessment.*,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY assessment.inventory_balance_id
+                       ORDER BY assessment.updated_at DESC, assessment.risk_assessment_id DESC
+                   ) AS risk_row_no
+            FROM risk_assessment assessment
+            WHERE assessment.is_deleted = 0
+        ),
+        scoped_inventory AS (
+            SELECT pending.final_selection_id,
+                   balance.inventory_balance_id,
+                   balance.on_hand_qty,
+                   balance.total_qty,
+                   lot.lot_status,
+                   COALESCE(lot.sale_stop_date, lot.expiry_date) AS effective_stop_date,
+                   risk.risk_grade,
+                   forecast.predicted_qty_d7,
+                   forecast.predicted_qty_d14,
+                   forecast.predicted_qty_d30,
+                   forecast.predicted_qty_d60,
+                   forecast.predicted_qty_d90,
+                   pending.planned_end_date
+            FROM pending
+            JOIN inventory_balance balance
+              ON balance.sku_id = pending.sku_id
+             AND balance.is_deleted = 0
+             AND (
+                 EXISTS (
+                     SELECT 1 FROM strategy_inventory_snapshot snapshot
+                     WHERE snapshot.strategy_case_id = pending.strategy_case_id
+                       AND snapshot.inventory_balance_id = balance.inventory_balance_id
+                       AND snapshot.is_deleted = 0
+                 )
+                 OR EXISTS (
+                     SELECT 1 FROM strategy_action action
+                     WHERE action.strategy_option_id = pending.strategy_option_id
+                       AND action.is_deleted = 0
+                       AND (
+                           balance.warehouse_id IN (action.source_warehouse_id, action.destination_warehouse_id)
+                           OR balance.stock_sales_point_id IN (action.source_sales_point_id, action.target_sales_point_id)
+                           OR balance.allocated_sales_point_id IN (action.source_sales_point_id, action.target_sales_point_id)
+                       )
+                 )
+             )
+            LEFT JOIN lot
+              ON lot.lot_id = balance.lot_id
+             AND lot.is_deleted = 0
+            LEFT JOIN latest_risk_ranked risk
+              ON risk.inventory_balance_id = balance.inventory_balance_id
+             AND risk.risk_row_no = 1
+            LEFT JOIN demand_forecast forecast
+              ON forecast.forecast_id = risk.forecast_id
+             AND forecast.is_deleted = 0
+        ),
+        inventory_metrics AS (
+            SELECT final_selection_id,
+                   COALESCE(SUM(
+                       CASE WHEN risk_grade IN ('CRITICAL', 'WARNING') THEN total_qty ELSE 0 END
+                   ), 0) AS end_risk_stock_qty,
+                   COALESCE(SUM(
+                       CASE
+                           WHEN effective_stop_date IS NULL THEN 0
+                           WHEN effective_stop_date &lt;= planned_end_date THEN on_hand_qty
+                           WHEN effective_stop_date &lt;= planned_end_date + 7
+                               THEN GREATEST(on_hand_qty - COALESCE(predicted_qty_d7, 0), 0)
+                           WHEN effective_stop_date &lt;= planned_end_date + 14
+                               THEN GREATEST(on_hand_qty - COALESCE(predicted_qty_d14, 0), 0)
+                           WHEN effective_stop_date &lt;= planned_end_date + 30
+                               THEN GREATEST(on_hand_qty - COALESCE(predicted_qty_d30, 0), 0)
+                           WHEN effective_stop_date &lt;= planned_end_date + 60
+                               THEN GREATEST(on_hand_qty - COALESCE(predicted_qty_d60, 0), 0)
+                           WHEN effective_stop_date &lt;= planned_end_date + 90
+                               THEN GREATEST(on_hand_qty - COALESCE(predicted_qty_d90, 0), 0)
+                           ELSE 0
+                       END
+                   ), 0) AS end_expected_disposal_qty
+            FROM scoped_inventory
+            GROUP BY final_selection_id
+        ),
+        actual_sales AS (
+            SELECT pending.final_selection_id,
+                   GREATEST(COALESCE(SUM(sales.net_sales_qty), 0), 0) AS goal_actual_value
+            FROM pending
+            LEFT JOIN sales_daily sales
+              ON sales.sku_id = pending.sku_id
+             AND sales.is_deleted = 0
+             AND sales.sales_date BETWEEN pending.planned_start_date AND pending.planned_end_date
+             AND (
+                 EXISTS (
+                     SELECT 1 FROM strategy_inventory_snapshot snapshot
+                     WHERE snapshot.strategy_case_id = pending.strategy_case_id
+                       AND snapshot.sales_point_id = sales.sales_point_id
+                       AND snapshot.is_deleted = 0
+                 )
+                 OR EXISTS (
+                     SELECT 1 FROM strategy_action action
+                     WHERE action.strategy_option_id = pending.strategy_option_id
+                       AND action.is_deleted = 0
+                       AND sales.sales_point_id IN (action.source_sales_point_id, action.target_sales_point_id)
+                 )
+             )
+            GROUP BY pending.final_selection_id
+        )
+        SELECT pending.final_selection_id,
+               pending.owner_user_id,
+               pending.inventory_sync_run_id AS finalized_sync_run_id,
+               pending.goal_target_value,
+               COALESCE(actual_sales.goal_actual_value, 0) AS goal_actual_value,
+               pending.start_risk_stock_qty,
+               COALESCE(inventory_metrics.end_risk_stock_qty, 0) AS end_risk_stock_qty,
+               pending.start_expected_disposal_qty,
+               COALESCE(inventory_metrics.end_expected_disposal_qty, 0) AS end_expected_disposal_qty,
+               pending.start_unit_cost
+        FROM pending
+        LEFT JOIN actual_sales
+          ON actual_sales.final_selection_id = pending.final_selection_id
+        LEFT JOIN inventory_metrics
+          ON inventory_metrics.final_selection_id = pending.final_selection_id
+        ORDER BY pending.final_selection_id
+    </select>
+
+    <update id="completeExecutionResult">
+        UPDATE strategy_execution_result
+        SET result_status = 'COMPLETED',
+            goal_actual_value = #{result.goalActualValue},
+            achievement_rate = #{achievementRate},
+            end_risk_stock_qty = #{result.endRiskStockQty},
+            end_expected_disposal_qty = #{result.endExpectedDisposalQty},
+            estimated_loss_savings_amount = #{estimatedLossSavingsAmount},
+            finalized_sync_run_id = #{result.finalizedSyncRunId},
+            failure_reason = NULL,
+            completed_at = SYSTIMESTAMP,
+            updated_at = SYSTIMESTAMP,
+            updated_by = #{result.ownerUserId}
+        WHERE final_selection_id = #{result.finalSelectionId}
+          AND result_status = 'RUNNING'
+          AND is_deleted = 0
+    </update>
+
+    <select id="selectCompletedResults"
+            resultType="com.stockit.backend.feature.statistics.vo.StrategyStatisticsResultVO">
         SELECT selection.final_selection_id,
                strategy_case.strategy_case_id,
                selection.strategy_option_id,
-               action_period.execution_end_date,
+               result.planned_end_date AS execution_end_date,
                result.achievement_rate,
                result.start_risk_stock_qty,
                result.end_risk_stock_qty,
@@ -30,15 +360,13 @@
           ON selection.final_selection_id = result.final_selection_id
          AND selection.is_deleted = 0
         JOIN strategy_case
-          ON strategy_case.strategy_case_id = selection.strategy_case_id
+         ON strategy_case.strategy_case_id = selection.strategy_case_id
          AND strategy_case.is_deleted = 0
-         AND strategy_case.case_status = 'EXECUTION_COMPLETED'
-        JOIN action_period
-          ON action_period.strategy_option_id = selection.strategy_option_id
         WHERE result.is_deleted = 0
-          AND action_period.execution_end_date BETWEEN #{fromDate,jdbcType=DATE}
-                                                   AND #{toDate,jdbcType=DATE}
-        ORDER BY action_period.execution_end_date, selection.final_selection_id
+          AND result.result_status = 'COMPLETED'
+          AND result.planned_end_date BETWEEN #{fromDate,jdbcType=DATE}
+                                          AND #{toDate,jdbcType=DATE}
+        ORDER BY result.planned_end_date, selection.final_selection_id
     </select>
 
     <select id="selectActionTypes"

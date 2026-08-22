@@ -16,6 +16,8 @@ import org.springframework.test.context.jdbc.Sql;
 import com.stockit.backend.feature.statistics.vo.StrategyStatisticsActionVO;
 import com.stockit.backend.feature.statistics.vo.StrategyStatisticsResultVO;
 import com.stockit.backend.feature.statistics.vo.StrategyStatisticsScopeVO;
+import com.stockit.backend.feature.statistics.vo.StrategyExecutionStartCandidateVO;
+import com.stockit.backend.feature.statistics.vo.StrategyExecutionDueResultVO;
 
 @SpringBootTest
 @ActiveProfiles("test")
@@ -59,5 +61,51 @@ class StrategyStatisticsMapperTest {
                 org.assertj.core.groups.Tuple.tuple("WAREHOUSE", "WH-1"),
                 org.assertj.core.groups.Tuple.tuple("OFFLINE_STORE", "STORE-1")
         );
+    }
+
+    @Test
+    void capturesTheSelectedActionPeriodAndStartBaselineOnce() {
+        List<StrategyExecutionStartCandidateVO> candidates = mapper.selectExecutionStartCandidates(
+                LocalDate.of(2026, 8, 16)
+        );
+
+        assertThat(candidates).singleElement().satisfies(candidate -> {
+            assertThat(candidate.getFinalSelectionId()).isEqualTo(5002L);
+            assertThat(candidate.getPlannedStartDate()).isEqualTo(LocalDate.of(2026, 8, 15));
+            assertThat(candidate.getPlannedEndDate()).isEqualTo(LocalDate.of(2026, 8, 22));
+            assertThat(candidate.getGoalTargetValue()).isEqualByComparingTo("80");
+            assertThat(candidate.getStartRiskStockQty()).isEqualByComparingTo("100");
+            assertThat(candidate.getStartExpectedDisposalQty()).isEqualByComparingTo("40");
+        });
+
+        assertThat(mapper.insertExecutionStartResult(candidates.get(0))).isEqualTo(1);
+        assertThat(mapper.insertExecutionStartResult(candidates.get(0))).isZero();
+    }
+
+    @Test
+    void finalizesOnlyAfterPostEndSyncAndCountsSalesInsteadOfMovedInventory() {
+        List<StrategyExecutionDueResultVO> dueResults = mapper.selectDueExecutionResults(
+                LocalDate.of(2026, 8, 12)
+        );
+
+        assertThat(dueResults).singleElement().satisfies(result -> {
+            assertThat(result.getFinalSelectionId()).isEqualTo(5003L);
+            assertThat(result.getFinalizedSyncRunId()).isEqualTo(7001L);
+            assertThat(result.getGoalActualValue()).isEqualByComparingTo("50");
+            assertThat(result.getEndRiskStockQty()).isEqualByComparingTo("40");
+            assertThat(result.getEndExpectedDisposalQty()).isEqualByComparingTo("30");
+        });
+
+        StrategyExecutionDueResultVO result = dueResults.get(0);
+        assertThat(mapper.completeExecutionResult(
+                result,
+                new java.math.BigDecimal("62.500000"),
+                java.math.BigDecimal.ZERO
+        )).isEqualTo(1);
+        assertThat(mapper.completeExecutionResult(
+                result,
+                new java.math.BigDecimal("62.500000"),
+                java.math.BigDecimal.ZERO
+        )).isZero();
     }
 }
