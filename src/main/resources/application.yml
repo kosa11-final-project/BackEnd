@@ -78,6 +78,10 @@ app:
       enabled: ${STRATEGY_STATISTICS_SCHEDULE_ENABLED:true}
       cron: ${STRATEGY_STATISTICS_SCHEDULE_CRON:0 0 4 * * *}
       zone: ${STRATEGY_STATISTICS_SCHEDULE_ZONE:Asia/Seoul}
+  statistics:
+    demo-backfill:
+      # 운영 데이터와 혼동하지 않도록 명시적으로 켠 환경에서만 API를 노출합니다.
+      enabled: ${STATISTICS_DEMO_BACKFILL_ENABLED:false}
   sales-daily-export:
     # Path 바인딩이 실패하지 않도록 Backend 프로젝트 기준의 유효한 기본 경로를 사용합니다.
     output-path: ${SALES_DAILY_EXPORT_PATH:./build/exports/sales_daily.csv}

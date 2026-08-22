@@ -547,4 +547,15 @@
                  CASE WHEN definition.scope_code = 'ALL' THEN 0 ELSE 1 END,
                  definition.scope_name
     </select>
+
+    <select id="selectNationalDailySales"
+            resultType="com.stockit.backend.feature.statistics.vo.InventoryStatisticsDailySalesVO">
+        SELECT sales_date,
+               GREATEST(COALESCE(SUM(net_sales_qty), 0), 0) AS sales_qty
+        FROM sales_daily
+        WHERE is_deleted = 0
+          AND sales_date BETWEEN #{fromDate,jdbcType=DATE} AND #{toDate,jdbcType=DATE}
+        GROUP BY sales_date
+        ORDER BY sales_date
+    </select>
 </mapper>

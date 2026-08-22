@@ -9,6 +9,14 @@ DROP TABLE IF EXISTS product;
 DROP TABLE IF EXISTS warehouse;
 DROP TABLE IF EXISTS sales_point;
 DROP TABLE IF EXISTS sales_channel;
+DROP TABLE IF EXISTS sales_daily;
+
+CREATE TABLE sales_daily (
+    sales_daily_id NUMBER PRIMARY KEY,
+    sales_date DATE NOT NULL,
+    net_sales_qty NUMBER(15,3) NOT NULL,
+    is_deleted NUMBER(1) NOT NULL
+);
 
 CREATE TABLE sales_channel (
     sales_channel_id NUMBER PRIMARY KEY,
@@ -128,4 +136,8 @@ INSERT INTO sku_cost VALUES (
 );
 INSERT INTO inventory_balance VALUES (7001, 2000, 101, NULL, 10, 3001, 50, 50, 0);
 INSERT INTO inventory_balance VALUES (7002, 2000, 102, NULL, 10, 3002, 50, 50, 0);
+INSERT INTO sales_daily VALUES (8001, DATE '2026-08-15', 10, 0);
+INSERT INTO sales_daily VALUES (8002, DATE '2026-08-15', 20, 0);
+INSERT INTO sales_daily VALUES (8003, DATE '2026-08-16', 7, 0);
+INSERT INTO sales_daily VALUES (8004, DATE '2026-08-16', 99, 1);
 

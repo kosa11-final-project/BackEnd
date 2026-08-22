@@ -39,4 +39,21 @@ class InventoryStatisticsAggregationMapperTest {
         assertThat(national.getExpectedDisposalLossAmount30d())
                 .isEqualByComparingTo(new BigDecimal("200"));
     }
+
+    @Test
+    void aggregatesOnlyActiveDailySalesForTheRequestedHistory() {
+        assertThat(mapper.selectNationalDailySales(
+                LocalDate.of(2026, 8, 15),
+                LocalDate.of(2026, 8, 16)
+        )).satisfiesExactly(
+                first -> {
+                    assertThat(first.getSalesDate()).isEqualTo(LocalDate.of(2026, 8, 15));
+                    assertThat(first.getSalesQty()).isEqualByComparingTo("30");
+                },
+                second -> {
+                    assertThat(second.getSalesDate()).isEqualTo(LocalDate.of(2026, 8, 16));
+                    assertThat(second.getSalesQty()).isEqualByComparingTo("7");
+                }
+        );
+    }
 }
