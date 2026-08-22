@@ -43,14 +43,23 @@ public class DemandForecastAzureJobPoller {
         for (DemandForecastRunVO run : mapper.selectTimedOutRuns(
                 properties.resolvedJobTimeout().toSeconds()
         )) {
+            failTimedOutRun(run);
+        }
+        for (DemandForecastRunVO run : mapper.selectAzurePollingRuns()) {
+            poll(run);
+        }
+    }
+
+    private void failTimedOutRun(DemandForecastRunVO run) {
+        try {
             runControl.fail(
                     run.getForecastRunId(),
                     "PIPELINE_TIMED_OUT",
                     "수요예측 파이프라인이 제한 시간 안에 완료되지 않았습니다."
             );
-        }
-        for (DemandForecastRunVO run : mapper.selectAzurePollingRuns()) {
-            poll(run);
+        } catch (Exception exception) {
+            log.warn("Demand forecast timeout handling failed. runId={}, azureJobId={}",
+                    run.getForecastRunId(), run.getAzureJobId(), exception);
         }
     }
 
