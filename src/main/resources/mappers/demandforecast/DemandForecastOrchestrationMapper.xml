@@ -1,0 +1,150 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.stockit.backend.feature.demandforecast.mapper.DemandForecastOrchestrationMapper">
+    <resultMap id="runResultMap" type="com.stockit.backend.feature.demandforecast.vo.DemandForecastRunVO">
+        <id property="forecastRunId" column="forecast_run_id"/>
+        <result property="clientRequestId" column="client_request_id"/>
+        <result property="scheduleKey" column="schedule_key"/>
+        <result property="triggerType" column="trigger_type"/>
+        <result property="baseDate" column="base_date"/>
+        <result property="modelVersionId" column="model_version_id"/>
+        <result property="azureJobId" column="azure_job_id"/>
+        <result property="inputBlobUrl" column="input_blob_url"/>
+        <result property="runStatus" column="run_status"/>
+        <result property="currentStage" column="current_stage"/>
+        <result property="totalBatches" column="total_batches"/>
+        <result property="totalItems" column="total_items"/>
+        <result property="receivedBatches" column="received_batches"/>
+        <result property="receivedItems" column="received_items"/>
+        <result property="exportJobExecutionId" column="export_job_execution_id"/>
+        <result property="startedAt" column="started_at"/>
+        <result property="completedAt" column="completed_at"/>
+        <result property="createdBy" column="created_by"/>
+        <result property="updatedBy" column="updated_by"/>
+    </resultMap>
+
+    <select id="selectSystemUserId" resultType="long">
+        SELECT user_id
+        FROM app_user
+        WHERE login_id = '__system__'
+          AND active_yn = 'Y'
+          AND is_deleted = 0
+        FETCH FIRST 1 ROW ONLY
+    </select>
+
+    <insert id="insertScheduledRun">
+        INSERT INTO demand_forecast_run (
+            client_request_id,
+            schedule_key,
+            trigger_type,
+            base_date,
+            run_status,
+            current_stage,
+            started_at,
+            created_at,
+            updated_at,
+            created_by,
+            updated_by,
+            is_deleted
+        ) VALUES (
+            #{clientRequestId},
+            #{scheduleKey},
+            'SCHEDULED',
+            #{baseDate},
+            'RUNNING',
+            'EXPORTING',
+            SYSTIMESTAMP,
+            SYSTIMESTAMP,
+            SYSTIMESTAMP,
+            #{userId},
+            #{userId},
+            0
+        )
+    </insert>
+
+    <select id="selectByClientRequestId" resultMap="runResultMap">
+        SELECT *
+        FROM demand_forecast_run
+        WHERE client_request_id = #{clientRequestId}
+          AND is_deleted = 0
+    </select>
+
+    <select id="selectAzurePollingRuns" resultMap="runResultMap">
+        SELECT *
+        FROM demand_forecast_run
+        WHERE run_status = 'RUNNING'
+          AND current_stage = 'AZURE_POLLING'
+          AND is_deleted = 0
+        ORDER BY forecast_run_id
+    </select>
+
+    <select id="selectTimedOutRuns" resultMap="runResultMap">
+        SELECT *
+        FROM demand_forecast_run
+        WHERE run_status = 'RUNNING'
+          AND started_at &lt; CAST(SYSTIMESTAMP AS TIMESTAMP)
+              - NUMTODSINTERVAL(#{timeoutSeconds}, 'SECOND')
+          AND is_deleted = 0
+        ORDER BY forecast_run_id
+    </select>
+
+    <update id="markExportCompleted">
+        UPDATE demand_forecast_run
+        SET export_job_execution_id = #{jobExecutionId},
+            input_blob_url = #{blobUrl},
+            current_stage = 'AZURE_SUBMITTING',
+            updated_at = SYSTIMESTAMP,
+            updated_by = #{userId}
+        WHERE forecast_run_id = #{runId}
+          AND run_status = 'RUNNING'
+          AND current_stage IN ('EXPORTING', 'UPLOADING')
+    </update>
+
+    <update id="markAzureSubmitted">
+        UPDATE demand_forecast_run
+        SET azure_job_id = #{azureJobId},
+            submitted_at = SYSTIMESTAMP,
+            last_polled_at = SYSTIMESTAMP,
+            current_stage = 'AZURE_POLLING',
+            updated_at = SYSTIMESTAMP,
+            updated_by = #{userId}
+        WHERE forecast_run_id = #{runId}
+          AND run_status = 'RUNNING'
+          AND current_stage = 'AZURE_SUBMITTING'
+    </update>
+
+    <update id="touchAzurePolling">
+        UPDATE demand_forecast_run
+        SET last_polled_at = SYSTIMESTAMP,
+            updated_at = SYSTIMESTAMP,
+            updated_by = #{userId}
+        WHERE forecast_run_id = #{runId}
+          AND run_status = 'RUNNING'
+          AND current_stage = 'AZURE_POLLING'
+    </update>
+
+    <update id="markImportRequested">
+        UPDATE demand_forecast_run
+        SET current_stage = 'IMPORT_REQUESTING',
+            import_requested_at = SYSTIMESTAMP,
+            updated_at = SYSTIMESTAMP,
+            updated_by = #{userId}
+        WHERE forecast_run_id = #{runId}
+          AND run_status = 'RUNNING'
+          AND current_stage = 'AZURE_POLLING'
+    </update>
+
+    <update id="markFailed">
+        UPDATE demand_forecast_run
+        SET run_status = 'FAILED',
+            current_stage = NULL,
+            error_code = #{errorCode},
+            error_message = #{errorMessage},
+            completed_at = SYSTIMESTAMP,
+            updated_at = SYSTIMESTAMP,
+            updated_by = #{userId}
+        WHERE forecast_run_id = #{runId}
+          AND run_status = 'RUNNING'
+    </update>
+</mapper>

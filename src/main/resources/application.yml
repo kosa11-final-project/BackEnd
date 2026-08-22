@@ -80,6 +80,20 @@ app:
       account-url: ${AZURE_STORAGE_ACCOUNT_URL:}
       container-name: ${AZURE_STORAGE_CONTAINER:}
       blob-prefix: ${AZURE_STORAGE_BLOB_PREFIX:sales-daily}
+  demand-forecast:
+    orchestration:
+      enabled: ${DEMAND_FORECAST_ORCHESTRATION_ENABLED:false}
+      cron: ${DEMAND_FORECAST_ORCHESTRATION_CRON:0 0 1 * * *}
+      zone: ${DEMAND_FORECAST_ORCHESTRATION_ZONE:Asia/Seoul}
+      poll-interval: ${DEMAND_FORECAST_POLL_INTERVAL:30s}
+      fast-api-base-url: ${DEMAND_FORECAST_FASTAPI_BASE_URL:}
+      fast-api-key: ${DEMAND_FORECAST_FASTAPI_KEY:}
+      submit-path: ${DEMAND_FORECAST_SUBMIT_PATH:/api/v1/demand-forecasts/jobs}
+      status-path: ${DEMAND_FORECAST_STATUS_PATH:/api/v1/demand-forecasts/jobs/{azureJobId}}
+      import-path: ${DEMAND_FORECAST_IMPORT_PATH:/api/v1/demand-forecasts/jobs/{azureJobId}/import}
+      connect-timeout: ${DEMAND_FORECAST_CONNECT_TIMEOUT:3s}
+      read-timeout: ${DEMAND_FORECAST_READ_TIMEOUT:30s}
+      job-timeout: ${DEMAND_FORECAST_JOB_TIMEOUT:2h}
   ai-strategy:
     messaging:
       enabled: ${AI_STRATEGY_MESSAGING_ENABLED:true}
