@@ -69,9 +69,13 @@ public record DemandForecastImportRequest(
     @JsonIgnore
     @AssertTrue(message = "전체 예측 건수는 배치 수와 배치당 최대 1,000건 범위에 맞아야 합니다.")
     public boolean isValidTotalItemRange() {
-        if (totalBatches == null || totalItems == null) {
+        if (totalBatches == null || totalItems == null || forecasts == null) {
             return true;
         }
-        return totalItems >= totalBatches && totalItems <= (long) totalBatches * 1000L;
+
+        long remainingBatches = totalBatches - 1L;
+        long minimumTotalItems = forecasts.size() + remainingBatches;
+        long maximumTotalItems = forecasts.size() + remainingBatches * 1000L;
+        return totalItems >= minimumTotalItems && totalItems <= maximumTotalItems;
     }
 }
