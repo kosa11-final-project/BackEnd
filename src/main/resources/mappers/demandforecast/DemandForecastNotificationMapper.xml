@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.stockit.backend.feature.demandforecast.mapper.DemandForecastNotificationMapper">
+    <select id="selectSystemUserId" resultType="long">
+        SELECT user_id
+        FROM app_user
+        WHERE login_id = '__system__'
+          AND active_yn = 'Y'
+          AND is_deleted = 0
+        FETCH FIRST 1 ROW ONLY
+    </select>
+
+    <insert id="insertAdminNotifications">
+        INSERT INTO notification (
+            user_id,
+            strategy_case_id,
+            forecast_run_id,
+            notification_type,
+            severity,
+            title,
+            message,
+            deduplication_key,
+            read_yn,
+            created_at,
+            updated_at,
+            created_by,
+            updated_by,
+            is_deleted
+        )
+        SELECT users.user_id,
+               NULL,
+               #{runId},
+               #{notificationType},
+               #{severity},
+               #{title},
+               #{message},
+               #{deduplicationKey},
+               'N',
+               SYSTIMESTAMP,
+               SYSTIMESTAMP,
+               #{systemUserId},
+               #{systemUserId},
+               0
+        FROM (
+            SELECT DISTINCT app_user.user_id
+            FROM app_user
+            INNER JOIN user_role
+                    ON user_role.user_id = app_user.user_id
+                   AND user_role.is_deleted = 0
+            INNER JOIN app_role
+                    ON app_role.role_id = user_role.role_id
+                   AND app_role.role_code IN ('GREENFOOD_ADMIN', 'BRANCH_MANAGER')
+                   AND app_role.is_deleted = 0
+            WHERE app_user.active_yn = 'Y'
+              AND app_user.is_deleted = 0
+        ) users
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM notification existing
+            WHERE existing.user_id = users.user_id
+              AND existing.deduplication_key = #{deduplicationKey}
+        )
+    </insert>
+</mapper>
