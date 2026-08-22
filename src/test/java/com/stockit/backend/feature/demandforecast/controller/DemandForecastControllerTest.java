@@ -62,7 +62,12 @@ class DemandForecastControllerTest {
                         LocalDate.of(2026, 7, 31),
                         1,
                         10,
-                        1
+                        10L,
+                        1,
+                        1,
+                        1L,
+                        false,
+                        "RUNNING"
                 ));
 
         mockMvc.perform(post("/api/v1/demand-forecasts/import")
@@ -74,6 +79,35 @@ class DemandForecastControllerTest {
                 .andExpect(jsonPath("$.data.modelVersionId").value(7))
                 .andExpect(jsonPath("$.data.importedCount").value(1))
                 .andExpect(jsonPath("$.timestamp").exists());
+    }
+
+    @Test
+    void acceptsExistingFastApiPayloadWithoutTotalItems() throws Exception {
+        when(demandForecastService.importForecasts(any(DemandForecastImportRequest.class), eq(99L)))
+                .thenReturn(new DemandForecastImportResponse(
+                        "purple_monkey_gyk4m5yyxr",
+                        "stockit-demand-lightgbm",
+                        "1",
+                        7L,
+                        LocalDate.of(2026, 7, 31),
+                        1,
+                        1,
+                        null,
+                        1,
+                        1,
+                        1L,
+                        false,
+                        "SUCCEEDED"
+                ));
+
+        mockMvc.perform(post("/api/v1/demand-forecasts/import")
+                        .header(INTERNAL_API_KEY_HEADER, API_KEY)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(validRequestBody()
+                                .replace("\"totalBatches\": 10", "\"totalBatches\": 1")
+                                .replace("                  \"totalItems\": 10,\n", "")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.runStatus").value("SUCCEEDED"));
     }
 
     @Test
@@ -190,6 +224,7 @@ class DemandForecastControllerTest {
                   "forecastBaseDate": "2026-07-31",
                   "batchNumber": 1,
                   "totalBatches": 10,
+                  "totalItems": 10,
                   "forecasts": [{
                     "skuId": 101,
                     "salesPointId": 10,

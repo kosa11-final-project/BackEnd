@@ -8,6 +8,8 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
 import com.stockit.backend.feature.demandforecast.vo.DemandForecastVO;
+import com.stockit.backend.feature.demandforecast.vo.DemandForecastRunVO;
+import com.stockit.backend.feature.demandforecast.vo.DemandForecastStagingVO;
 
 /**
  * 수요예측 데이터베이스 매퍼 인터페이스입니다.
@@ -50,6 +52,60 @@ public interface DemandForecastMapper {
      * @return 처리된 행 수
      */
     int mergeDemandForecasts(@Param("forecasts") List<DemandForecastVO> forecasts);
+
+    /** Azure Job ID에 해당하는 실행을 잠가 동시 배치 수신을 직렬화합니다. */
+    DemandForecastRunVO selectRunByAzureJobIdForUpdate(@Param("azureJobId") String azureJobId);
+
+    /** 최초 배치가 전달한 모델·건수 manifest를 실행에 고정합니다. */
+    int initializeImportManifest(
+            @Param("runId") Long runId,
+            @Param("modelVersionId") Long modelVersionId,
+            @Param("baseDate") LocalDate baseDate,
+            @Param("totalBatches") Integer totalBatches,
+            @Param("totalItems") Long totalItems,
+            @Param("userId") Long userId
+    );
+
+    String selectBatchPayloadHash(
+            @Param("runId") Long runId,
+            @Param("batchNumber") Integer batchNumber
+    );
+
+    int insertStagingForecasts(@Param("forecasts") List<DemandForecastStagingVO> forecasts);
+
+    int insertImportBatch(
+            @Param("runId") Long runId,
+            @Param("batchNumber") Integer batchNumber,
+            @Param("itemCount") int itemCount,
+            @Param("payloadHash") String payloadHash,
+            @Param("userId") Long userId
+    );
+
+    int countReceivedBatches(@Param("runId") Long runId);
+
+    long sumReceivedItems(@Param("runId") Long runId);
+
+    int countStagingForecasts(@Param("runId") Long runId);
+
+    int updateImportProgress(
+            @Param("runId") Long runId,
+            @Param("receivedBatches") int receivedBatches,
+            @Param("receivedItems") long receivedItems,
+            @Param("totalItems") Long totalItems,
+            @Param("userId") Long userId
+    );
+
+    int softDeleteObsoleteForecasts(
+            @Param("runId") Long runId,
+            @Param("userId") Long userId
+    );
+
+    int mergeStagingForecasts(
+            @Param("runId") Long runId,
+            @Param("userId") Long userId
+    );
+
+    int markRunSucceeded(@Param("runId") Long runId, @Param("userId") Long userId);
 
     /**
      * SKU 코드와 판매처 코드로 가장 최근의 수요예측 단건을 조회합니다.

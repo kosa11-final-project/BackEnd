@@ -21,14 +21,28 @@ public record DemandForecastImportResponse(
         Integer batchNumber,
         @Schema(description = "전체 배치 수", example = "10")
         Integer totalBatches,
-        @Schema(description = "해당 요청에서 처리한 예측 건수", example = "1000")
-        int importedCount
+        @Schema(description = "전체 예측 데이터 건수", example = "9842")
+        Long totalItems,
+        @Schema(description = "해당 요청에서 수신한 예측 건수", example = "1000")
+        int importedCount,
+        @Schema(description = "현재까지 수신한 고유 배치 수", example = "1")
+        int receivedBatches,
+        @Schema(description = "현재까지 수신한 예측 건수", example = "1000")
+        long receivedItems,
+        @Schema(description = "동일 내용의 재전송 여부", example = "false")
+        boolean duplicate,
+        @Schema(description = "전체 실행 상태", example = "RUNNING")
+        String runStatus
 ) {
 
     public static DemandForecastImportResponse from(
             DemandForecastImportRequest request,
             Long modelVersionId,
-            int importedCount
+            int importedCount,
+            int receivedBatches,
+            long receivedItems,
+            boolean duplicate,
+            String runStatus
     ) {
         return new DemandForecastImportResponse(
                 request.azureJobId(),
@@ -38,7 +52,12 @@ public record DemandForecastImportResponse(
                 request.forecastBaseDate(),
                 request.batchNumber(),
                 request.totalBatches(),
-                importedCount
+                request.totalItems(),
+                importedCount,
+                receivedBatches,
+                receivedItems,
+                duplicate,
+                runStatus
         );
     }
 }
