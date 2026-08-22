@@ -70,7 +70,14 @@ class InventoryStatisticsServiceImplTest {
                     assertThat(location.criticalStockRatio()).isEqualByComparingTo("10.0000");
                 });
         assertThat(response.dailyTrend()).singleElement()
-                .satisfies(point -> assertThat(point.criticalStockQty()).isEqualByComparingTo("30"));
+                .satisfies(point -> {
+                    assertThat(point.totalStockQty()).isEqualByComparingTo("300");
+                    assertThat(point.criticalStockQty()).isEqualByComparingTo("30");
+                    assertThat(point.warningStockQty()).isZero();
+                    assertThat(point.riskStockQty()).isEqualByComparingTo("30");
+                    assertThat(point.riskStockRatio()).isEqualByComparingTo("10.0000");
+                    assertThat(point.riskSkuCount()).isEqualTo(3);
+                });
     }
 
     private StatisticsSnapshotVO snapshot(

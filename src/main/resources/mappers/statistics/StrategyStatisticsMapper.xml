@@ -1,0 +1,198 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.stockit.backend.feature.statistics.mapper.StrategyStatisticsMapper">
+
+    <select id="selectCompletedResults"
+            resultType="com.stockit.backend.feature.statistics.vo.StrategyStatisticsResultVO">
+        WITH action_period AS (
+            SELECT strategy_option_id,
+                   MAX(end_date) AS execution_end_date
+            FROM strategy_action
+            WHERE is_deleted = 0
+              AND start_date IS NOT NULL
+              AND end_date IS NOT NULL
+            GROUP BY strategy_option_id
+        )
+        SELECT selection.final_selection_id,
+               strategy_case.strategy_case_id,
+               selection.strategy_option_id,
+               action_period.execution_end_date,
+               result.achievement_rate,
+               result.start_risk_stock_qty,
+               result.end_risk_stock_qty,
+               result.start_expected_disposal_qty,
+               result.end_expected_disposal_qty,
+               result.estimated_loss_savings_amount
+        FROM strategy_execution_result result
+        JOIN final_strategy_selection selection
+          ON selection.final_selection_id = result.final_selection_id
+         AND selection.is_deleted = 0
+        JOIN strategy_case
+          ON strategy_case.strategy_case_id = selection.strategy_case_id
+         AND strategy_case.is_deleted = 0
+         AND strategy_case.case_status = 'EXECUTION_COMPLETED'
+        JOIN action_period
+          ON action_period.strategy_option_id = selection.strategy_option_id
+        WHERE result.is_deleted = 0
+          AND action_period.execution_end_date BETWEEN #{fromDate,jdbcType=DATE}
+                                                   AND #{toDate,jdbcType=DATE}
+        ORDER BY action_period.execution_end_date, selection.final_selection_id
+    </select>
+
+    <select id="selectActionTypes"
+            resultType="com.stockit.backend.feature.statistics.vo.StrategyStatisticsActionVO">
+        SELECT DISTINCT strategy_option_id,
+                        action_type
+        FROM strategy_action
+        WHERE is_deleted = 0
+          AND strategy_option_id IN
+        <foreach collection="strategyOptionIds" item="strategyOptionId" open="(" separator="," close=")">
+            #{strategyOptionId}
+        </foreach>
+        ORDER BY strategy_option_id, action_type
+    </select>
+
+    <select id="selectResultScopes"
+            resultType="com.stockit.backend.feature.statistics.vo.StrategyStatisticsScopeVO">
+        SELECT DISTINCT scopes.final_selection_id,
+                        scopes.scope_type,
+                        scopes.scope_code
+        FROM (
+            SELECT selection.final_selection_id,
+                   'WAREHOUSE' AS scope_type,
+                   source_warehouse.warehouse_code AS scope_code
+            FROM final_strategy_selection selection
+            JOIN strategy_action action
+              ON action.strategy_option_id = selection.strategy_option_id
+             AND action.is_deleted = 0
+            JOIN warehouse source_warehouse
+              ON source_warehouse.warehouse_id = action.source_warehouse_id
+             AND source_warehouse.active_yn = 'Y'
+             AND source_warehouse.is_deleted = 0
+            WHERE selection.final_selection_id IN
+            <foreach collection="finalSelectionIds" item="finalSelectionId" open="(" separator="," close=")">
+                #{finalSelectionId}
+            </foreach>
+
+            UNION ALL
+
+            SELECT selection.final_selection_id,
+                   'WAREHOUSE',
+                   destination_warehouse.warehouse_code
+            FROM final_strategy_selection selection
+            JOIN strategy_action action
+              ON action.strategy_option_id = selection.strategy_option_id
+             AND action.is_deleted = 0
+            JOIN warehouse destination_warehouse
+              ON destination_warehouse.warehouse_id = action.destination_warehouse_id
+             AND destination_warehouse.active_yn = 'Y'
+             AND destination_warehouse.is_deleted = 0
+            WHERE selection.final_selection_id IN
+            <foreach collection="finalSelectionIds" item="finalSelectionId" open="(" separator="," close=")">
+                #{finalSelectionId}
+            </foreach>
+
+            UNION ALL
+
+            SELECT selection.final_selection_id,
+                   'WAREHOUSE',
+                   snapshot_warehouse.warehouse_code
+            FROM final_strategy_selection selection
+            JOIN strategy_inventory_snapshot snapshot
+              ON snapshot.strategy_case_id = selection.strategy_case_id
+             AND snapshot.sales_point_id IS NULL
+             AND snapshot.is_deleted = 0
+            JOIN warehouse snapshot_warehouse
+              ON snapshot_warehouse.warehouse_id = snapshot.warehouse_id
+             AND snapshot_warehouse.active_yn = 'Y'
+             AND snapshot_warehouse.is_deleted = 0
+            WHERE selection.final_selection_id IN
+            <foreach collection="finalSelectionIds" item="finalSelectionId" open="(" separator="," close=")">
+                #{finalSelectionId}
+            </foreach>
+
+            UNION ALL
+
+            SELECT selection.final_selection_id,
+                   CASE source_channel.channel_type
+                       WHEN 'OFFLINE' THEN 'OFFLINE_STORE'
+                       ELSE 'ONLINE_STORE'
+                   END,
+                   source_point.sales_point_code
+            FROM final_strategy_selection selection
+            JOIN strategy_action action
+              ON action.strategy_option_id = selection.strategy_option_id
+             AND action.is_deleted = 0
+            JOIN sales_point source_point
+              ON source_point.sales_point_id = action.source_sales_point_id
+             AND source_point.active_yn = 'Y'
+             AND source_point.is_deleted = 0
+            JOIN sales_channel source_channel
+              ON source_channel.sales_channel_id = source_point.sales_channel_id
+             AND source_channel.channel_type IN ('OFFLINE', 'ONLINE')
+             AND source_channel.active_yn = 'Y'
+             AND source_channel.is_deleted = 0
+            WHERE selection.final_selection_id IN
+            <foreach collection="finalSelectionIds" item="finalSelectionId" open="(" separator="," close=")">
+                #{finalSelectionId}
+            </foreach>
+
+            UNION ALL
+
+            SELECT selection.final_selection_id,
+                   CASE target_channel.channel_type
+                       WHEN 'OFFLINE' THEN 'OFFLINE_STORE'
+                       ELSE 'ONLINE_STORE'
+                   END,
+                   target_point.sales_point_code
+            FROM final_strategy_selection selection
+            JOIN strategy_action action
+              ON action.strategy_option_id = selection.strategy_option_id
+             AND action.is_deleted = 0
+            JOIN sales_point target_point
+              ON target_point.sales_point_id = action.target_sales_point_id
+             AND target_point.active_yn = 'Y'
+             AND target_point.is_deleted = 0
+            JOIN sales_channel target_channel
+              ON target_channel.sales_channel_id = target_point.sales_channel_id
+             AND target_channel.channel_type IN ('OFFLINE', 'ONLINE')
+             AND target_channel.active_yn = 'Y'
+             AND target_channel.is_deleted = 0
+            WHERE selection.final_selection_id IN
+            <foreach collection="finalSelectionIds" item="finalSelectionId" open="(" separator="," close=")">
+                #{finalSelectionId}
+            </foreach>
+
+            UNION ALL
+
+            SELECT selection.final_selection_id,
+                   CASE snapshot_channel.channel_type
+                       WHEN 'OFFLINE' THEN 'OFFLINE_STORE'
+                       ELSE 'ONLINE_STORE'
+                   END,
+                   snapshot_point.sales_point_code
+            FROM final_strategy_selection selection
+            JOIN strategy_inventory_snapshot snapshot
+              ON snapshot.strategy_case_id = selection.strategy_case_id
+             AND snapshot.sales_point_id IS NOT NULL
+             AND snapshot.is_deleted = 0
+            JOIN sales_point snapshot_point
+              ON snapshot_point.sales_point_id = snapshot.sales_point_id
+             AND snapshot_point.active_yn = 'Y'
+             AND snapshot_point.is_deleted = 0
+            JOIN sales_channel snapshot_channel
+              ON snapshot_channel.sales_channel_id = snapshot_point.sales_channel_id
+             AND snapshot_channel.channel_type IN ('OFFLINE', 'ONLINE')
+             AND snapshot_channel.active_yn = 'Y'
+             AND snapshot_channel.is_deleted = 0
+            WHERE selection.final_selection_id IN
+            <foreach collection="finalSelectionIds" item="finalSelectionId" open="(" separator="," close=")">
+                #{finalSelectionId}
+            </foreach>
+        ) scopes
+        ORDER BY scopes.final_selection_id, scopes.scope_type, scopes.scope_code
+    </select>
+
+</mapper>
