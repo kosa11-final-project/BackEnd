@@ -51,6 +51,7 @@ public enum ErrorCode {
     DEMAND_FORECAST_MODEL_NOT_FOUND(HttpStatus.NOT_FOUND, "요청한 수요예측 모델 버전을 찾을 수 없습니다.", "DEMAND_FORECAST-002"),
     DEMAND_FORECAST_SKU_NOT_FOUND(HttpStatus.NOT_FOUND, "존재하지 않는 SKU가 포함되어 있습니다.", "DEMAND_FORECAST-003"),
     DEMAND_FORECAST_SALES_POINT_NOT_FOUND(HttpStatus.NOT_FOUND, "존재하지 않는 판매처가 포함되어 있습니다.", "DEMAND_FORECAST-004"),
+    DEMAND_FORECAST_RUN_NOT_FOUND(HttpStatus.NOT_FOUND, "수요예측 실행 정보를 찾을 수 없습니다.", "DEMAND_FORECAST-006"),
 
     // DASHBOARD
     DASHBOARD_SNAPSHOT_NOT_FOUND(HttpStatus.NOT_FOUND, "완료된 대시보드 집계 데이터를 찾을 수 없습니다.", "DASHBOARD-001"),
@@ -80,6 +81,8 @@ public enum ErrorCode {
 
     // DEMAND_FORECAST
     DEMAND_FORECAST_DUPLICATE_TARGET(HttpStatus.CONFLICT, "요청 내 SKU와 판매처 조합이 중복되었습니다.", "DEMAND_FORECAST-005"),
+    DEMAND_FORECAST_BATCH_CONFLICT(HttpStatus.CONFLICT, "이미 수신한 배치의 내용과 요청이 일치하지 않습니다.", "DEMAND_FORECAST-007"),
+    DEMAND_FORECAST_RUN_CONFLICT(HttpStatus.CONFLICT, "수요예측 실행 상태 또는 배치 정보가 요청과 일치하지 않습니다.", "DEMAND_FORECAST-008"),
 
     // AI STRATEGY
     AI_STRATEGY_DUPLICATE_INPUT(HttpStatus.CONFLICT, "AI 전략 생성 요청에 중복된 값이 포함되어 있습니다.", "AI_STRATEGY-002"),

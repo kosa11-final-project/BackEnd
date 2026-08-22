@@ -62,7 +62,12 @@ class DemandForecastControllerTest {
                         LocalDate.of(2026, 7, 31),
                         1,
                         10,
-                        1
+                        10L,
+                        1,
+                        1,
+                        1L,
+                        false,
+                        "RUNNING"
                 ));
 
         mockMvc.perform(post("/api/v1/demand-forecasts/import")
@@ -74,6 +79,35 @@ class DemandForecastControllerTest {
                 .andExpect(jsonPath("$.data.modelVersionId").value(7))
                 .andExpect(jsonPath("$.data.importedCount").value(1))
                 .andExpect(jsonPath("$.timestamp").exists());
+    }
+
+    @Test
+    void acceptsExistingFastApiPayloadWithoutTotalItems() throws Exception {
+        when(demandForecastService.importForecasts(any(DemandForecastImportRequest.class), eq(99L)))
+                .thenReturn(new DemandForecastImportResponse(
+                        "purple_monkey_gyk4m5yyxr",
+                        "stockit-demand-lightgbm",
+                        "1",
+                        7L,
+                        LocalDate.of(2026, 7, 31),
+                        1,
+                        1,
+                        null,
+                        1,
+                        1,
+                        1L,
+                        false,
+                        "SUCCEEDED"
+                ));
+
+        mockMvc.perform(post("/api/v1/demand-forecasts/import")
+                        .header(INTERNAL_API_KEY_HEADER, API_KEY)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(validRequestBody()
+                                .replace("\"totalBatches\": 10", "\"totalBatches\": 1")
+                                .replace("  \"totalItems\": 10,\n", "")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.runStatus").value("SUCCEEDED"));
     }
 
     @Test
@@ -109,6 +143,30 @@ class DemandForecastControllerTest {
                 .andExpect(jsonPath("$.code").value("COMMON-002"))
                 .andExpect(jsonPath("$.fieldErrors[0].message")
                         .value("배치 번호는 전체 배치 수보다 클 수 없습니다."));
+    }
+
+    @Test
+    void rejectsTotalItemsBelowRangeIncludingCurrentBatchSize() throws Exception {
+        mockMvc.perform(post("/api/v1/demand-forecasts/import")
+                        .header(INTERNAL_API_KEY_HEADER, API_KEY)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(validRequestBodyWithTwoForecasts()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON-002"))
+                .andExpect(jsonPath("$.fieldErrors[0].message")
+                        .value("전체 예측 건수는 배치 수와 배치당 최대 1,000건 범위에 맞아야 합니다."));
+    }
+
+    @Test
+    void rejectsTotalItemsAboveRangeIncludingCurrentBatchSize() throws Exception {
+        mockMvc.perform(post("/api/v1/demand-forecasts/import")
+                        .header(INTERNAL_API_KEY_HEADER, API_KEY)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(validRequestBody().replace("\"totalItems\": 10", "\"totalItems\": 9002")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON-002"))
+                .andExpect(jsonPath("$.fieldErrors[0].message")
+                        .value("전체 예측 건수는 배치 수와 배치당 최대 1,000건 범위에 맞아야 합니다."));
     }
 
     @Test
@@ -190,6 +248,7 @@ class DemandForecastControllerTest {
                   "forecastBaseDate": "2026-07-31",
                   "batchNumber": 1,
                   "totalBatches": 10,
+                  "totalItems": 10,
                   "forecasts": [{
                     "skuId": 101,
                     "salesPointId": 10,
@@ -203,5 +262,24 @@ class DemandForecastControllerTest {
                   }]
                 }
                 """;
+    }
+
+    private static String validRequestBodyWithTwoForecasts() {
+        return validRequestBody().replace(
+                "\"forecasts\": [{",
+                """
+                "forecasts": [{
+                    "skuId": 102,
+                    "salesPointId": 10,
+                    "predictedQtyD7": 12.3,
+                    "predictedQtyD14": 24.8,
+                    "predictedQtyD30": 51.2,
+                    "predictedQtyD60": 103.7,
+                    "predictedQtyD90": 157.1,
+                    "forecastSource": "LIGHTGBM",
+                    "confidenceLevel": "HIGH"
+                  }, {
+                """
+        );
     }
 }

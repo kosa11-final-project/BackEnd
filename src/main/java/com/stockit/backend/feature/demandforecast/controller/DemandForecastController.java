@@ -57,6 +57,7 @@ public class DemandForecastController {
               "forecastBaseDate": "2026-07-31",
               "batchNumber": 1,
               "totalBatches": 10,
+              "totalItems": 9842,
               "forecasts": [
                 {
                   "skuId": 101,
@@ -77,10 +78,15 @@ public class DemandForecastController {
             {
               "data": {
                 "forecastBaseDate": "2026-07-31",
-                "processedCount": 1,
+                "importedCount": 1,
                 "batchNumber": 1,
                 "totalBatches": 10,
-                "modelVersion": "1"
+                "totalItems": 9842,
+                "modelVersion": "1",
+                "receivedBatches": 1,
+                "receivedItems": 1000,
+                "duplicate": false,
+                "runStatus": "RUNNING"
               },
               "timestamp": "2026-08-15T13:00:00Z"
             }
@@ -109,8 +115,9 @@ public class DemandForecastController {
             description = """
                     위험등급 판정에 사용하는 D7·D14·D30·D60·D90 누적 수요예측을 적재합니다.
                     FastAPI가 Azure ML의 demand_forecast.csv를 파싱한 뒤 전달한 예측 결과를 사용합니다.
-                    요청 하나는 최대 1,000건이며, 모델·SKU·판매처와 예측값을 검증한 후 배치 전체를
-                    단일 트랜잭션으로 DEMAND_FORECAST에 MERGE합니다.
+                    요청 하나는 최대 1,000건이며 모델·SKU·판매처와 예측값을 검증한 후 staging에
+                    저장합니다. 전체 배치를 수신하고 건수 검증을 통과한 경우에만 DEMAND_FORECAST에
+                    단일 트랜잭션으로 MERGE하여 기존 조회에 부분 결과가 노출되지 않게 합니다.
                     """,
             security = @SecurityRequirement(name = "internalApiKey")
     )

@@ -45,6 +45,11 @@ public record DemandForecastImportRequest(
         @Min(value = 1, message = "전체 배치 수는 1 이상이어야 합니다.")
         Integer totalBatches,
 
+        @Schema(description = "전체 예측 데이터 건수(생략 시 마지막 배치에서 실제 수신 건수로 확정)",
+                example = "9842", minimum = "1")
+        @Min(value = 1, message = "전체 예측 데이터 건수는 1 이상이어야 합니다.")
+        Long totalItems,
+
         @ArraySchema(
                 schema = @Schema(implementation = DemandForecastImportItemRequest.class),
                 minItems = 1,
@@ -59,5 +64,18 @@ public record DemandForecastImportRequest(
     @AssertTrue(message = "배치 번호는 전체 배치 수보다 클 수 없습니다.")
     public boolean isValidBatchRange() {
         return batchNumber == null || totalBatches == null || batchNumber <= totalBatches;
+    }
+
+    @JsonIgnore
+    @AssertTrue(message = "전체 예측 건수는 배치 수와 배치당 최대 1,000건 범위에 맞아야 합니다.")
+    public boolean isValidTotalItemRange() {
+        if (totalBatches == null || totalItems == null || forecasts == null) {
+            return true;
+        }
+
+        long remainingBatches = totalBatches - 1L;
+        long minimumTotalItems = forecasts.size() + remainingBatches;
+        long maximumTotalItems = forecasts.size() + remainingBatches * 1000L;
+        return totalItems >= minimumTotalItems && totalItems <= maximumTotalItems;
     }
 }
