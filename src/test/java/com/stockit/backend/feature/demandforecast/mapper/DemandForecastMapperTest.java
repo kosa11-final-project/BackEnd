@@ -81,7 +81,7 @@ class DemandForecastMapperTest {
                 501L, 7L, LocalDate.of(2026, 7, 31), 1, 1L, 99L
         )).isEqualTo(1);
 
-        DemandForecastStagingVO staging = stagingForecast();
+        DemandForecastStagingVO staging = stagingForecast(501L);
         demandForecastMapper.insertStagingForecasts(List.of(staging));
         demandForecastMapper.insertImportBatch(501L, 1, 1, "a".repeat(64), 99L);
 
@@ -136,6 +136,47 @@ class DemandForecastMapperTest {
         )).isEqualTo("IMPORTING");
     }
 
+    @Test
+    void rejectsIncompleteManifestBeforePublishingStagingForecasts() {
+        jdbcTemplate.update("""
+                INSERT INTO demand_forecast_run (
+                    forecast_run_id, client_request_id, trigger_type, base_date,
+                    azure_job_id, run_status, current_stage, total_batches, total_items,
+                    received_batches, received_items, created_by, updated_by
+                ) VALUES (503, 'scheduled-20260823', 'SCHEDULED', DATE '2026-08-23',
+                          'azure-job-503', 'RUNNING', 'FINALIZING', 1, 1, 1, 1, 99, 99)
+                """);
+        demandForecastMapper.insertStagingForecasts(List.of(stagingForecast(503L)));
+
+        assertThat(demandForecastMapper.initializeImportManifest(
+                503L, null, LocalDate.of(2026, 8, 23), 1, 1L, 99L
+        )).isZero();
+        assertThat(demandForecastMapper.mergeStagingForecasts(503L, 99L)).isZero();
+        assertThat(demandForecastMapper.markRunSucceeded(503L, 99L)).isZero();
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM demand_forecast WHERE forecast_run_id = 503",
+                Integer.class
+        )).isZero();
+    }
+
+    @Test
+    void doesNotMarkRunSucceededWhenManifestTotalsAreNull() {
+        jdbcTemplate.update("""
+                INSERT INTO demand_forecast_run (
+                    forecast_run_id, client_request_id, trigger_type, base_date,
+                    model_version_id, azure_job_id, run_status, current_stage,
+                    received_batches, received_items, created_by, updated_by
+                ) VALUES (504, 'scheduled-20260824', 'SCHEDULED', DATE '2026-08-24',
+                          7, 'azure-job-504', 'RUNNING', 'FINALIZING', 0, 0, 99, 99)
+                """);
+
+        assertThat(demandForecastMapper.markRunSucceeded(504L, 99L)).isZero();
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT run_status FROM demand_forecast_run WHERE forecast_run_id = 504",
+                String.class
+        )).isEqualTo("RUNNING");
+    }
+
     private static DemandForecastVO forecast(BigDecimal d7, String confidenceLevel) {
         return DemandForecastVO.forImport(
                 101L,
@@ -153,9 +194,9 @@ class DemandForecastMapperTest {
         );
     }
 
-    private static DemandForecastStagingVO stagingForecast() {
+    private static DemandForecastStagingVO stagingForecast(Long runId) {
         DemandForecastStagingVO forecast = new DemandForecastStagingVO();
-        forecast.setForecastRunId(501L);
+        forecast.setForecastRunId(runId);
         forecast.setBatchNumber(1);
         forecast.setSkuId(101L);
         forecast.setSalesPointId(10L);

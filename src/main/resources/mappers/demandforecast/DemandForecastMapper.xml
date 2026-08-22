@@ -150,6 +150,8 @@
         WHERE forecast_run_id = #{runId}
           AND run_status = 'RUNNING'
           AND base_date = #{baseDate}
+          AND #{modelVersionId,jdbcType=NUMERIC} IS NOT NULL
+          AND #{totalBatches,jdbcType=NUMERIC} IS NOT NULL
           AND (model_version_id IS NULL OR model_version_id = #{modelVersionId})
           AND (total_batches IS NULL OR total_batches = #{totalBatches})
           AND (#{totalItems,jdbcType=NUMERIC} IS NULL
@@ -297,6 +299,7 @@
             INNER JOIN demand_forecast_run run
                     ON run.forecast_run_id = staging.forecast_run_id
             WHERE staging.forecast_run_id = #{runId}
+              AND run.model_version_id IS NOT NULL
         ) source
         ON (target.sku_id = source.sku_id
             AND target.sales_point_id = source.sales_point_id
@@ -338,6 +341,9 @@
         WHERE forecast_run_id = #{runId}
           AND run_status = 'RUNNING'
           AND current_stage = 'FINALIZING'
+          AND model_version_id IS NOT NULL
+          AND total_batches IS NOT NULL
+          AND total_items IS NOT NULL
           AND received_batches = total_batches
           AND received_items = total_items
     </update>
