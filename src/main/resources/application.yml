@@ -82,6 +82,8 @@ app:
     demo-backfill:
       # 운영 데이터와 혼동하지 않도록 명시적으로 켠 환경에서만 API를 노출합니다.
       enabled: ${STATISTICS_DEMO_BACKFILL_ENABLED:false}
+      # 로컬 데이터 준비 시 인증 API를 거치지 않고 기동 직후 한 번 실행합니다.
+      run-on-startup: ${STATISTICS_DEMO_BACKFILL_RUN_ON_STARTUP:false}
   sales-daily-export:
     # Path 바인딩이 실패하지 않도록 Backend 프로젝트 기준의 유효한 기본 경로를 사용합니다.
     output-path: ${SALES_DAILY_EXPORT_PATH:./build/exports/sales_daily.csv}
