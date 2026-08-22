@@ -1,11 +1,11 @@
 package com.stockit.backend.feature.strategy.service;
 
-import java.util.List;
-
+import com.stockit.backend.feature.strategy.dto.response.StrategyExecutionPageResponse;
 import com.stockit.backend.feature.strategy.dto.response.StrategyExecutionResponse;
+import com.stockit.backend.feature.strategy.vo.StrategyExecutionQuery;
 
 public interface StrategyExecutionService {
-    List<StrategyExecutionResponse> findAll();
+    StrategyExecutionPageResponse findAll(StrategyExecutionQuery query);
 
     StrategyExecutionResponse findByStrategyCaseId(Long strategyCaseId);
 }

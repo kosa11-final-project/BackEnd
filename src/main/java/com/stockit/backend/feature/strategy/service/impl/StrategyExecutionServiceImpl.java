@@ -18,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.stockit.backend.common.exception.AppException;
 import com.stockit.backend.common.exception.ErrorCode;
 import com.stockit.backend.feature.strategy.dto.response.StrategyExecutionResponse;
+import com.stockit.backend.feature.strategy.dto.response.StrategyExecutionPageResponse;
 import com.stockit.backend.feature.strategy.mapper.StrategyExecutionMapper;
 import com.stockit.backend.feature.strategy.service.StrategyExecutionService;
 import com.stockit.backend.feature.strategy.vo.StrategyExecutionActionVO;
@@ -25,6 +26,7 @@ import com.stockit.backend.feature.strategy.vo.StrategyExecutionBaseVO;
 import com.stockit.backend.feature.strategy.vo.StrategyExecutionDailySalesVO;
 import com.stockit.backend.feature.strategy.vo.StrategyExecutionInventoryVO;
 import com.stockit.backend.feature.strategy.vo.StrategyExecutionPerformanceVO;
+import com.stockit.backend.feature.strategy.vo.StrategyExecutionQuery;
 
 @Service
 @Transactional(readOnly = true)
@@ -52,11 +54,12 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
     }
 
     @Override
-    public List<StrategyExecutionResponse> findAll() {
-        List<StrategyExecutionBaseVO> bases = safe(strategyExecutionMapper.selectFinalStrategyExecutions());
-        if (bases.isEmpty()) {
-            return List.of();
-        }
+    public StrategyExecutionPageResponse findAll(StrategyExecutionQuery query) {
+        Objects.requireNonNull(query, "query must not be null");
+        long totalElements = strategyExecutionMapper.countFinalStrategyExecutions(query);
+        List<StrategyExecutionBaseVO> bases = totalElements == 0
+                ? List.of()
+                : safe(strategyExecutionMapper.selectFinalStrategyExecutions(query));
         List<Long> optionIds = bases.stream()
                 .map(StrategyExecutionBaseVO::getStrategyOptionId)
                 .filter(Objects::nonNull)
@@ -70,7 +73,7 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
                                 LinkedHashMap::new,
                                 Collectors.toList()
                         ));
-        return bases.stream()
+        List<StrategyExecutionResponse> content = bases.stream()
                 .map(base -> response(
                         base,
                         actionsByOption.getOrDefault(base.getStrategyOptionId(), List.of()),
@@ -79,6 +82,18 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
                         null
                 ))
                 .toList();
+        int totalPages = totalElements == 0
+                ? 0
+                : (int) Math.ceil((double) totalElements / query.size());
+        return new StrategyExecutionPageResponse(
+                content,
+                query.page(),
+                query.size(),
+                totalElements,
+                totalPages,
+                query.page() == 0,
+                totalPages == 0 || query.page() >= totalPages - 1
+        );
     }
 
     @Override

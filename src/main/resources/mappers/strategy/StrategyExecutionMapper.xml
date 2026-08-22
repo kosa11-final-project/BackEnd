@@ -46,10 +46,50 @@
         WHERE final_selection.selection_rank = 1
     </sql>
 
+    <sql id="strategyExecutionFilters">
+        <if test="query.query != null">
+          AND (
+              UPPER(strategy_case.case_code) LIKE '%' || UPPER(#{query.query}) || '%'
+              OR UPPER(product.product_name) LIKE '%' || UPPER(#{query.query}) || '%'
+          )
+        </if>
+        <if test="query.caseStatus != null">
+          AND strategy_case.case_status = #{query.caseStatus}
+        </if>
+        <if test="query.actionType != null">
+          AND EXISTS (
+              SELECT 1
+              FROM strategy_action filtered_action
+              WHERE filtered_action.strategy_option_id = strategy_option.strategy_option_id
+                AND filtered_action.action_type = #{query.actionType}
+                AND filtered_action.is_deleted = 0
+          )
+        </if>
+    </sql>
+
+    <select id="countFinalStrategyExecutions" resultType="long">
+        SELECT COUNT(*)
+        FROM (
+            <include refid="finalStrategyBaseSelect"/>
+            <include refid="strategyExecutionFilters"/>
+        ) filtered_executions
+    </select>
+
     <select id="selectFinalStrategyExecutions" resultType="StrategyExecutionBaseVO">
         <include refid="finalStrategyBaseSelect"/>
-        ORDER BY final_selection.created_at DESC,
-                 final_selection.final_selection_id DESC
+        <include refid="strategyExecutionFilters"/>
+        ORDER BY
+        <choose>
+            <when test="query.sortDirection == 'ASC'">
+                final_selection.created_at ASC,
+                final_selection.final_selection_id ASC
+            </when>
+            <otherwise>
+                final_selection.created_at DESC,
+                final_selection.final_selection_id DESC
+            </otherwise>
+        </choose>
+        OFFSET #{query.offset} ROWS FETCH NEXT #{query.size} ROWS ONLY
     </select>
 
     <select id="selectFinalStrategyExecution" resultType="StrategyExecutionBaseVO">
