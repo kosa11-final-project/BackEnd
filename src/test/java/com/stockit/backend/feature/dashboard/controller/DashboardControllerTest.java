@@ -22,6 +22,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import com.stockit.backend.feature.dashboard.dto.response.DashboardResponse;
 import com.stockit.backend.feature.dashboard.dto.response.DashboardSummaryResponse;
 import com.stockit.backend.feature.dashboard.dto.response.OfflineStoreInventoryResponse;
+import com.stockit.backend.feature.dashboard.dto.response.OnlineSalesPointInventoryResponse;
 import com.stockit.backend.feature.dashboard.dto.response.RiskSalesPointResponse;
 import com.stockit.backend.feature.dashboard.dto.response.UrgentSkuResponse;
 import com.stockit.backend.feature.dashboard.dto.response.WarehouseInventoryResponse;
@@ -45,9 +46,11 @@ class DashboardControllerTest {
 
         mockMvc.perform(get("/api/v1/dashboard"))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.summary.totalCurrentStock").value(4800))
                 .andExpect(jsonPath("$.data.summary.totalAvailableStock").value(4062))
                 .andExpect(jsonPath("$.data.summary.riskAndWarningSkuCount").value(12))
                 .andExpect(jsonPath("$.data.warehouses[0].warehouseCode").value("SEONGNAM"))
+                .andExpect(jsonPath("$.data.onlineSalesPoints[0].salesPointCode").value("GREETING"))
                 .andExpect(jsonPath("$.data.offlineStores[0].salesPointCode").value("DEPT_PANGYO"))
                 .andExpect(jsonPath("$.data.riskSalesPointsTop10[0].channelType").value("ONLINE"))
                 .andExpect(jsonPath("$.data.urgentSkusTop5[0].stockLocationName")
@@ -88,6 +91,8 @@ class DashboardControllerTest {
                         .value("재고 운영 대시보드 실시간 집계 조회"))
                 .andExpect(jsonPath("$.paths['/api/v1/dashboard/live'].get.deprecated").value(true))
                 .andExpect(jsonPath("$.components.schemas.DashboardResponse.properties.calculatedAt").exists())
+                .andExpect(jsonPath("$.components.schemas.DashboardResponse.properties.onlineSalesPoints")
+                        .exists())
                 .andExpect(jsonPath("$.components.schemas.UrgentSkuResponse.properties.allocatedSalesPointCode")
                         .exists())
                 .andExpect(jsonPath("$.components.schemas.UrgentSkuResponse.properties.riskScore").doesNotExist());
@@ -95,6 +100,7 @@ class DashboardControllerTest {
 
     private static DashboardResponse dashboard() {
         DashboardSummaryResponse summary = new DashboardSummaryResponse(
+                new BigDecimal("4800"),
                 new BigDecimal("4062"),
                 5,
                 7,
@@ -125,6 +131,19 @@ class DashboardControllerTest {
                 new BigDecimal("45"),
                 new BigDecimal("38"),
                 3
+        );
+        OnlineSalesPointInventoryResponse onlineSalesPoint = new OnlineSalesPointInventoryResponse(
+                1L,
+                "GREETING",
+                "그리팅몰",
+                "ONLINE",
+                null,
+                1,
+                new BigDecimal("900"),
+                new BigDecimal("833"),
+                new BigDecimal("74"),
+                new BigDecimal("118"),
+                5
         );
         RiskSalesPointResponse riskPoint = new RiskSalesPointResponse(
                 1,
@@ -158,6 +177,7 @@ class DashboardControllerTest {
         return new DashboardResponse(
                 summary,
                 List.of(warehouse),
+                List.of(onlineSalesPoint),
                 List.of(store),
                 List.of(riskPoint),
                 List.of(urgentSku),

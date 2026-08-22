@@ -8,6 +8,8 @@ import io.swagger.v3.oas.annotations.media.Schema;
 
 @Schema(description = "전국 온·오프라인 핵심 재고 지표")
 public record DashboardSummaryResponse(
+        @Schema(description = "전국 총현재고", example = "4800")
+        BigDecimal totalCurrentStock,
         @Schema(description = "전국 판매 가능 재고", example = "4062")
         BigDecimal totalAvailableStock,
         @Schema(description = "전국 고유 위험(CRITICAL) SKU 수", example = "5")
@@ -26,6 +28,7 @@ public record DashboardSummaryResponse(
         long criticalCount = value.getCriticalSkuCount();
         long warningCount = value.getWarningSkuCount();
         return new DashboardSummaryResponse(
+                value.getTotalCurrentStock(),
                 value.getTotalAvailableStock(),
                 criticalCount,
                 warningCount,
