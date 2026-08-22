@@ -17,12 +17,12 @@ import org.junit.jupiter.api.io.TempDir;
 class StrategyExecutionResultMigrationContractTest {
 
     private static final String MIGRATION_PATH =
-            "db/migration/V25__create_strategy_execution_result.sql";
+            "db/migration/V26__create_strategy_execution_result.sql";
 
     @Test
     void createsOneFinalResultPerSelectionAndValidatesActionDates(@TempDir Path tempDir)
             throws Exception {
-        Path migrationFile = tempDir.resolve("V25__create_strategy_execution_result.sql");
+        Path migrationFile = tempDir.resolve("V26__create_strategy_execution_result.sql");
         try (InputStream input = requiredResource()) {
             Files.copy(input, migrationFile);
         }
@@ -50,7 +50,7 @@ class StrategyExecutionResultMigrationContractTest {
                 .dataSource(jdbcUrl, "sa", "")
                 .locations("filesystem:" + tempDir.toAbsolutePath())
                 .baselineOnMigrate(true)
-                .baselineVersion("24")
+                .baselineVersion("25")
                 .load()
                 .migrate();
 
