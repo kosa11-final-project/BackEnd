@@ -15,6 +15,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.CannotAcquireLockException;
 
 import com.stockit.backend.feature.inventorysync.dto.InventorySyncStartRequest;
 import com.stockit.backend.feature.inventorysync.mapper.InventorySyncRunMapper;
@@ -91,6 +92,20 @@ class InventorySyncSubmissionServiceTest {
         assertEquals(429, result.httpStatus());
         org.junit.jupiter.api.Assertions.assertTrue(result.retryAfterSeconds() >= 1);
         verify(runMapper, never()).insertRun(any());
+        verify(launcher, never()).launch(anyLong());
+    }
+
+    @Test
+    void lockWaitFailureIsReturnedAsInventoryConflict() {
+        when(runMapper.lockSubmissionGuard())
+                .thenThrow(new CannotAcquireLockException("ORA-30006: resource busy"));
+
+        var exception = org.junit.jupiter.api.Assertions.assertThrows(
+                com.stockit.backend.common.exception.AppException.class,
+                () -> service.submit(new InventorySyncStartRequest("client-lock"), 7L));
+
+        assertEquals("INVENTORY_SYNC-001", exception.getErrorCode().getCode());
+        verify(runMapper, never()).selectActiveRun();
         verify(launcher, never()).launch(anyLong());
     }
 

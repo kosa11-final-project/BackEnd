@@ -128,6 +128,12 @@ public class InventorySyncCanonicalBatchWriter implements InventorySyncPublisher
         Set<String> sourceTypes = sourceVersions.keySet();
         sourceWriteMapper.refreshState(sourceTypes, Long.valueOf(runId));
         sourceVersions.forEach((sourceType, version) -> runSourceMapper.completeSource(Long.valueOf(runId), sourceType, version, "SUCCESS"));
+        var run = runMapper.selectByIdForUpdate(Long.valueOf(runId));
+        if (run == null || !"RUNNING".equals(run.getRunStatus())
+                || runMapper.updatePhase(Long.valueOf(runId), run.getMainAttemptNo(), run.getFencingToken(),
+                        "ASSESSING_RISK", run.getReadCount(), run.getMappedCount()) != 1) {
+            throw new IllegalStateException("STALE_FENCING");
+        }
         riskWriter.evaluateAndPersist(Long.valueOf(runId), actorId, riskScopes, riskSnapshotLoader);
         if (snapshotCoordinator != null) {
             snapshotCoordinator.scheduleAfterCommit(

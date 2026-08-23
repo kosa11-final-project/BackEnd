@@ -18,6 +18,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
 import org.mockito.Mockito;
+import org.springframework.dao.CannotAcquireLockException;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.stockit.backend.feature.inventorysync.demo.InventoryDemoAdjustmentMapper;
@@ -70,6 +71,20 @@ class InventoryDemoAdjustmentServiceTest {
 
         assertEquals("APPLIED", response.status());
         verify(mapper, never()).lockSourceState(anyString());
+    }
+
+    @Test
+    void lockWaitFailureIsReturnedAsInventoryConflict() {
+        when(mapper.selectByRequestId("demo-lock")).thenReturn(null);
+        when(mapper.lockSourceState("OFFLINE"))
+                .thenThrow(new CannotAcquireLockException("ORA-30006: resource busy"));
+
+        var exception = assertThrows(
+                AppException.class,
+                () -> service.apply(request("demo-lock", "OFFLINE", "O:1", "1"), 7L));
+
+        assertEquals("INVENTORY_SYNC-001", exception.getErrorCode().getCode());
+        verify(mapper, never()).lockSourceRow(anyString(), anyString());
     }
 
     private static InventoryDemoAdjustmentMapper.DemoSourceRow source(int onHand, int rowVersion, String hash, String syncedHash) {
