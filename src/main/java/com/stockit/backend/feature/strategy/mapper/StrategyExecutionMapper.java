@@ -11,10 +11,15 @@ import com.stockit.backend.feature.strategy.vo.StrategyExecutionBaseVO;
 import com.stockit.backend.feature.strategy.vo.StrategyExecutionDailySalesVO;
 import com.stockit.backend.feature.strategy.vo.StrategyExecutionInventoryVO;
 import com.stockit.backend.feature.strategy.vo.StrategyExecutionPerformanceVO;
+import com.stockit.backend.feature.strategy.vo.StrategyExecutionQuery;
 
 @Mapper
 public interface StrategyExecutionMapper {
-    List<StrategyExecutionBaseVO> selectFinalStrategyExecutions();
+    long countFinalStrategyExecutions(@Param("query") StrategyExecutionQuery query);
+
+    List<StrategyExecutionBaseVO> selectFinalStrategyExecutions(
+            @Param("query") StrategyExecutionQuery query
+    );
 
     StrategyExecutionBaseVO selectFinalStrategyExecution(@Param("strategyCaseId") Long strategyCaseId);
 

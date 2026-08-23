@@ -3,6 +3,8 @@ package com.stockit.backend.feature.strategy.service.impl;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.never;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
@@ -22,6 +24,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import com.stockit.backend.common.exception.AppException;
 import com.stockit.backend.common.exception.ErrorCode;
 import com.stockit.backend.feature.strategy.dto.response.StrategyExecutionResponse;
+import com.stockit.backend.feature.strategy.dto.response.StrategyExecutionPageResponse;
 import com.stockit.backend.feature.strategy.mapper.StrategyExecutionMapper;
 import com.stockit.backend.feature.strategy.service.StrategyExecutionService;
 import com.stockit.backend.feature.strategy.vo.StrategyExecutionActionVO;
@@ -29,6 +32,7 @@ import com.stockit.backend.feature.strategy.vo.StrategyExecutionBaseVO;
 import com.stockit.backend.feature.strategy.vo.StrategyExecutionDailySalesVO;
 import com.stockit.backend.feature.strategy.vo.StrategyExecutionInventoryVO;
 import com.stockit.backend.feature.strategy.vo.StrategyExecutionPerformanceVO;
+import com.stockit.backend.feature.strategy.vo.StrategyExecutionQuery;
 
 @ExtendWith(MockitoExtension.class)
 class StrategyExecutionServiceImplTest {
@@ -51,24 +55,51 @@ class StrategyExecutionServiceImplTest {
 
     @Test
     void loadsListBasesAndAllActionsWithoutNPlusOne() {
+        StrategyExecutionQuery query = new StrategyExecutionQuery(0, 2, null, null, null, "DESC");
         StrategyExecutionBaseVO first = base(101L, 1001L);
         StrategyExecutionBaseVO second = base(102L, 1002L);
-        when(mapper.selectFinalStrategyExecutions()).thenReturn(List.of(first, second));
+        when(mapper.countFinalStrategyExecutions(query)).thenReturn(3L);
+        when(mapper.selectFinalStrategyExecutions(query)).thenReturn(List.of(first, second));
         when(mapper.selectSupportedActions(List.of(1001L, 1002L)))
                 .thenReturn(List.of(action(11L, 1001L), action(12L, 1001L), action(21L, 1002L)));
 
-        List<StrategyExecutionResponse> result = service.findAll();
+        StrategyExecutionPageResponse result = service.findAll(query);
 
-        assertThat(result).hasSize(2);
-        assertThat(result.get(0).actions()).hasSize(2);
-        assertThat(result.get(1).actions()).hasSize(1);
-        assertThat(result.get(0).inventoryResults()).isEmpty();
-        assertThat(result.get(0).salesDaily()).isEmpty();
+        assertThat(result.content()).hasSize(2);
+        assertThat(result.content().get(0).actions()).hasSize(2);
+        assertThat(result.content().get(1).actions()).hasSize(1);
+        assertThat(result.content().get(0).inventoryResults()).isEmpty();
+        assertThat(result.content().get(0).salesDaily()).isEmpty();
+        assertThat(result.totalElements()).isEqualTo(3);
+        assertThat(result.totalPages()).isEqualTo(2);
+        assertThat(result.first()).isTrue();
+        assertThat(result.last()).isFalse();
+        verify(mapper).countFinalStrategyExecutions(query);
+        verify(mapper).selectFinalStrategyExecutions(query);
         verify(mapper).selectSupportedActions(List.of(1001L, 1002L));
+        verify(mapper, never()).selectInventoryResults(anyLong());
+        verify(mapper, never()).selectDailySales(anyLong(), org.mockito.ArgumentMatchers.any());
+        verify(mapper, never()).selectPerformance(anyLong());
     }
 
     @Test
-    void returnsDetailWithNullUnknownsAndActualCollectedValues() {
+    void returnsEmptyPageMetadataWithoutRunningListOrActionQueries() {
+        StrategyExecutionQuery query = new StrategyExecutionQuery(0, 10, "없음", null, null, "DESC");
+        when(mapper.countFinalStrategyExecutions(query)).thenReturn(0L);
+
+        StrategyExecutionPageResponse result = service.findAll(query);
+
+        assertThat(result.content()).isEmpty();
+        assertThat(result.totalElements()).isZero();
+        assertThat(result.totalPages()).isZero();
+        assertThat(result.first()).isTrue();
+        assertThat(result.last()).isTrue();
+        verify(mapper, never()).selectFinalStrategyExecutions(query);
+        verify(mapper, never()).selectSupportedActions(org.mockito.ArgumentMatchers.anyList());
+    }
+
+    @Test
+    void returnsDetailWithCalculatedProgressStatusAndActualCollectedValues() {
         StrategyExecutionBaseVO base = base(101L, 1001L);
         StrategyExecutionActionVO action = action(11L, 1001L);
         StrategyExecutionInventoryVO inventory = new StrategyExecutionInventoryVO();
@@ -99,8 +130,10 @@ class StrategyExecutionServiceImplTest {
         StrategyExecutionResponse result = service.findByStrategyCaseId(101L);
 
         assertThat(result.id()).isEqualTo(101L);
-        assertThat(result.progress()).isNull();
-        assertThat(result.actions().get(0).status()).isNull();
+        assertThat(result.progress()).isEqualTo(100);
+        assertThat(result.resultSummary()).isEqualTo("실제 판매 7 / 목표 10 (달성률 70%)");
+        assertThat(result.actions().get(0).status()).isEqualTo("COMPLETED");
+        assertThat(result.actions().get(0).progress()).isEqualTo(100);
         assertThat(result.actions().get(0).relationship()).isNull();
         assertThat(result.inventoryResults().get(0).moved()).isEqualByComparingTo("-20");
         assertThat(result.salesDaily()).hasSize(1);
@@ -144,6 +177,11 @@ class StrategyExecutionServiceImplTest {
         base.setUnitCode("개");
         base.setProductName("테스트 상품");
         base.setRecommendationReason("재고 편중 완화");
+        base.setPlannedStartDate(LocalDate.of(2026, 5, 1));
+        base.setPlannedEndDate(LocalDate.of(2026, 5, 10));
+        base.setGoalTargetValue(new BigDecimal("10"));
+        base.setGoalActualValue(new BigDecimal("7"));
+        base.setAchievementRate(new BigDecimal("70"));
         return base;
     }
 
@@ -158,6 +196,8 @@ class StrategyExecutionServiceImplTest {
         action.setTargetSalesPointId(10L);
         action.setTargetSalesPointCode("GREETING");
         action.setTargetSalesPointName("그리팅몰");
+        action.setStartDate(LocalDate.of(2026, 5, 1));
+        action.setEndDate(LocalDate.of(2026, 5, 10));
         return action;
     }
 }

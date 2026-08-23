@@ -18,11 +18,11 @@ public record StrategyExecutionResponse(
         Product product,
         @Schema(description = "최종 전략 선택일")
         LocalDate establishedAt,
-        @Schema(description = "실행 진행률. 현 스키마에서는 산출할 수 없어 null", nullable = true)
+        @Schema(description = "액션 기간과 조회 기준일로 계산한 실행 진행률. 완료 전략은 100")
         Integer progress,
         @Schema(description = "선택 전략의 추천 근거", nullable = true)
         String goal,
-        @Schema(description = "실행 결과 요약. 현 스키마에서는 산출할 수 없어 null", nullable = true)
+        @Schema(description = "strategy_execution_result의 목표·실제 판매량 기반 결과 요약", nullable = true)
         String resultSummary,
         List<Action> actions,
         List<InventoryResult> inventoryResults,
