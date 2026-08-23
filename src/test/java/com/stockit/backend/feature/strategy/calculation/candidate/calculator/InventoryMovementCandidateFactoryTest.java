@@ -218,7 +218,7 @@ class InventoryMovementCandidateFactoryTest {
     }
 
     @Test
-    void appliesUserFixedSingleDayToDemandAndCandidatePeriod() {
+    void appliesUserFixedSingleDayToDemandAndKeepsStandaloneEndDateOpen() {
         LocalDate fixedDate = START.plusDays(4);
         StrategyCalculationContext context = context(
                 List.of(lot(1L, 1001L, 501L, 10L, "100", null)),
@@ -240,7 +240,7 @@ class InventoryMovementCandidateFactoryTest {
         StrategyCandidate.MovementEvidence evidence =
                 (StrategyCandidate.MovementEvidence) maximum.evidence();
         assertThat(maximum.startDate()).isEqualTo(fixedDate);
-        assertThat(maximum.endDate()).isEqualTo(fixedDate);
+        assertThat(maximum.endDate()).isNull();
         assertThat(evidence.targetAdditionalDemandQty())
                 .isEqualByComparingTo("10");
         assertThat(evidence.maxExecutableQty())
