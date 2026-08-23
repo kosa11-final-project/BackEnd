@@ -2,13 +2,13 @@ package com.stockit.backend.feature.statistics.service.impl;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
-import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
+import java.util.NavigableMap;
+import java.util.TreeMap;
 
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -16,6 +16,8 @@ import org.springframework.jdbc.core.namedparam.SqlParameterSource;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.stockit.backend.common.exception.AppException;
 import com.stockit.backend.common.exception.ErrorCode;
 import com.stockit.backend.feature.statistics.dto.response.StrategyStatisticsDemoBackfillResponse;
@@ -24,8 +26,9 @@ import com.stockit.backend.feature.statistics.service.StrategyStatisticsDemoBack
 @Service
 public class StrategyStatisticsDemoBackfillServiceImpl implements StrategyStatisticsDemoBackfillService {
     private static final int MAX_DAYS = 366;
-    private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Seoul");
     private static final Map<String, Object> NO_PARAMETERS = Map.of();
+    private static final LocalDate DEFAULT_FROM_DATE = LocalDate.of(2025, 8, 24);
+    private static final LocalDate DEFAULT_TO_DATE = LocalDate.of(2026, 8, 23);
 
     private static final String INSERT_CASE = """
             INSERT INTO strategy_case (
@@ -62,16 +65,42 @@ public class StrategyStatisticsDemoBackfillServiceImpl implements StrategyStatis
             """;
     private static final String INSERT_ACTION = """
             INSERT INTO strategy_action (
-                strategy_action_id, strategy_option_id, target_sales_point_id,
+                strategy_action_id, strategy_option_id, source_sales_point_id, target_sales_point_id,
                 source_warehouse_id, destination_warehouse_id, action_type,
                 action_quantity, strategy_price, discount_rate, start_date, end_date,
                 estimated_action_cost, action_order,
                 created_at, updated_at, created_by, updated_by, is_deleted
             ) VALUES (
-                :actionId, :optionId, :targetSalesPointId,
+                :actionId, :optionId, :sourceSalesPointId, :targetSalesPointId,
                 :sourceWarehouseId, :destinationWarehouseId, :actionType,
                 :actionQuantity, :strategyPrice, :discountRate, :startDate, :endDate,
                 :estimatedActionCost, :actionOrder,
+                :createdAt, :completedAt, :ownerUserId, :ownerUserId, 0
+            )
+            """;
+    private static final String INSERT_INVENTORY_SNAPSHOT = """
+            INSERT INTO strategy_inventory_snapshot (
+                inventory_snapshot_id, strategy_case_id, sku_id, lot_id, sales_point_id,
+                inventory_balance_id, on_total_qty, on_hand_qty, safety_stock_qty,
+                daily_sales_velocity, forecast_qty, expiry_date, warehouse_id,
+                created_at, updated_at, created_by, updated_by, is_deleted
+            ) VALUES (
+                :inventorySnapshotId, :caseId, :skuId, :lotId, :salesPointId,
+                :inventoryBalanceId, :onTotalQty, :onHandQty, :safetyStockQty,
+                :dailySalesVelocity, :forecastQty, :expiryDate, :warehouseId,
+                :createdAt, :completedAt, :ownerUserId, :ownerUserId, 0
+            )
+            """;
+    private static final String INSERT_PERFORMANCE = """
+            INSERT INTO strategy_performance (
+                strategy_performance_id, strategy_option_id, performance_date,
+                actual_sales_qty, actual_revenue, actual_contribution_margin,
+                actual_remaining_qty, moved_quantity, disposed_quantity, achievement_rate,
+                created_at, updated_at, created_by, updated_by, is_deleted
+            ) VALUES (
+                :performanceId, :optionId, :performanceDate,
+                :actualSalesQty, :actualRevenue, :actualContributionMargin,
+                :actualRemainingQty, :movedQuantity, :disposedQuantity, :performanceAchievementRate,
                 :createdAt, :completedAt, :ownerUserId, :ownerUserId, 0
             )
             """;
@@ -108,75 +137,104 @@ public class StrategyStatisticsDemoBackfillServiceImpl implements StrategyStatis
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
     private final StrategyStatisticsDemoDataFactory dataFactory;
+    private final ObjectMapper objectMapper;
 
-    public StrategyStatisticsDemoBackfillServiceImpl(NamedParameterJdbcTemplate jdbcTemplate) {
+    public StrategyStatisticsDemoBackfillServiceImpl(
+            NamedParameterJdbcTemplate jdbcTemplate,
+            ObjectMapper objectMapper
+    ) {
         this.jdbcTemplate = jdbcTemplate;
+        this.objectMapper = objectMapper;
         this.dataFactory = new StrategyStatisticsDemoDataFactory();
     }
 
     @Override
     @Transactional
     public StrategyStatisticsDemoBackfillResponse backfill(LocalDate fromDate, LocalDate toDate) {
-        LocalDate resolvedTo = toDate == null ? LocalDate.now(BUSINESS_ZONE) : toDate;
-        LocalDate resolvedFrom = fromDate == null ? resolvedTo.minusMonths(6) : fromDate;
+        LocalDate resolvedTo = toDate == null ? DEFAULT_TO_DATE : toDate;
+        LocalDate resolvedFrom = fromDate == null ? DEFAULT_FROM_DATE : fromDate;
         validateRange(resolvedFrom, resolvedTo);
         ensureExecutionResultTableExists();
 
-        StrategyStatisticsDemoDimensions dimensions = loadDimensions();
+        ensureNoExternalDemoReferences();
+        StrategyStatisticsDemoDimensions dimensions = loadDimensions(resolvedFrom, resolvedTo);
         List<StrategyStatisticsDemoData> requested = dataFactory.create(
                 resolvedFrom,
                 resolvedTo,
                 dimensions
         );
-        Set<Long> existingCaseIds = new HashSet<>(jdbcTemplate.queryForList(
-                """
-                        SELECT strategy_case_id
-                        FROM strategy_case
-                        WHERE strategy_case_id >= :fromId
-                          AND strategy_case_id < :toId
-                        """,
-                Map.of(
-                        "fromId", StrategyStatisticsDemoDataFactory.CASE_ID_BASE,
-                        "toId", StrategyStatisticsDemoDataFactory.OPTION_ID_BASE
-                ),
-                Long.class
-        ));
-        List<StrategyStatisticsDemoData> created = requested.stream()
-                .filter(value -> !existingCaseIds.contains(value.caseId()))
-                .toList();
-
-        if (!created.isEmpty()) {
-            insertCases(created);
-            insertOptions(created);
-            insertSimulations(created);
-            int actionCount = insertActions(created);
-            insertSelections(created);
-            insertResults(created);
-            return response(resolvedFrom, resolvedTo, requested.size(), created.size(), actionCount);
-        }
-        return response(resolvedFrom, resolvedTo, requested.size(), 0, 0);
+        deleteExistingDemoStrategies();
+        insertCases(requested);
+        insertOptions(requested);
+        insertSimulations(requested);
+        int actionCount = insertActions(requested);
+        insertInventorySnapshots(requested);
+        insertPerformance(requested);
+        insertSelections(requested);
+        insertResults(requested);
+        validateInsertedLedger();
+        return response(resolvedFrom, resolvedTo, requested.size(), requested.size(), actionCount);
     }
 
-    private StrategyStatisticsDemoDimensions loadDimensions() {
-        List<Long> skuIds = jdbcTemplate.queryForList(
+    private StrategyStatisticsDemoDimensions loadDimensions(LocalDate fromDate, LocalDate toDate) {
+        List<StrategyStatisticsDemoSalesCandidate> sales = selectSalesCandidates(fromDate, toDate);
+        List<StrategyStatisticsDemoInventoryCandidate> inventories = jdbcTemplate.query(
                 """
-                        SELECT sku_id FROM sku
-                        WHERE active_yn = 'Y' AND is_deleted = 0
-                        ORDER BY sku_id FETCH FIRST 500 ROWS ONLY
+                        WITH sales_velocity AS (
+                            SELECT sales.sku_id, sales.sales_point_id, AVG(sales.net_sales_qty) AS daily_sales_velocity
+                            FROM sales_daily sales
+                            WHERE sales.sales_date BETWEEN :fromDate AND :toDate
+                              AND sales.is_deleted = 0
+                            GROUP BY sales.sku_id, sales.sales_point_id
+                        ), policy_summary AS (
+                            SELECT policy.sku_id, policy.warehouse_id,
+                                   COALESCE(policy.allocated_sales_point_id, policy.stock_sales_point_id, -1) AS sales_point_id,
+                                   MAX(policy.safety_stock_qty) AS safety_stock_qty
+                            FROM inventory_policy policy
+                            WHERE policy.is_deleted = 0
+                            GROUP BY policy.sku_id, policy.warehouse_id,
+                                     COALESCE(policy.allocated_sales_point_id, policy.stock_sales_point_id, -1)
+                        )
+                        SELECT balance.inventory_balance_id, balance.sku_id, balance.lot_id,
+                               COALESCE(balance.allocated_sales_point_id, balance.stock_sales_point_id) AS sales_point_id,
+                               balance.warehouse_id, balance.total_qty, balance.on_hand_qty,
+                               COALESCE(policy_summary.safety_stock_qty, 0) AS safety_stock_qty,
+                               COALESCE(sales_velocity.daily_sales_velocity, 0) AS daily_sales_velocity,
+                               CAST(NULL AS NUMBER) AS forecast_qty,
+                               lot.expiry_date
+                        FROM inventory_balance balance
+                        JOIN sku ON sku.sku_id = balance.sku_id
+                          AND sku.active_yn = 'Y' AND sku.is_deleted = 0
+                        JOIN lot ON lot.lot_id = balance.lot_id
+                          AND lot.sku_id = balance.sku_id AND lot.is_deleted = 0
+                        JOIN warehouse ON warehouse.warehouse_id = balance.warehouse_id
+                          AND warehouse.active_yn = 'Y' AND warehouse.is_deleted = 0
+                        JOIN sales_point point
+                          ON point.sales_point_id = COALESCE(
+                              balance.allocated_sales_point_id, balance.stock_sales_point_id)
+                         AND point.active_yn = 'Y' AND point.is_deleted = 0
+                        LEFT JOIN policy_summary
+                          ON policy_summary.sku_id = balance.sku_id
+                         AND policy_summary.warehouse_id = balance.warehouse_id
+                         AND policy_summary.sales_point_id = COALESCE(
+                             balance.allocated_sales_point_id, balance.stock_sales_point_id, -1)
+                        JOIN sales_velocity
+                          ON sales_velocity.sku_id = balance.sku_id
+                         AND sales_velocity.sales_point_id = COALESCE(
+                             balance.allocated_sales_point_id, balance.stock_sales_point_id)
+                        WHERE balance.is_deleted = 0
+                          AND balance.on_hand_qty > 0
+                        ORDER BY balance.sku_id, balance.warehouse_id, sales_point_id,
+                                 balance.inventory_balance_id
                         """,
-                NO_PARAMETERS,
-                Long.class
-        );
-        List<Long> offlinePointIds = selectSalesPointIds("OFFLINE");
-        List<Long> onlinePointIds = selectSalesPointIds("ONLINE");
-        List<Long> warehouseIds = jdbcTemplate.queryForList(
-                """
-                        SELECT warehouse_id FROM warehouse
-                        WHERE active_yn = 'Y' AND is_deleted = 0
-                        ORDER BY warehouse_id
-                        """,
-                NO_PARAMETERS,
-                Long.class
+                Map.of("fromDate", fromDate, "toDate", toDate),
+                (resultSet, rowNum) -> new StrategyStatisticsDemoInventoryCandidate(
+                        resultSet.getLong("inventory_balance_id"), resultSet.getLong("sku_id"),
+                        resultSet.getLong("lot_id"), nullableLong(resultSet, "sales_point_id"),
+                        resultSet.getLong("warehouse_id"), resultSet.getBigDecimal("total_qty"),
+                        resultSet.getBigDecimal("on_hand_qty"), resultSet.getBigDecimal("safety_stock_qty"),
+                        resultSet.getBigDecimal("daily_sales_velocity"), resultSet.getBigDecimal("forecast_qty"),
+                        resultSet.getObject("expiry_date", LocalDate.class))
         );
         List<Long> ownerIds = jdbcTemplate.queryForList(
                 """
@@ -201,39 +259,88 @@ public class StrategyStatisticsDemoBackfillServiceImpl implements StrategyStatis
                 NO_PARAMETERS,
                 Long.class
         );
-        if (skuIds.isEmpty() || offlinePointIds.isEmpty() || onlinePointIds.isEmpty()
-                || warehouseIds.isEmpty() || ownerIds.isEmpty() || syncRunIds.isEmpty()) {
+        if (sales.isEmpty() || inventories.isEmpty() || ownerIds.isEmpty() || syncRunIds.isEmpty()) {
             throw new IllegalStateException(
-                    "AI 전략 데모 이력 생성에 필요한 SKU, 온·오프라인 판매처, 물류센터, 사용자 또는 성공 동기화가 없습니다."
+                    "AI 전략 데모 이력 생성에 필요한 실제 판매, 유효 재고, 사용자 또는 성공 동기화가 없습니다."
             );
         }
-        return new StrategyStatisticsDemoDimensions(
-                skuIds,
-                offlinePointIds,
-                onlinePointIds,
-                warehouseIds,
-                ownerIds.get(0),
-                syncRunIds.get(0)
-        );
+        return new StrategyStatisticsDemoDimensions(sales, inventories, ownerIds.get(0), syncRunIds.get(0));
     }
 
-    private List<Long> selectSalesPointIds(String channelType) {
-        return jdbcTemplate.queryForList(
+    private List<StrategyStatisticsDemoSalesCandidate> selectSalesCandidates(LocalDate fromDate, LocalDate toDate) {
+        Map<String, StrategyStatisticsDemoSalesCandidateBuilder> grouped = new LinkedHashMap<>();
+        jdbcTemplate.query(
                 """
-                        SELECT point.sales_point_id
-                        FROM sales_point point
-                        JOIN sales_channel channel
-                          ON channel.sales_channel_id = point.sales_channel_id
-                         AND channel.active_yn = 'Y'
-                         AND channel.is_deleted = 0
-                        WHERE point.active_yn = 'Y'
-                          AND point.is_deleted = 0
-                          AND channel.channel_type = :channelType
-                        ORDER BY point.sales_point_id
+                        WITH valid_inventory AS (
+                            SELECT DISTINCT balance.sku_id,
+                                   COALESCE(balance.allocated_sales_point_id, balance.stock_sales_point_id) AS sales_point_id
+                            FROM inventory_balance balance
+                            WHERE balance.lot_id IS NOT NULL
+                              AND balance.warehouse_id IS NOT NULL
+                              AND balance.on_hand_qty > 0
+                              AND balance.is_deleted = 0
+                        ), eligible_pairs AS (
+                            SELECT sales.sku_id, sales.sales_point_id
+                            FROM sales_daily sales
+                            JOIN valid_inventory
+                              ON valid_inventory.sku_id = sales.sku_id
+                             AND valid_inventory.sales_point_id = sales.sales_point_id
+                            WHERE sales.sales_date BETWEEN :fromDate AND :toDate
+                              AND sales.net_sales_qty > 0
+                              AND sales.is_deleted = 0
+                            GROUP BY sales.sku_id, sales.sales_point_id
+                            ORDER BY SUM(sales.net_sales_qty) DESC,
+                                     sales.sku_id, sales.sales_point_id
+                            FETCH FIRST 1000 ROWS ONLY
+                        ), latest_price AS (
+                            SELECT sku_id, sales_point_id, product_cost, actual_price
+                            FROM (
+                                SELECT price.sku_id, price.sales_point_id, price.product_cost, price.actual_price,
+                                       ROW_NUMBER() OVER (
+                                           PARTITION BY price.sku_id, price.sales_point_id
+                                           ORDER BY price.effective_from DESC, price.sku_channel_price_id DESC
+                                       ) AS row_no
+                                FROM sku_channel_price price
+                                WHERE price.is_deleted = 0
+                            )
+                            WHERE row_no = 1
+                        )
+                        SELECT sales.sku_id, sales.sales_point_id, sales.sales_date,
+                               sales.net_sales_qty, sales.net_sales_amount,
+                               COALESCE(latest_price.product_cost, 0) AS unit_cost,
+                               COALESCE(latest_price.actual_price, CASE WHEN sales.net_sales_qty > 0
+                                      THEN sales.net_sales_amount / sales.net_sales_qty ELSE 0 END) AS selling_price
+                        FROM sales_daily sales
+                        JOIN eligible_pairs
+                          ON eligible_pairs.sku_id = sales.sku_id
+                         AND eligible_pairs.sales_point_id = sales.sales_point_id
+                        JOIN sku ON sku.sku_id = sales.sku_id
+                          AND sku.active_yn = 'Y' AND sku.is_deleted = 0
+                        JOIN sales_point point ON point.sales_point_id = sales.sales_point_id
+                          AND point.active_yn = 'Y' AND point.is_deleted = 0
+                        LEFT JOIN latest_price
+                          ON latest_price.sku_id = sales.sku_id
+                         AND latest_price.sales_point_id = sales.sales_point_id
+                        WHERE sales.sales_date BETWEEN :fromDate AND :toDate
+                          AND sales.is_deleted = 0
+                        ORDER BY sales.sku_id, sales.sales_point_id, sales.sales_date
                         """,
-                Map.of("channelType", channelType),
-                Long.class
-        );
+                Map.of("fromDate", fromDate, "toDate", toDate),
+                resultSet -> {
+                    long skuId = resultSet.getLong("sku_id");
+                    long pointId = resultSet.getLong("sales_point_id");
+                    BigDecimal unitCost = resultSet.getBigDecimal("unit_cost");
+                    BigDecimal sellingPrice = resultSet.getBigDecimal("selling_price");
+                    String key = skuId + ":" + pointId;
+                    StrategyStatisticsDemoSalesCandidateBuilder builder = grouped.computeIfAbsent(key,
+                            ignored -> new StrategyStatisticsDemoSalesCandidateBuilder(
+                                    skuId, pointId, unitCost, sellingPrice));
+                    LocalDate date = resultSet.getObject("sales_date", LocalDate.class);
+                    builder.dailySales().put(date, new StrategyStatisticsDemoSalesDay(date,
+                            resultSet.getBigDecimal("net_sales_qty"),
+                            resultSet.getBigDecimal("net_sales_amount")));
+                });
+        return grouped.values().stream().map(StrategyStatisticsDemoSalesCandidateBuilder::build).toList();
     }
 
     private void ensureExecutionResultTableExists() {
@@ -274,6 +381,7 @@ public class StrategyStatisticsDemoBackfillServiceImpl implements StrategyStatis
                 parameters.add(commonParameters(value)
                         .addValue("actionId", action.actionId())
                         .addValue("actionType", action.actionType())
+                        .addValue("sourceSalesPointId", action.sourceSalesPointId())
                         .addValue("targetSalesPointId", action.targetSalesPointId())
                         .addValue("sourceWarehouseId", action.sourceWarehouseId())
                         .addValue("destinationWarehouseId", action.destinationWarehouseId())
@@ -286,6 +394,46 @@ public class StrategyStatisticsDemoBackfillServiceImpl implements StrategyStatis
         }
         jdbcTemplate.batchUpdate(INSERT_ACTION, parameters.toArray(SqlParameterSource[]::new));
         return parameters.size();
+    }
+
+    private void insertInventorySnapshots(List<StrategyStatisticsDemoData> values) {
+        List<SqlParameterSource> parameters = new ArrayList<>();
+        for (StrategyStatisticsDemoData value : values) {
+            for (StrategyStatisticsDemoInventorySnapshot snapshot : value.inventorySnapshots()) {
+                parameters.add(commonParameters(value)
+                        .addValue("inventorySnapshotId", snapshot.inventorySnapshotId())
+                        .addValue("inventoryBalanceId", snapshot.inventoryBalanceId())
+                        .addValue("lotId", snapshot.lotId())
+                        .addValue("salesPointId", snapshot.salesPointId())
+                        .addValue("warehouseId", snapshot.warehouseId())
+                        .addValue("onTotalQty", snapshot.onTotalQty())
+                        .addValue("onHandQty", snapshot.onHandQty())
+                        .addValue("safetyStockQty", snapshot.safetyStockQty())
+                        .addValue("dailySalesVelocity", snapshot.dailySalesVelocity())
+                        .addValue("forecastQty", snapshot.forecastQty())
+                        .addValue("expiryDate", snapshot.expiryDate()));
+            }
+        }
+        jdbcTemplate.batchUpdate(INSERT_INVENTORY_SNAPSHOT, parameters.toArray(SqlParameterSource[]::new));
+    }
+
+    private void insertPerformance(List<StrategyStatisticsDemoData> values) {
+        List<SqlParameterSource> parameters = new ArrayList<>();
+        for (StrategyStatisticsDemoData value : values) {
+            for (StrategyStatisticsDemoPerformance performance : value.performance()) {
+                parameters.add(commonParameters(value)
+                        .addValue("performanceId", performance.performanceId())
+                        .addValue("performanceDate", performance.performanceDate())
+                        .addValue("actualSalesQty", performance.actualSalesQty())
+                        .addValue("actualRevenue", performance.actualRevenue())
+                        .addValue("actualContributionMargin", performance.actualContributionMargin())
+                        .addValue("actualRemainingQty", performance.actualRemainingQty())
+                        .addValue("movedQuantity", performance.movedQuantity())
+                        .addValue("disposedQuantity", performance.disposedQuantity())
+                        .addValue("performanceAchievementRate", performance.achievementRate()));
+            }
+        }
+        jdbcTemplate.batchUpdate(INSERT_PERFORMANCE, parameters.toArray(SqlParameterSource[]::new));
     }
 
     private void insertSelections(List<StrategyStatisticsDemoData> values) {
@@ -313,7 +461,7 @@ public class StrategyStatisticsDemoBackfillServiceImpl implements StrategyStatis
                 .addValue("requestedSalesPointId", value.requestedSalesPointId())
                 .addValue("caseCode", value.caseCode())
                 .addValue("caseName", value.caseName())
-                .addValue("requestPayloadJson", "{\"demo\":true,\"source\":\"statistics-demo-backfill\"}")
+                .addValue("requestPayloadJson", requestPayload(value))
                 .addValue("startDate", value.startDate())
                 .addValue("endDate", value.endDate())
                 .addValue("createdAt", value.createdAt())
@@ -327,6 +475,159 @@ public class StrategyStatisticsDemoBackfillServiceImpl implements StrategyStatis
                 .addValue("endExpectedDisposalQty", value.endExpectedDisposalQty())
                 .addValue("startUnitCost", value.startUnitCost())
                 .addValue("estimatedLossSavingsAmount", value.estimatedLossSavingsAmount());
+    }
+
+    private String requestPayload(StrategyStatisticsDemoData value) {
+        try {
+            return objectMapper.writeValueAsString(Map.of(
+                    "demo", true,
+                    "source", "statistics-demo-rebuild",
+                    "salesSource", "sales_daily",
+                    "strategyCaseId", value.caseId()
+            ));
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("AI 전략 데모 요청 JSON 생성에 실패했습니다.", exception);
+        }
+    }
+
+    private void ensureNoExternalDemoReferences() {
+        Integer notifications = jdbcTemplate.queryForObject(
+                """
+                        SELECT COUNT(*)
+                        FROM notification notification
+                        JOIN strategy_case strategy_case
+                          ON strategy_case.strategy_case_id = notification.strategy_case_id
+                        WHERE strategy_case.case_code LIKE 'DEMO-STAT-%'
+                        """,
+                NO_PARAMETERS,
+                Integer.class
+        );
+        if (notifications != null && notifications > 0) {
+            throw new IllegalStateException("DEMO-STAT 전략을 참조하는 알림이 있어 허용 범위 안에서 안전하게 교체할 수 없습니다.");
+        }
+    }
+
+    private void deleteExistingDemoStrategies() {
+        List<String> statements = List.of(
+                """
+                DELETE FROM strategy_execution_result WHERE final_selection_id IN (
+                       SELECT selection.final_selection_id FROM final_strategy_selection selection
+                       JOIN strategy_case strategy_case ON strategy_case.strategy_case_id = selection.strategy_case_id
+                       WHERE strategy_case.case_code LIKE 'DEMO-STAT-%')
+                """,
+                """
+                DELETE FROM strategy_lot_allocation WHERE strategy_action_id IN (
+                       SELECT action.strategy_action_id FROM strategy_action action
+                       JOIN strategy_option option_value ON option_value.strategy_option_id = action.strategy_option_id
+                       JOIN strategy_case strategy_case ON strategy_case.strategy_case_id = option_value.strategy_case_id
+                       WHERE strategy_case.case_code LIKE 'DEMO-STAT-%')
+                """,
+                """
+                DELETE FROM strategy_performance WHERE strategy_option_id IN (
+                       SELECT option_value.strategy_option_id FROM strategy_option option_value
+                       JOIN strategy_case strategy_case ON strategy_case.strategy_case_id = option_value.strategy_case_id
+                       WHERE strategy_case.case_code LIKE 'DEMO-STAT-%')
+                """,
+                """
+                DELETE FROM strategy_review_request WHERE strategy_option_id IN (
+                       SELECT option_value.strategy_option_id FROM strategy_option option_value
+                       JOIN strategy_case strategy_case ON strategy_case.strategy_case_id = option_value.strategy_case_id
+                       WHERE strategy_case.case_code LIKE 'DEMO-STAT-%')
+                """,
+                """
+                DELETE FROM strategy_inventory_snapshot WHERE strategy_case_id IN (
+                       SELECT strategy_case_id FROM strategy_case WHERE case_code LIKE 'DEMO-STAT-%')
+                """,
+                """
+                DELETE FROM strategy_price_snapshot WHERE strategy_case_id IN (
+                       SELECT strategy_case_id FROM strategy_case WHERE case_code LIKE 'DEMO-STAT-%')
+                """,
+                """
+                DELETE FROM strategy_forecast_snapshot WHERE final_selection_id IN (
+                       SELECT selection.final_selection_id FROM final_strategy_selection selection
+                       JOIN strategy_case strategy_case ON strategy_case.strategy_case_id = selection.strategy_case_id
+                       WHERE strategy_case.case_code LIKE 'DEMO-STAT-%')
+                """,
+                """
+                DELETE FROM strategy_action WHERE strategy_option_id IN (
+                       SELECT option_value.strategy_option_id FROM strategy_option option_value
+                       JOIN strategy_case strategy_case ON strategy_case.strategy_case_id = option_value.strategy_case_id
+                       WHERE strategy_case.case_code LIKE 'DEMO-STAT-%')
+                """,
+                """
+                DELETE FROM strategy_simulation WHERE strategy_option_id IN (
+                       SELECT option_value.strategy_option_id FROM strategy_option option_value
+                       JOIN strategy_case strategy_case ON strategy_case.strategy_case_id = option_value.strategy_case_id
+                       WHERE strategy_case.case_code LIKE 'DEMO-STAT-%')
+                """,
+                """
+                DELETE FROM final_strategy_selection WHERE strategy_case_id IN (
+                       SELECT strategy_case_id FROM strategy_case WHERE case_code LIKE 'DEMO-STAT-%')
+                """,
+                """
+                DELETE FROM strategy_option WHERE strategy_case_id IN (
+                       SELECT strategy_case_id FROM strategy_case WHERE case_code LIKE 'DEMO-STAT-%')
+                """,
+                "DELETE FROM strategy_case WHERE case_code LIKE 'DEMO-STAT-%'"
+        );
+        statements.forEach(statement -> jdbcTemplate.update(statement, NO_PARAMETERS));
+    }
+
+    private void validateInsertedLedger() {
+        Integer caseCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM strategy_case WHERE case_code LIKE 'DEMO-STAT-%' AND is_deleted = 0",
+                NO_PARAMETERS, Integer.class);
+        Integer mismatchCount = jdbcTemplate.queryForObject(
+                """
+                        SELECT COUNT(*) FROM (
+                            SELECT result.strategy_execution_result_id
+                            FROM strategy_execution_result result
+                            JOIN final_strategy_selection selection
+                              ON selection.final_selection_id = result.final_selection_id
+                            JOIN strategy_case strategy_case
+                              ON strategy_case.strategy_case_id = selection.strategy_case_id
+                            JOIN strategy_option option_value
+                              ON option_value.strategy_option_id = selection.strategy_option_id
+                            LEFT JOIN strategy_performance performance
+                              ON performance.strategy_option_id = option_value.strategy_option_id
+                             AND performance.is_deleted = 0
+                            WHERE strategy_case.case_code LIKE 'DEMO-STAT-%'
+                              AND result.is_deleted = 0
+                            GROUP BY result.strategy_execution_result_id, result.goal_actual_value
+                            HAVING COALESCE(SUM(performance.actual_sales_qty), 0) <> result.goal_actual_value
+                        )
+                        """,
+                NO_PARAMETERS, Integer.class);
+        if (caseCount == null || caseCount != StrategyStatisticsDemoDataFactory.STRATEGY_COUNT
+                || mismatchCount == null || mismatchCount != 0) {
+            throw new IllegalStateException("AI 전략 데모 원장 검증에 실패했습니다.");
+        }
+    }
+
+    private static Long nullableLong(java.sql.ResultSet resultSet, String column) throws java.sql.SQLException {
+        long value = resultSet.getLong(column);
+        return resultSet.wasNull() ? null : value;
+    }
+
+    private record StrategyStatisticsDemoSalesCandidateBuilder(
+            long skuId,
+            long salesPointId,
+            BigDecimal unitCost,
+            BigDecimal sellingPrice,
+            NavigableMap<LocalDate, StrategyStatisticsDemoSalesDay> dailySales
+    ) {
+        private StrategyStatisticsDemoSalesCandidateBuilder(
+                long skuId, long salesPointId, BigDecimal unitCost, BigDecimal sellingPrice
+        ) {
+            this(skuId, salesPointId, unitCost, sellingPrice, new TreeMap<>());
+        }
+
+        private StrategyStatisticsDemoSalesCandidate build() {
+            return new StrategyStatisticsDemoSalesCandidate(
+                    skuId, salesPointId, dailySales,
+                    unitCost == null ? BigDecimal.ZERO : unitCost,
+                    sellingPrice == null ? BigDecimal.ZERO : sellingPrice);
+        }
     }
 
     private static StrategyStatisticsDemoBackfillResponse response(
