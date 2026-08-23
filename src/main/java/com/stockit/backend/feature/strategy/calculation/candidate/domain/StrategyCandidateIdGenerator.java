@@ -21,8 +21,17 @@ public class StrategyCandidateIdGenerator {
             LocalDate endDate,
             List<StrategyCandidate.Action> actions
     ) {
+        return generate(List.of(strategyType), startDate, endDate, actions);
+    }
+
+    public String generate(
+            List<StrategyType> strategyTypes,
+            LocalDate startDate,
+            LocalDate endDate,
+            List<StrategyCandidate.Action> actions
+    ) {
         StringBuilder canonical = new StringBuilder()
-                .append(strategyType.name()).append('|')
+                .append(strategyTypes).append('|')
                 .append(startDate).append('|')
                 .append(endDate);
         for (StrategyCandidate.Action action : actions) {
@@ -31,7 +40,10 @@ public class StrategyCandidateIdGenerator {
                     .append(':').append(action.source().salesPointId())
                     .append('>').append(action.target().warehouseId())
                     .append(':').append(action.target().salesPointId())
-                    .append(':').append(action.actionQuantity().toPlainString());
+                    .append(':').append(action.actionQuantity().toPlainString())
+                    .append(':').append(action.strategyPrice())
+                    .append(':').append(action.discountRate())
+                    .append(':').append(action.estimatedActionCost());
             for (StrategyCandidate.LotAllocation allocation : action.lotAllocations()) {
                 canonical.append('[')
                         .append(allocation.inventoryBalanceId()).append(':')

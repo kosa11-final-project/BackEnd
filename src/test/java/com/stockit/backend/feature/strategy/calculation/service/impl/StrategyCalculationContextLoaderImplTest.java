@@ -116,6 +116,7 @@ class StrategyCalculationContextLoaderImplTest {
         assertThat(context.salesPoints().get(10L).existingAvailableQty())
                 .isEqualByComparingTo("20");
         assertThat(context.salesPoints().get(20L).price()).isNull();
+        assertThat(context.salesPoints().get(20L).currentlyListed()).isTrue();
         assertThat(context.salesPoints().get(20L).existingAvailableQty())
                 .isEqualByComparingTo("5");
         assertThat(context.salesPoints().get(20L).warehouseRoutes())
@@ -160,6 +161,8 @@ class StrategyCalculationContextLoaderImplTest {
         assertThat(context.salesPoints().values())
                 .allSatisfy(salesPoint -> assertThat(salesPoint.existingAvailableQty())
                         .isEqualByComparingTo("0"));
+        assertThat(context.salesPoints().values())
+                .allSatisfy(salesPoint -> assertThat(salesPoint.currentlyListed()).isFalse());
     }
 
     @ParameterizedTest
