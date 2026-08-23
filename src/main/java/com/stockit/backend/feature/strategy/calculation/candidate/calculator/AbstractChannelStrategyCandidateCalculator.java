@@ -96,6 +96,14 @@ abstract class AbstractChannelStrategyCandidateCalculator
                 ));
                 continue;
             }
+            if (requiresCurrentlyListedTarget() && !target.hasCompletePrice()) {
+                exclusions.add(exclusion(
+                        targetId,
+                        CandidateExclusionReason.TARGET_PRICE_INCOMPLETE,
+                        "Channel concentration requires complete target commercial terms"
+                ));
+                continue;
+            }
             if (!requiresCurrentlyListedTarget() && listed) {
                 exclusions.add(exclusion(
                         targetId,

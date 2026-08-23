@@ -137,18 +137,23 @@ public class PriceDiscountCandidateCalculator implements StrategyCandidateCalcul
                 continue;
             }
 
+            List<QuantityTier> quantityTiers = planQuantityTiers(
+                    context,
+                    sourceCapacity,
+                    periodDemand,
+                    maximumPlan
+            );
             for (DiscountOption discount : discountOptions) {
-                addQuantityTiers(
+                addCandidates(
                         candidates,
-                        context,
                         strategyPriority,
                         sourceId,
                         sourcePrice,
                         sourceCapacity,
                         period,
-                        periodDemand,
                         baselineDemand,
                         maximumPlan,
+                        quantityTiers,
                         discount
                 );
             }
@@ -163,19 +168,13 @@ public class PriceDiscountCandidateCalculator implements StrategyCandidateCalcul
         return new CandidateGenerationResult(candidates, List.of());
     }
 
-    private void addQuantityTiers(
-            List<StrategyCandidate> candidates,
+    private List<QuantityTier> planQuantityTiers(
             StrategyCalculationContext context,
-            int strategyPriority,
-            Long sourceId,
-            Price sourcePrice,
             SourceInventoryCapacityPolicy.Capacity sourceCapacity,
-            StrategyPeriodCandidate period,
             Map<LocalDate, BigDecimal> periodDemand,
-            BigDecimal baselineDemand,
-            MovementCandidatePlan maximumPlan,
-            DiscountOption discount
+            MovementCandidatePlan maximumPlan
     ) {
+        List<QuantityTier> tiers = new ArrayList<>();
         Set<BigDecimal> generatedQuantities = new LinkedHashSet<>();
         for (int percentage = 10; percentage <= 100; percentage += 10) {
             BigDecimal requested = quantity(maximumPlan.plannedQuantity()
@@ -185,15 +184,38 @@ public class PriceDiscountCandidateCalculator implements StrategyCandidateCalcul
             if (requested.signum() == 0 || !generatedQuantities.add(requested)) {
                 continue;
             }
-            MovementCandidatePlan plan = allocationPolicy.plan(
-                    context.evaluationInventory(),
-                    sourceCapacity.byWarehouse(),
-                    periodDemand,
-                    requested
-            );
+            MovementCandidatePlan plan = requested.compareTo(
+                    maximumPlan.plannedQuantity()
+            ) == 0
+                    ? maximumPlan
+                    : allocationPolicy.plan(
+                            context.evaluationInventory(),
+                            sourceCapacity.byWarehouse(),
+                            periodDemand,
+                            requested
+                    );
             if (plan.plannedQuantity().compareTo(requested) != 0) {
                 continue;
             }
+            tiers.add(new QuantityTier(percentage, plan));
+        }
+        return List.copyOf(tiers);
+    }
+
+    private void addCandidates(
+            List<StrategyCandidate> candidates,
+            int strategyPriority,
+            Long sourceId,
+            Price sourcePrice,
+            SourceInventoryCapacityPolicy.Capacity sourceCapacity,
+            StrategyPeriodCandidate period,
+            BigDecimal baselineDemand,
+            MovementCandidatePlan maximumPlan,
+            List<QuantityTier> quantityTiers,
+            DiscountOption discount
+    ) {
+        for (QuantityTier quantityTier : quantityTiers) {
+            MovementCandidatePlan plan = quantityTier.plan();
             List<StrategyCandidate.Action> actions = toActions(
                     plan,
                     sourceId,
@@ -212,7 +234,11 @@ public class PriceDiscountCandidateCalculator implements StrategyCandidateCalcul
                     period.endDate(),
                     actions,
                     assumptions(sourceCapacity.safetyStockDefaulted()),
-                    new StrategyCandidate.Preference(strategyPriority, 1, percentage),
+                    new StrategyCandidate.Preference(
+                            strategyPriority,
+                            1,
+                            quantityTier.percentage()
+                    ),
                     new StrategyCandidate.DiscountEvidence(
                             maximumPlan.plannedQuantity(),
                             sourceCapacity.total(),
@@ -327,5 +353,11 @@ public class PriceDiscountCandidateCalculator implements StrategyCandidateCalcul
 
     private static BigDecimal quantity(BigDecimal value) {
         return CalculationPrecisionPolicy.quantity(value);
+    }
+
+    private record QuantityTier(
+            int percentage,
+            MovementCandidatePlan plan
+    ) {
     }
 }

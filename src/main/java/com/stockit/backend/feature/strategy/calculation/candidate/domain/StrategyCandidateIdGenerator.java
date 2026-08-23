@@ -1,5 +1,6 @@
 package com.stockit.backend.feature.strategy.calculation.candidate.domain;
 
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -40,15 +41,15 @@ public class StrategyCandidateIdGenerator {
                     .append(':').append(action.source().salesPointId())
                     .append('>').append(action.target().warehouseId())
                     .append(':').append(action.target().salesPointId())
-                    .append(':').append(action.actionQuantity().toPlainString())
-                    .append(':').append(action.strategyPrice())
-                    .append(':').append(action.discountRate())
-                    .append(':').append(action.estimatedActionCost());
+                    .append(':').append(plain(action.actionQuantity()))
+                    .append(':').append(plain(action.strategyPrice()))
+                    .append(':').append(plain(action.discountRate()))
+                    .append(':').append(plain(action.estimatedActionCost()));
             for (StrategyCandidate.LotAllocation allocation : action.lotAllocations()) {
                 canonical.append('[')
                         .append(allocation.inventoryBalanceId()).append(':')
                         .append(allocation.lotId()).append(':')
-                        .append(allocation.quantity().toPlainString())
+                        .append(plain(allocation.quantity()))
                         .append(']');
             }
         }
@@ -60,5 +61,9 @@ public class StrategyCandidateIdGenerator {
         } catch (NoSuchAlgorithmException exception) {
             throw new IllegalStateException("SHA-256 is unavailable", exception);
         }
+    }
+
+    private static String plain(BigDecimal value) {
+        return value == null ? "" : value.toPlainString();
     }
 }

@@ -1,6 +1,10 @@
 package com.stockit.backend.feature.strategy.calculation.candidate.calculator;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -36,14 +40,14 @@ class DiscountAndChannelCandidateCalculatorTest {
     private PriceDiscountCandidateCalculator discountCalculator;
     private ChannelExpansionCandidateCalculator expansionCalculator;
     private ChannelConcentrationCandidateCalculator concentrationCalculator;
+    private MovementLotAllocationPolicy allocationPolicy;
 
     @BeforeEach
     void setUp() {
         SafetyStockPolicyResolver safetyResolver = new SafetyStockPolicyResolver();
         SourceInventoryCapacityPolicy capacityPolicy =
                 new SourceInventoryCapacityPolicy(safetyResolver);
-        MovementLotAllocationPolicy allocationPolicy =
-                new MovementLotAllocationPolicy();
+        allocationPolicy = spy(new MovementLotAllocationPolicy());
         StrategyCandidateIdGenerator idGenerator =
                 new StrategyCandidateIdGenerator();
         StrategyPeriodCandidatePolicy periodPolicy =
@@ -103,6 +107,7 @@ class DiscountAndChannelCandidateCalculatorTest {
         );
         assertThat(tenPercentMaximum.actions().get(0).actionQuantity())
                 .isEqualByComparingTo("10");
+        verify(allocationPolicy, times(10)).plan(any(), any(), any(), any());
     }
 
     @Test
@@ -248,6 +253,37 @@ class DiscountAndChannelCandidateCalculatorTest {
         assertThat(result.exclusions()).singleElement().satisfies(exclusion ->
                 assertThat(exclusion.reason()).isEqualTo(
                         CandidateExclusionReason.TARGET_ALREADY_LISTED
+                ));
+    }
+
+    @Test
+    void excludesListedConcentrationTargetWithIncompleteCommercialTerms() {
+        StrategyCalculationContext original = context(
+                null,
+                List.of(StrategyType.CHANNEL_CONCENTRATION)
+        );
+        StrategyCalculationContext.SalesPoint incompleteListedTarget =
+                new StrategyCalculationContext.SalesPoint(
+                        20L,
+                        "SP-20",
+                        "판매처 20",
+                        BigDecimal.ZERO,
+                        true,
+                        null,
+                        forecasts("10"),
+                        List.of(route(20L, 501L))
+                );
+        StrategyCalculationContext context = replaceTarget(
+                original,
+                incompleteListedTarget
+        );
+
+        CandidateGenerationResult result = concentrationCalculator.generate(context, 1);
+
+        assertThat(result.candidates()).isEmpty();
+        assertThat(result.exclusions()).singleElement().satisfies(exclusion ->
+                assertThat(exclusion.reason()).isEqualTo(
+                        CandidateExclusionReason.TARGET_PRICE_INCOMPLETE
                 ));
     }
 

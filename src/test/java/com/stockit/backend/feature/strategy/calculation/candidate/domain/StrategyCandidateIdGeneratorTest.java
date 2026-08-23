@@ -18,12 +18,24 @@ class StrategyCandidateIdGeneratorTest {
     @Test
     void includesDiscountPriceAndRateInStableCandidateIdentity() {
         StrategyCandidate.Action fivePercent = discountAction("95", "0.0500");
-        StrategyCandidate.Action tenPercent = discountAction("90", "0.1000");
+        StrategyCandidate.Action sameRateDifferentPrice =
+                discountAction("94", "0.0500");
+        StrategyCandidate.Action samePriceDifferentRate =
+                discountAction("95", "0.1000");
 
         String first = generate(fivePercent);
 
         assertThat(generate(fivePercent)).isEqualTo(first);
-        assertThat(generate(tenPercent)).isNotEqualTo(first);
+        assertThat(generate(sameRateDifferentPrice)).isNotEqualTo(first);
+        assertThat(generate(samePriceDifferentRate)).isNotEqualTo(first);
+    }
+
+    @Test
+    void normalizesScientificDecimalNotationInCandidateIdentity() {
+        StrategyCandidate.Action plain = discountAction("95", "0.0500");
+        StrategyCandidate.Action scientific = discountAction("9.5E+1", "5.00E-2");
+
+        assertThat(generate(scientific)).isEqualTo(generate(plain));
     }
 
     private String generate(StrategyCandidate.Action action) {
