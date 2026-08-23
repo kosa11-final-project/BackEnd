@@ -199,12 +199,27 @@ public class StrategyCandidateSimulationEngine {
                         salesPointId,
                         completeForecastRange(
                                 context,
-                                targetDemandPolicy.calculate(context, salesPointId)
+                                targetDemand(context, salesPointId)
                         )
                 );
             }
         }
         return result;
+    }
+
+    private Map<LocalDate, BigDecimal> targetDemand(
+            StrategyCalculationContext context,
+            Long salesPointId
+    ) {
+        try {
+            return targetDemandPolicy.calculate(context, salesPointId);
+        } catch (StrategyCalculationException exception) {
+            throw new CandidateSimulationException(
+                    exception.getCode(),
+                    exception.getMessage(),
+                    exception
+            );
+        }
     }
 
     private static Map<LocalDate, BigDecimal> completeForecastRange(

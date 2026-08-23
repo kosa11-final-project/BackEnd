@@ -153,6 +153,45 @@ class StrategyCandidateSimulationEngineTest {
     }
 
     @Test
+    void isolatesInvalidTargetDemandFromIndependentCandidateSimulation() {
+        StrategyCalculationContext context = context(
+                lot("10", null),
+                forecasts("0", "0", "0"),
+                forecasts("5", "-1", "5"),
+                price(10L, "100", "70"),
+                price(20L, "110", "70"),
+                true
+        );
+        BaselineSimulation baseline = baselineEngine.simulate(context);
+
+        assertThatThrownBy(() -> engine.simulate(
+                context,
+                movementCandidate("10", START, null, StrategyType.REALLOCATION),
+                baseline,
+                SimulationDetailLevel.SUMMARY_ONLY
+        )).isInstanceOfSatisfying(
+                CandidateSimulationException.class,
+                exception -> {
+                    assertThat(exception.getCode())
+                            .isEqualTo("CALCULATION_FORECAST_INVALID");
+                    assertThat(exception.getMessage())
+                            .contains("Target daily forecast");
+                }
+        );
+
+        StrategyCandidateSimulation independent = engine.simulate(
+                context,
+                discountCandidate("5", START, END, "80", "0.2000"),
+                baseline,
+                SimulationDetailLevel.SUMMARY_ONLY
+        );
+
+        assertThat(independent.candidateId()).isEqualTo("CAND-DISCOUNT");
+        assertThat(independent.summary().expectedSalesQty())
+                .isEqualByComparingTo("0");
+    }
+
+    @Test
     void leavesSellThroughDaysNullWhenAllocatedInventoryIsDisposed() {
         StrategyCalculationContext context = context(
                 lot("5", START),

@@ -10,6 +10,15 @@ public class CandidateSimulationException extends RuntimeException {
         this.code = code;
     }
 
+    public CandidateSimulationException(
+            String code,
+            String message,
+            Throwable cause
+    ) {
+        super(message, cause);
+        this.code = code;
+    }
+
     public String getCode() {
         return code;
     }
