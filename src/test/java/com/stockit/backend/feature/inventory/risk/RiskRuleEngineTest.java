@@ -26,13 +26,15 @@ class RiskRuleEngineTest {
     }
 
     @Test
-    @DisplayName("가용수량이 없으면 미판정 상태를 반환한다")
-    void missingInventory_isUnassessed() {
+    @DisplayName("가용수량이 없으면 재고 위험으로 판정한다")
+    void missingInventory_isCritical() {
         RiskAssessmentResult result = engine.evaluate(input(null, BigDecimal.TEN,
                 BigDecimal.valueOf(80), BigDecimal.valueOf(30), List.of(), true, false));
 
-        assertThat(result.assessmentStatus()).isEqualTo("UNASSESSED");
-        assertThat(result.apiRiskGrade()).isEqualTo("UNASSESSED");
+        assertThat(result.assessmentStatus()).isEqualTo("ASSESSED");
+        assertThat(result.dbRiskGrade()).isEqualTo("CRITICAL");
+        assertThat(result.apiRiskGrade()).isEqualTo("DANGER");
+        assertThat(result.availableQty()).isEqualByComparingTo(BigDecimal.ZERO);
         assertThat(result.reasons()).extracting(RiskReason::code).contains("DATA_MISSING");
     }
 
@@ -116,36 +118,61 @@ class RiskRuleEngineTest {
     }
 
     @Test
-    @DisplayName("오래된 예측 기준일은 정상 등급으로 대체하지 않는다")
-    void staleForecast_isUnassessed() {
+    @DisplayName("오래된 예측 기준일도 예측값을 사용해 판정한다")
+    void staleForecast_isStillAssessed() {
         RiskAssessmentResult result = engine.evaluate(new RiskAssessmentInput(
                 "SKU-001", "GREETING", BigDecimal.valueOf(100),
                 BigDecimal.valueOf(20), BigDecimal.valueOf(80), BigDecimal.valueOf(30),
                 BASE_DATE.minusDays(15), List.of(), true, true));
 
-        assertThat(result.assessmentStatus()).isEqualTo("STALE");
-        assertThat(result.dbRiskGrade()).isNull();
-        assertThat(result.apiRiskGrade()).isEqualTo("UNASSESSED");
+        assertThat(result.assessmentStatus()).isEqualTo("ASSESSED");
+        assertThat(result.dbRiskGrade()).isEqualTo("GOOD");
+        assertThat(result.apiRiskGrade()).isEqualTo("SAFE");
+        assertThat(result.projectedD7()).isEqualByComparingTo("80");
+        assertThat(result.primaryReason()).contains("기준일이 오래된 수요예측");
     }
 
     @Test
-    @DisplayName("예측이 없으면 미판정 상태를 반환한다")
-    void missingForecast_isUnassessed() {
+    @DisplayName("오래된 예측을 사용해도 소비기한과 보유일수는 현재 판정일 기준으로 계산한다")
+    void staleForecast_usesCurrentAssessmentDateForLotRules() {
+        RiskAssessmentInput.LotRiskItem lot = new RiskAssessmentInput.LotRiskItem(
+                "1", "LOT-OLD-FORECAST", BASE_DATE.minusDays(1), null, BASE_DATE.minusDays(10), BigDecimal.TEN
+        );
+        RiskAssessmentResult result = engine.evaluate(new RiskAssessmentInput(
+                "SKU-001", "GREETING", BigDecimal.valueOf(100),
+                BigDecimal.valueOf(20), BigDecimal.valueOf(80), BigDecimal.valueOf(30),
+                BASE_DATE.minusDays(15), List.of(lot), true, true, BASE_DATE
+        ));
+
+        assertThat(result.dbRiskGrade()).isEqualTo("CRITICAL");
+        assertThat(result.reasons()).extracting(RiskReason::code).contains("LOT_EXPIRED");
+        assertThat(result.nearestExpiryDays()).isEqualTo(-1);
+        assertThat(result.maxHoldingDays()).isEqualTo(10);
+    }
+
+    @Test
+    @DisplayName("예측이 없으면 재고·안전재고·LOT 규칙으로 판정한다")
+    void missingForecast_usesAvailableRules() {
         RiskAssessmentResult result = engine.evaluate(input(BigDecimal.valueOf(100),
                 null, null, BigDecimal.valueOf(30), List.of(), false, false));
 
-        assertThat(result.assessmentStatus()).isEqualTo("UNASSESSED");
-        assertThat(result.reasons()).extracting(RiskReason::code).contains("MISSING_FORECAST");
+        assertThat(result.assessmentStatus()).isEqualTo("ASSESSED");
+        assertThat(result.dbRiskGrade()).isEqualTo("GOOD");
+        assertThat(result.shortageQty30()).isNull();
+        assertThat(result.projectedD7()).isNull();
+        assertThat(result.primaryReason()).contains("수요예측이 없어");
     }
 
     @Test
-    @DisplayName("누적 예측값이 감소하면 미판정 상태를 반환한다")
-    void decreasingForecast_isUnassessed() {
+    @DisplayName("누적 예측값이 잘못되면 예측 규칙만 제외하고 판정한다")
+    void decreasingForecast_skipsInvalidForecastRules() {
         RiskAssessmentResult result = engine.evaluate(input(BigDecimal.valueOf(100),
                 BigDecimal.valueOf(80), BigDecimal.valueOf(70), BigDecimal.valueOf(30), List.of(), true, false));
 
-        assertThat(result.assessmentStatus()).isEqualTo("UNASSESSED");
-        assertThat(result.reasons()).extracting(RiskReason::code).contains("INVALID_FORECAST_DATA");
+        assertThat(result.assessmentStatus()).isEqualTo("ASSESSED");
+        assertThat(result.dbRiskGrade()).isEqualTo("GOOD");
+        assertThat(result.shortageQty30()).isNull();
+        assertThat(result.primaryReason()).contains("유효하지 않아");
     }
 
     @Test
@@ -159,26 +186,20 @@ class RiskRuleEngineTest {
     }
 
     @Test
-    @DisplayName("음수 안전재고 기준은 미판정으로 처리한다")
-    void negativeSafetyStock_isUnassessed() {
-        RiskAssessmentResult result = engine.evaluate(input(BigDecimal.valueOf(100),
-                BigDecimal.valueOf(20), BigDecimal.valueOf(80), BigDecimal.valueOf(-1), List.of(), true, false));
-
-        assertThat(result.assessmentStatus()).isEqualTo("UNASSESSED");
-        assertThat(result.reasons()).extracting(RiskReason::code).contains("INVALID_POLICY_DATA");
+    @DisplayName("음수 안전재고 기준은 입력 오류로 차단한다")
+    void negativeSafetyStock_isRejected() {
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class, () -> engine.evaluate(input(
+                BigDecimal.valueOf(100), BigDecimal.valueOf(20), BigDecimal.valueOf(80), BigDecimal.valueOf(-1), List.of(), true, false)));
     }
 
     @Test
-    @DisplayName("음수 LOT 수량은 미판정으로 처리한다")
-    void negativeLotQuantity_isUnassessed() {
+    @DisplayName("음수 LOT 수량은 입력 오류로 차단한다")
+    void negativeLotQuantity_isRejected() {
         RiskAssessmentInput.LotRiskItem invalidLot = new RiskAssessmentInput.LotRiskItem(
                 "1", "LOT-01", BASE_DATE.plusDays(30), null, BASE_DATE.minusDays(5), BigDecimal.valueOf(-1)
         );
-        RiskAssessmentResult result = engine.evaluate(input(BigDecimal.valueOf(100),
-                BigDecimal.valueOf(20), BigDecimal.valueOf(80), BigDecimal.valueOf(30), List.of(invalidLot), true, false));
-
-        assertThat(result.assessmentStatus()).isEqualTo("UNASSESSED");
-        assertThat(result.reasons()).extracting(RiskReason::code).contains("INVALID_INVENTORY_DATA");
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class, () -> engine.evaluate(input(
+                BigDecimal.valueOf(100), BigDecimal.valueOf(20), BigDecimal.valueOf(80), BigDecimal.valueOf(30), List.of(invalidLot), true, false)));
     }
 
     private RiskAssessmentInput input(

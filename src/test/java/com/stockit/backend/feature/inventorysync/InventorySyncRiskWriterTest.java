@@ -38,6 +38,7 @@ class InventorySyncRiskWriterTest {
 
         assertEquals("CRITICAL", records.get(0).riskGrade());
         assertEquals("Y", records.get(0).shortageYn());
+        assertEquals(0, records.get(0).stockDays().compareTo(new BigDecimal("3")));
         org.junit.jupiter.api.Assertions.assertTrue(records.get(0).reasonMessage().contains("산식:"));
         org.junit.jupiter.api.Assertions.assertTrue(records.get(0).reasonMessage().contains("가용재고=on_hand_qty"));
         verify(mapper).mergeRiskAssessments(anyList());
@@ -81,7 +82,7 @@ class InventorySyncRiskWriterTest {
     }
 
     @Test
-    void persistsACompatibilityWarningForUnassignedScopeWithoutForecast() {
+    void persistsACompletedServerRuleAssessmentWithoutForecast() {
         InventorySyncRiskMapper mapper = Mockito.mock(InventorySyncRiskMapper.class);
         InventorySyncRiskWriter writer = new InventorySyncRiskWriter(new RiskRuleEngine(), mapper);
         RiskAssessmentInput input = new RiskAssessmentInput(
@@ -93,8 +94,36 @@ class InventorySyncRiskWriterTest {
                 new InventorySyncRiskWriter.RiskScopeSnapshot(100L, null, input)
         ));
 
-        assertEquals("WARNING", records.get(0).riskGrade());
-        org.junit.jupiter.api.Assertions.assertTrue(records.get(0).reasonMessage().contains("MISSING_FORECAST"));
+        assertEquals("GOOD", records.get(0).riskGrade());
+        assertEquals("N", records.get(0).shortageYn());
+        org.junit.jupiter.api.Assertions.assertNull(records.get(0).stockDays());
+        org.junit.jupiter.api.Assertions.assertTrue(records.get(0).reasonMessage().contains("수요예측이 없어"));
         verify(mapper).mergeRiskAssessments(anyList());
+    }
+
+    @Test
+    void storesShortageFlagFromSafetyStockInsteadOfForecastShortage() {
+        InventorySyncRiskMapper mapper = Mockito.mock(InventorySyncRiskMapper.class);
+        InventorySyncRiskWriter writer = new InventorySyncRiskWriter(new RiskRuleEngine(), mapper);
+        RiskAssessmentInput input = new RiskAssessmentInput(
+                "SKU-1", "DEPT-1", BigDecimal.TEN, BigDecimal.ONE, BigDecimal.valueOf(20), BigDecimal.ONE,
+                LocalDate.of(2026, 8, 20), List.of(), true, false
+        );
+
+        var records = writer.evaluateAndPersist(10L, 7L, Set.of("1:10"), scopes -> List.of(
+                new InventorySyncRiskWriter.RiskScopeSnapshot(100L, 200L, input)
+        ));
+
+        assertEquals("N", records.get(0).shortageYn());
+        assertEquals("WARNING", records.get(0).riskGrade());
+    }
+
+    @Test
+    void failsInsteadOfSilentlyCompletingWhenAffectedRiskSnapshotIsEmpty() {
+        InventorySyncRiskMapper mapper = Mockito.mock(InventorySyncRiskMapper.class);
+        InventorySyncRiskWriter writer = new InventorySyncRiskWriter(new RiskRuleEngine(), mapper);
+
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class, () -> writer.evaluateAndPersist(
+                10L, 7L, Set.of("1:GREETING"), scopes -> List.of()));
     }
 }

@@ -14,8 +14,26 @@ public record RiskAssessmentInput(
         LocalDate baseDate,
         List<LotRiskItem> lots,
         boolean forecastAvailable,
-        boolean forecastStale
+        boolean forecastStale,
+        LocalDate assessmentDate
 ) {
+    /** 기존 호출부와의 호환을 유지하면서 판정 기준일을 예측 기준일로 초기화합니다. */
+    public RiskAssessmentInput(
+            String skuCode,
+            String salesPointCode,
+            BigDecimal onHandQty,
+            BigDecimal predictedQtyD7,
+            BigDecimal predictedQtyD30,
+            BigDecimal safetyStockQty,
+            LocalDate baseDate,
+            List<LotRiskItem> lots,
+            boolean forecastAvailable,
+            boolean forecastStale
+    ) {
+        this(skuCode, salesPointCode, onHandQty, predictedQtyD7, predictedQtyD30, safetyStockQty,
+                baseDate, lots, forecastAvailable, forecastStale, baseDate);
+    }
+
     public record LotRiskItem(
             String lotId,
             String lotNumber,

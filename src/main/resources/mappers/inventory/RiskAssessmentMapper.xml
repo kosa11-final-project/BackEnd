@@ -60,13 +60,56 @@
         WHERE ROWNUM = 1
     </select>
 
+    <select id="selectLatestPersistedAssessment"
+            resultType="com.stockit.backend.feature.inventory.risk.PersistedRiskAssessmentVO">
+        SELECT *
+        FROM (
+            SELECT ra.risk_grade AS db_risk_grade,
+                   ra.shortage_yn,
+                   ra.stock_days,
+                   ra.holding_days,
+                   ra.expiry_days_left,
+                   ra.rule_version,
+                   ra.reason_message,
+                   ra.updated_at AS assessed_at
+            FROM risk_assessment ra
+            INNER JOIN inventory_balance ib
+                    ON ib.inventory_balance_id = ra.inventory_balance_id
+                   AND ib.is_deleted = 0
+            INNER JOIN sku s
+                    ON s.sku_id = ib.sku_id
+                   AND s.is_deleted = 0
+            LEFT JOIN sales_point sp
+                    ON sp.sales_point_id = ib.allocated_sales_point_id
+                   AND sp.is_deleted = 0
+            WHERE ra.is_deleted = 0
+              AND s.sku_code = #{skuCode}
+              AND (
+                  (#{salesPointCode} != 'UNASSIGNED' AND sp.sales_point_code = #{salesPointCode})
+                  OR (#{salesPointCode} = 'UNASSIGNED'
+                      AND ib.allocated_sales_point_id IS NULL)
+              )
+            ORDER BY CASE ra.risk_grade
+                         WHEN 'CRITICAL' THEN 1
+                         WHEN 'WARNING' THEN 2
+                         WHEN 'NORMAL' THEN 3
+                         WHEN 'GOOD' THEN 4
+                         ELSE 5
+                     END,
+                     ra.updated_at DESC,
+                     ra.risk_assessment_id DESC
+        )
+        WHERE ROWNUM = 1
+    </select>
+
     <select id="selectLotRiskItems" resultType="com.stockit.backend.feature.inventory.risk.RiskAssessmentInput$LotRiskItem">
         SELECT TO_CHAR(l.lot_id) AS lotId,
                l.lot_no AS lotNumber,
                l.expiry_date AS expiryDate,
                l.sale_stop_date AS saleStopDate,
                l.received_date AS receivedDate,
-               SUM(ib.on_hand_qty) AS quantity
+               SUM(ib.on_hand_qty) AS quantity,
+               l.lot_status AS lotStatus
         FROM lot l
         INNER JOIN inventory_balance ib ON ib.lot_id = l.lot_id AND ib.is_deleted = 0
         INNER JOIN sku s ON s.sku_id = ib.sku_id AND s.is_deleted = 0
@@ -79,7 +122,7 @@
                   AND ib.allocated_sales_point_id IS NULL)
           )
           AND l.is_deleted = 0
-        GROUP BY l.lot_id, l.lot_no, l.expiry_date, l.sale_stop_date, l.received_date
+        GROUP BY l.lot_id, l.lot_no, l.expiry_date, l.sale_stop_date, l.received_date, l.lot_status
         ORDER BY l.expiry_date ASC NULLS LAST
     </select>
 
