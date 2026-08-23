@@ -60,6 +60,20 @@ class StrategyExecutionMapperTest {
     }
 
     @Test
+    void readsMovementEndpointsAndQuantityWithoutAdditionalLocationQueries() {
+        List<StrategyExecutionActionVO> actions = mapper.selectSupportedActions(List.of(1001L));
+
+        assertThat(actions.get(0)).satisfies(action -> {
+            assertThat(action.getActionType()).isEqualTo("REALLOCATION");
+            assertThat(action.getActionQuantity()).isEqualByComparingTo("20");
+            assertThat(action.getSourceWarehouseId()).isEqualTo(501L);
+            assertThat(action.getSourceWarehouseName()).isEqualTo("성남센터");
+            assertThat(action.getTargetSalesPointId()).isEqualTo(10L);
+            assertThat(action.getTargetSalesPointName()).isEqualTo("그리팅몰");
+        });
+    }
+
+    @Test
     void appliesPaginationSearchAndFiltersWithAndSemantics() {
         StrategyExecutionQuery firstPage = query(0, 1, null, null, "PRICE_DISCOUNT", "DESC");
         StrategyExecutionQuery secondPage = query(1, 1, null, null, "PRICE_DISCOUNT", "DESC");

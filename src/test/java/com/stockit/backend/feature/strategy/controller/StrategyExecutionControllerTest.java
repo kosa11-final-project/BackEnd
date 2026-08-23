@@ -60,6 +60,11 @@ class StrategyExecutionControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.id").value(101))
                 .andExpect(jsonPath("$.data.actions").isArray())
+                .andExpect(jsonPath("$.data.inventoryTransfers[0].fromLocationId").value(501))
+                .andExpect(jsonPath("$.data.inventoryTransfers[0].fromLocationName").value("성남센터"))
+                .andExpect(jsonPath("$.data.inventoryTransfers[0].toLocationId").value(10))
+                .andExpect(jsonPath("$.data.inventoryTransfers[0].toLocationName").value("그리팅몰"))
+                .andExpect(jsonPath("$.data.inventoryTransfers[0].quantity").value(20))
                 .andExpect(jsonPath("$.data.salesDaily").isArray());
     }
 
@@ -123,6 +128,12 @@ class StrategyExecutionControllerTest {
                         .value("#/components/schemas/ApiErrorResponse"))
                 .andExpect(jsonPath(detailOperation + ".summary")
                         .value("AI 전략 실행 관제 상세 조회"))
+                .andExpect(jsonPath("$.components.schemas.StrategyExecutionResponse.properties.inventoryTransfers")
+                        .exists())
+                .andExpect(jsonPath("$.components.schemas.InventoryTransfer.properties.fromLocationId")
+                        .exists())
+                .andExpect(jsonPath("$.components.schemas.InventoryTransfer.properties.quantity.description")
+                        .value("이동 수량. 항상 양수"))
                 .andExpect(jsonPath(detailOperation + ".responses['200']").exists())
                 .andExpect(jsonPath(detailOperation + ".responses['401'].content['*/*'].schema['$ref']")
                         .value("#/components/schemas/ApiErrorResponse"))
@@ -146,6 +157,9 @@ class StrategyExecutionControllerTest {
                 null,
                 List.of(),
                 List.of(),
+                List.of(new StrategyExecutionResponse.InventoryTransfer(
+                        501L, "성남센터", 10L, "그리팅몰", new java.math.BigDecimal("20")
+                )),
                 List.of(),
                 List.of(),
                 List.of(),

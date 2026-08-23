@@ -26,6 +26,8 @@ public record StrategyExecutionResponse(
         String resultSummary,
         List<Action> actions,
         List<InventoryResult> inventoryResults,
+        @Schema(description = "재고 이동 액션의 출발·도착 거점별 이동 수량")
+        List<InventoryTransfer> inventoryTransfers,
         List<ChannelResult> channelResults,
         List<DailySales> salesDaily,
         List<SalesPointComparison> salesPointComparison,
@@ -79,6 +81,16 @@ public record StrategyExecutionResponse(
             BigDecimal after,
             BigDecimal safetyStockQuantity,
             String guardrail
+    ) {
+    }
+
+    @Schema(description = "출발·도착 거점별로 집계한 재고 이동 내역")
+    public record InventoryTransfer(
+            @Schema(description = "출발 거점 ID", example = "501") Long fromLocationId,
+            @Schema(description = "출발 거점명", example = "성남 물류센터") String fromLocationName,
+            @Schema(description = "도착 거점 ID", example = "10") Long toLocationId,
+            @Schema(description = "도착 거점명", example = "그리팅") String toLocationName,
+            @Schema(description = "이동 수량. 항상 양수", example = "121") BigDecimal quantity
     ) {
     }
 
