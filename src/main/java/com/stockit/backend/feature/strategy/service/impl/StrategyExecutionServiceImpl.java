@@ -254,28 +254,43 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
                     || action.getActionQuantity().signum() == 0) {
                 continue;
             }
-            TransferLocation source = sourceLocation(action);
+            TransferLocation sourceWarehouse = transferLocation(
+                    "WAREHOUSE", action.getSourceWarehouseId(), action.getSourceWarehouseName()
+            );
+            TransferLocation sourceSalesPoint = transferLocation(
+                    "SALES_POINT", action.getSourceSalesPointId(), action.getSourceSalesPointName()
+            );
             TransferLocation destinationWarehouse = transferLocation(
                     "WAREHOUSE", action.getDestinationWarehouseId(), action.getDestinationWarehouseName()
             );
             TransferLocation targetSalesPoint = transferLocation(
                     "SALES_POINT", action.getTargetSalesPointId(), action.getTargetSalesPointName()
             );
-            TransferLocation target = destinationWarehouse != null ? destinationWarehouse : targetSalesPoint;
+            boolean reallocation = "REALLOCATION".equals(action.getActionType());
+            TransferLocation source = reallocation && sourceSalesPoint != null ? sourceSalesPoint
+                    : sourceWarehouse != null ? sourceWarehouse : sourceSalesPoint;
+            TransferLocation target = reallocation && targetSalesPoint != null ? targetSalesPoint
+                    : destinationWarehouse != null ? destinationWarehouse : targetSalesPoint;
             if (source == null || target == null || source.sameLocation(target)) {
                 continue;
             }
             InventoryTransferKey route = new InventoryTransferKey(
-                    source, target, destinationWarehouse, targetSalesPoint
+                    action.getActionType(), source, target, sourceWarehouse, sourceSalesPoint,
+                    destinationWarehouse, targetSalesPoint
             );
             quantitiesByRoute.merge(route, action.getActionQuantity().abs(), BigDecimal::add);
         }
         return quantitiesByRoute.entrySet().stream()
                 .map(entry -> new StrategyExecutionResponse.InventoryTransfer(
+                        entry.getKey().actionType(),
                         entry.getKey().source().id(),
                         entry.getKey().source().name(),
                         entry.getKey().target().id(),
                         entry.getKey().target().name(),
+                        locationId(entry.getKey().sourceWarehouse()),
+                        locationName(entry.getKey().sourceWarehouse()),
+                        locationId(entry.getKey().sourceSalesPoint()),
+                        locationName(entry.getKey().sourceSalesPoint()),
                         locationId(entry.getKey().destinationWarehouse()),
                         locationName(entry.getKey().destinationWarehouse()),
                         locationId(entry.getKey().targetSalesPoint()),
@@ -283,15 +298,6 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
                         entry.getValue()
                 ))
                 .toList();
-    }
-
-    private static TransferLocation sourceLocation(StrategyExecutionActionVO action) {
-        TransferLocation salesPoint = transferLocation(
-                "SALES_POINT", action.getSourceSalesPointId(), action.getSourceSalesPointName()
-        );
-        return salesPoint != null ? salesPoint : transferLocation(
-                "WAREHOUSE", action.getSourceWarehouseId(), action.getSourceWarehouseName()
-        );
     }
 
     private static Long locationId(TransferLocation location) {
@@ -313,8 +319,11 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
     }
 
     private record InventoryTransferKey(
+            String actionType,
             TransferLocation source,
             TransferLocation target,
+            TransferLocation sourceWarehouse,
+            TransferLocation sourceSalesPoint,
             TransferLocation destinationWarehouse,
             TransferLocation targetSalesPoint
     ) {

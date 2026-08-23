@@ -152,10 +152,13 @@ class StrategyExecutionServiceImplTest {
         assertThat(result.inventoryResults().get(1).moved()).isEqualByComparingTo("25");
         assertThat(result.inventoryTransfers()).hasSize(2);
         assertThat(result.inventoryTransfers().get(0)).satisfies(transfer -> {
+            assertThat(transfer.actionType()).isEqualTo("RT_TRANSFER");
             assertThat(transfer.fromLocationId()).isEqualTo(501L);
             assertThat(transfer.fromLocationName()).isEqualTo("성남센터");
             assertThat(transfer.toLocationId()).isEqualTo(502L);
             assertThat(transfer.toLocationName()).isEqualTo("경인1센터");
+            assertThat(transfer.sourceWarehouseId()).isEqualTo(501L);
+            assertThat(transfer.sourceWarehouseName()).isEqualTo("성남센터");
             assertThat(transfer.destinationWarehouseId()).isEqualTo(502L);
             assertThat(transfer.destinationWarehouseName()).isEqualTo("경인1센터");
             assertThat(transfer.targetSalesPointId()).isEqualTo(10L);
@@ -238,7 +241,7 @@ class StrategyExecutionServiceImplTest {
         StrategyExecutionActionVO action = new StrategyExecutionActionVO();
         action.setStrategyActionId(actionId);
         action.setStrategyOptionId(optionId);
-        action.setActionType("REALLOCATION");
+        action.setActionType("RT_TRANSFER");
         action.setActionQuantity(new BigDecimal("20"));
         action.setSourceWarehouseId(501L);
         action.setSourceWarehouseName("성남센터");
