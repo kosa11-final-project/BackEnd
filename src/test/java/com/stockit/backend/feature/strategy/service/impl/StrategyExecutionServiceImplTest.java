@@ -99,7 +99,7 @@ class StrategyExecutionServiceImplTest {
     }
 
     @Test
-    void returnsDetailWithNullUnknownsAndActualCollectedValues() {
+    void returnsDetailWithCalculatedProgressStatusAndActualCollectedValues() {
         StrategyExecutionBaseVO base = base(101L, 1001L);
         StrategyExecutionActionVO action = action(11L, 1001L);
         StrategyExecutionInventoryVO inventory = new StrategyExecutionInventoryVO();
@@ -130,8 +130,10 @@ class StrategyExecutionServiceImplTest {
         StrategyExecutionResponse result = service.findByStrategyCaseId(101L);
 
         assertThat(result.id()).isEqualTo(101L);
-        assertThat(result.progress()).isNull();
-        assertThat(result.actions().get(0).status()).isNull();
+        assertThat(result.progress()).isEqualTo(100);
+        assertThat(result.resultSummary()).isEqualTo("실제 판매 7 / 목표 10 (달성률 70%)");
+        assertThat(result.actions().get(0).status()).isEqualTo("COMPLETED");
+        assertThat(result.actions().get(0).progress()).isEqualTo(100);
         assertThat(result.actions().get(0).relationship()).isNull();
         assertThat(result.inventoryResults().get(0).moved()).isEqualByComparingTo("-20");
         assertThat(result.salesDaily()).hasSize(1);
@@ -175,6 +177,11 @@ class StrategyExecutionServiceImplTest {
         base.setUnitCode("개");
         base.setProductName("테스트 상품");
         base.setRecommendationReason("재고 편중 완화");
+        base.setPlannedStartDate(LocalDate.of(2026, 5, 1));
+        base.setPlannedEndDate(LocalDate.of(2026, 5, 10));
+        base.setGoalTargetValue(new BigDecimal("10"));
+        base.setGoalActualValue(new BigDecimal("7"));
+        base.setAchievementRate(new BigDecimal("70"));
         return base;
     }
 
@@ -189,6 +196,8 @@ class StrategyExecutionServiceImplTest {
         action.setTargetSalesPointId(10L);
         action.setTargetSalesPointCode("GREETING");
         action.setTargetSalesPointName("그리팅몰");
+        action.setStartDate(LocalDate.of(2026, 5, 1));
+        action.setEndDate(LocalDate.of(2026, 5, 10));
         return action;
     }
 }

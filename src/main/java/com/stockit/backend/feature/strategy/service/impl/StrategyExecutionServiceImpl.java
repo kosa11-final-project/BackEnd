@@ -79,7 +79,8 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
                         actionsByOption.getOrDefault(base.getStrategyOptionId(), List.of()),
                         List.of(),
                         List.of(),
-                        null
+                        null,
+                        LocalDate.now(clock.withZone(BUSINESS_ZONE))
                 ))
                 .toList();
         int totalPages = totalElements == 0
@@ -124,7 +125,8 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
         StrategyExecutionPerformanceVO performance = strategyExecutionMapper.selectPerformance(
                 strategyOptionId
         );
-        return response(base, actions, inventories, dailySales, performance);
+        return response(base, actions, inventories, dailySales, performance,
+                LocalDate.now(clock.withZone(BUSINESS_ZONE)));
     }
 
     private static StrategyExecutionResponse response(
@@ -132,11 +134,9 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
             List<StrategyExecutionActionVO> actions,
             List<StrategyExecutionInventoryVO> inventories,
             List<StrategyExecutionDailySalesVO> dailySales,
-            StrategyExecutionPerformanceVO performance
+            StrategyExecutionPerformanceVO performance,
+            LocalDate asOfDate
     ) {
-        List<StrategyExecutionResponse.Action> actionResponses = actions.stream()
-                .map(action -> action(action, base.getUnitCode()))
-                .toList();
         List<StrategyExecutionResponse.DailySales> salesResponses = dailySales.stream()
                 .map(sales -> new StrategyExecutionResponse.DailySales(
                         sales.getSalesDate(),
@@ -158,12 +158,14 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
                         base.getImageUrl()
                 ),
                 base.getEstablishedAt() == null ? null : base.getEstablishedAt().toLocalDate(),
-                null,
+                progress(base.getPlannedStartDate(), base.getPlannedEndDate(), base.getCaseStatus(),
+                        asOfDate),
                 base.getRecommendationReason(),
-                null,
-                actionResponses,
+                resultSummary(base),
+                actions.stream().map(action -> action(action, base.getUnitCode(), base.getCaseStatus(),
+                        asOfDate)).toList(),
                 inventories.stream().map(StrategyExecutionServiceImpl::inventory).toList(),
-                channelResults(dailySales),
+                channelResults(dailySales, base.getCaseStatus()),
                 salesResponses,
                 salesPointComparison(actions),
                 performance(performance),
@@ -175,7 +177,9 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
 
     private static StrategyExecutionResponse.Action action(
             StrategyExecutionActionVO action,
-            String unitCode
+            String unitCode,
+            String caseStatus,
+            LocalDate asOfDate
     ) {
         List<StrategyExecutionResponse.Kpi> kpis = action.getActionQuantity() == null
                 ? List.of()
@@ -184,7 +188,7 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
                         action.getActionQuantity(),
                         unitCode,
                         true,
-                        "미수집"
+                        null
                 ));
         return new StrategyExecutionResponse.Action(
                 action.getStrategyActionId(),
@@ -193,8 +197,8 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
                 targetLabel(action),
                 null,
                 List.of(),
-                null,
-                null,
+                actionStatus(action.getStartDate(), action.getEndDate(), caseStatus, asOfDate),
+                progress(action.getStartDate(), action.getEndDate(), caseStatus, asOfDate),
                 null,
                 action.getActionQuantity(),
                 action.getStartDate(),
@@ -235,7 +239,8 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
     }
 
     private static List<StrategyExecutionResponse.ChannelResult> channelResults(
-            List<StrategyExecutionDailySalesVO> dailySales
+            List<StrategyExecutionDailySalesVO> dailySales,
+            String caseStatus
     ) {
         Map<Long, List<StrategyExecutionDailySalesVO>> grouped = dailySales.stream()
                 .collect(Collectors.groupingBy(
@@ -248,7 +253,7 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
             return new StrategyExecutionResponse.ChannelResult(
                     first.getSalesPointId(),
                     first.getSalesPointName(),
-                    null,
+                    executionStatus(caseStatus),
                     rows.stream().map(StrategyExecutionDailySalesVO::getQuantity)
                             .filter(Objects::nonNull).reduce(BigDecimal.ZERO, BigDecimal::add),
                     rows.stream().map(StrategyExecutionDailySalesVO::getRevenue)
@@ -337,6 +342,46 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
             case "EXECUTION_COMPLETED" -> "COMPLETED";
             default -> null;
         };
+    }
+
+    private static Integer progress(LocalDate start, LocalDate end, String caseStatus, LocalDate asOfDate) {
+        if ("EXECUTION_COMPLETED".equals(caseStatus)) {
+            return 100;
+        }
+        if (start == null || end == null) {
+            return null;
+        }
+        if (asOfDate.isBefore(start)) {
+            return 0;
+        }
+        if (!asOfDate.isBefore(end)) {
+            return 100;
+        }
+        long total = java.time.temporal.ChronoUnit.DAYS.between(start, end) + 1;
+        long elapsed = java.time.temporal.ChronoUnit.DAYS.between(start, asOfDate) + 1;
+        return (int) Math.min(100, Math.max(0, elapsed * 100 / total));
+    }
+
+    private static String actionStatus(LocalDate start, LocalDate end, String caseStatus, LocalDate asOfDate) {
+        Integer value = progress(start, end, caseStatus, asOfDate);
+        if (value == null) {
+            return null;
+        }
+        if (value >= 100) {
+            return "COMPLETED";
+        }
+        return value == 0 ? "READY" : "EXECUTING";
+    }
+
+    private static String resultSummary(StrategyExecutionBaseVO base) {
+        if (base.getGoalActualValue() == null || base.getGoalTargetValue() == null) {
+            return null;
+        }
+        String rate = base.getAchievementRate() == null
+                ? ""
+                : " (달성률 " + base.getAchievementRate().stripTrailingZeros().toPlainString() + "%)";
+        return "실제 판매 " + base.getGoalActualValue().stripTrailingZeros().toPlainString()
+                + " / 목표 " + base.getGoalTargetValue().stripTrailingZeros().toPlainString() + rate;
     }
 
     private static <T> List<T> safe(List<T> values) {
