@@ -9,6 +9,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.jdbc.Sql;
 
 @SpringBootTest
@@ -18,6 +20,15 @@ import org.springframework.test.context.jdbc.Sql;
         executionPhase = Sql.ExecutionPhase.BEFORE_TEST_METHOD
 )
 class StrategyCalculationInputMapperTest {
+
+    @DynamicPropertySource
+    static void useIsolatedDatabase(DynamicPropertyRegistry registry) {
+        registry.add(
+                "spring.datasource.url",
+                () -> "jdbc:h2:mem:strategy-calculation;MODE=Oracle;"
+                        + "DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE"
+        );
+    }
 
     @Autowired
     private StrategyCalculationInputMapper mapper;
@@ -57,5 +68,17 @@ class StrategyCalculationInputMapperTest {
                     assertThat(policy.getDailyUnitHoldingCost())
                             .isEqualByComparingTo("2.5");
                 });
+    }
+
+    @Test
+    void includesPricesWhenEffectiveDateEqualsEitherBoundary() {
+        LocalDate asOfDate = LocalDate.of(2026, 8, 20);
+
+        assertThat(mapper.selectEffectivePrices(
+                101L,
+                List.of(30L, 40L),
+                asOfDate
+        )).extracting(price -> price.getSalesPointId())
+                .containsExactly(30L, 40L);
     }
 }

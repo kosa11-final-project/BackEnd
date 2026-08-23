@@ -87,6 +87,8 @@ CREATE TABLE inventory_policy (
 INSERT INTO sku VALUES (101, 'SKU-101', '테스트 SKU', 'EA', 1, 'Y', 0);
 INSERT INTO sales_point VALUES (10, 'SP-10', '판매처 10', 'Y', 0);
 INSERT INTO sales_point VALUES (20, 'SP-20', '판매처 20', 'Y', 0);
+INSERT INTO sales_point VALUES (30, 'SP-30', '판매처 30', 'Y', 0);
+INSERT INTO sales_point VALUES (40, 'SP-40', '판매처 40', 'Y', 0);
 INSERT INTO lot VALUES (
     1001,
     DATE '2026-07-30',
@@ -106,6 +108,14 @@ INSERT INTO sku_channel_price VALUES (
 INSERT INTO sku_channel_price VALUES (
     200, 101, 20, 13000, 8000, 11000, 330, 550,
     DATE '2026-08-01', DATE '2026-08-19', 0
+);
+INSERT INTO sku_channel_price VALUES (
+    300, 101, 30, 13000, 8000, 11000, 330, 550,
+    TIMESTAMP '2026-08-20 00:00:00', TIMESTAMP '2026-08-31 23:59:59', 0
+);
+INSERT INTO sku_channel_price VALUES (
+    400, 101, 40, 13000, 8000, 11000, 330, 550,
+    TIMESTAMP '2026-08-01 00:00:00', TIMESTAMP '2026-08-20 00:00:00', 0
 );
 INSERT INTO sku_cost VALUES (
     1, 101, 6000, DATE '2026-08-01', NULL, 0
