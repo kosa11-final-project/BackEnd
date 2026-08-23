@@ -30,6 +30,12 @@ class StrategyCandidateGenerationServiceImplTest {
     private StrategyCandidateCalculator reallocationCalculator;
     @Mock
     private StrategyCandidateCalculator transferCalculator;
+    @Mock
+    private StrategyCandidateCalculator discountCalculator;
+    @Mock
+    private StrategyCandidateCalculator expansionCalculator;
+    @Mock
+    private StrategyCandidateCalculator concentrationCalculator;
 
     @Test
     void preservesOriginalUserTypePriorityWhenEarlierTypeIsNotYetImplemented() {
@@ -53,6 +59,42 @@ class StrategyCandidateGenerationServiceImplTest {
         assertThat(result.candidates()).isEmpty();
         verify(transferCalculator).generate(context, 2);
         verify(reallocationCalculator, never()).generate(context, 1);
+    }
+
+    @Test
+    void generatesAllFiveSupportedTypesInDefaultPriorityOrder() {
+        when(reallocationCalculator.supportedType()).thenReturn(StrategyType.REALLOCATION);
+        when(transferCalculator.supportedType()).thenReturn(StrategyType.RT_TRANSFER);
+        when(discountCalculator.supportedType()).thenReturn(StrategyType.PRICE_DISCOUNT);
+        when(expansionCalculator.supportedType()).thenReturn(StrategyType.CHANNEL_EXPANSION);
+        when(concentrationCalculator.supportedType()).thenReturn(
+                StrategyType.CHANNEL_CONCENTRATION
+        );
+        StrategyCandidateGenerationServiceImpl service =
+                new StrategyCandidateGenerationServiceImpl(List.of(
+                        reallocationCalculator,
+                        transferCalculator,
+                        discountCalculator,
+                        expansionCalculator,
+                        concentrationCalculator
+                ));
+        StrategyCalculationContext context = context(List.of());
+        CandidateGenerationResult empty = new CandidateGenerationResult(
+                List.of(), List.of()
+        );
+        when(reallocationCalculator.generate(context, 1)).thenReturn(empty);
+        when(transferCalculator.generate(context, 2)).thenReturn(empty);
+        when(discountCalculator.generate(context, 3)).thenReturn(empty);
+        when(expansionCalculator.generate(context, 4)).thenReturn(empty);
+        when(concentrationCalculator.generate(context, 5)).thenReturn(empty);
+
+        service.generate(context);
+
+        verify(reallocationCalculator).generate(context, 1);
+        verify(transferCalculator).generate(context, 2);
+        verify(discountCalculator).generate(context, 3);
+        verify(expansionCalculator).generate(context, 4);
+        verify(concentrationCalculator).generate(context, 5);
     }
 
     private static StrategyCalculationContext context(List<StrategyType> types) {

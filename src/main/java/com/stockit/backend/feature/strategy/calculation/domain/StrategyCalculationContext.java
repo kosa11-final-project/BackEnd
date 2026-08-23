@@ -173,10 +173,32 @@ public record StrategyCalculationContext(
             String salesPointCode,
             String salesPointName,
             BigDecimal existingAvailableQty,
+            boolean currentlyListed,
             Price price,
             Map<LocalDate, BigDecimal> dailyForecast,
             List<WarehouseRoute> warehouseRoutes
     ) {
+        public SalesPoint(
+                Long salesPointId,
+                String salesPointCode,
+                String salesPointName,
+                BigDecimal existingAvailableQty,
+                Price price,
+                Map<LocalDate, BigDecimal> dailyForecast,
+                List<WarehouseRoute> warehouseRoutes
+        ) {
+            this(
+                    salesPointId,
+                    salesPointCode,
+                    salesPointName,
+                    existingAvailableQty,
+                    price != null,
+                    price,
+                    dailyForecast,
+                    warehouseRoutes
+            );
+        }
+
         public SalesPoint {
             if (salesPointId == null || salesPointId <= 0
                     || salesPointCode == null || salesPointCode.isBlank()

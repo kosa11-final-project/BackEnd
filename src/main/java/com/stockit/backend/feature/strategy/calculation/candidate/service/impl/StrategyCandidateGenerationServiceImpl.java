@@ -21,9 +21,12 @@ import com.stockit.backend.feature.strategy.domain.StrategyType;
 public class StrategyCandidateGenerationServiceImpl
         implements StrategyCandidateGenerationService {
 
-    private static final List<StrategyType> DEFAULT_MOVEMENT_TYPES = List.of(
+    private static final List<StrategyType> DEFAULT_GENERATION_TYPES = List.of(
             StrategyType.REALLOCATION,
-            StrategyType.RT_TRANSFER
+            StrategyType.RT_TRANSFER,
+            StrategyType.PRICE_DISCOUNT,
+            StrategyType.CHANNEL_EXPANSION,
+            StrategyType.CHANNEL_CONCENTRATION
     );
 
     private final Map<StrategyType, StrategyCandidateCalculator> calculators;
@@ -89,7 +92,7 @@ public class StrategyCandidateGenerationServiceImpl
     ) {
         List<StrategyType> requested = context.requestConstraints().orderedStrategyTypes();
         List<StrategyType> source = requested.isEmpty()
-                ? DEFAULT_MOVEMENT_TYPES
+                ? DEFAULT_GENERATION_TYPES
                 : requested;
         return source.stream().distinct().toList();
     }

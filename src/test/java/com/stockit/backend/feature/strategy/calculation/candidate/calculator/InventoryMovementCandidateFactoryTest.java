@@ -21,6 +21,7 @@ import com.stockit.backend.feature.strategy.calculation.candidate.domain.Strateg
 import com.stockit.backend.feature.strategy.calculation.candidate.domain.StrategyCandidateIdGenerator;
 import com.stockit.backend.feature.strategy.calculation.candidate.policy.MovementLotAllocationPolicy;
 import com.stockit.backend.feature.strategy.calculation.candidate.policy.SafetyStockPolicyResolver;
+import com.stockit.backend.feature.strategy.calculation.candidate.policy.SourceInventoryCapacityPolicy;
 import com.stockit.backend.feature.strategy.calculation.candidate.policy.TargetAdditionalDemandPolicy;
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculationContext;
 import com.stockit.backend.feature.strategy.domain.StrategyType;
@@ -35,7 +36,7 @@ class InventoryMovementCandidateFactoryTest {
     @BeforeEach
     void setUp() {
         factory = new InventoryMovementCandidateFactory(
-                new SafetyStockPolicyResolver(),
+                new SourceInventoryCapacityPolicy(new SafetyStockPolicyResolver()),
                 new TargetAdditionalDemandPolicy(),
                 new MovementLotAllocationPolicy(),
                 new StrategyCandidateIdGenerator()
@@ -175,7 +176,10 @@ class InventoryMovementCandidateFactoryTest {
                 1
         );
 
-        assertThat(result.candidates().get(9).evidence().targetAdditionalDemandQty())
+        StrategyCandidate.MovementEvidence evidence =
+                (StrategyCandidate.MovementEvidence) result.candidates()
+                        .get(9).evidence();
+        assertThat(evidence.targetAdditionalDemandQty())
                 .isEqualByComparingTo("20");
         assertThat(result.candidates().get(9).actions().get(0).actionQuantity())
                 .isEqualByComparingTo("20");
@@ -201,11 +205,13 @@ class InventoryMovementCandidateFactoryTest {
         );
 
         StrategyCandidate maximum = result.candidates().get(9);
+        StrategyCandidate.MovementEvidence evidence =
+                (StrategyCandidate.MovementEvidence) maximum.evidence();
         assertThat(maximum.startDate()).isEqualTo(fixedDate);
         assertThat(maximum.endDate()).isEqualTo(fixedDate);
-        assertThat(maximum.evidence().targetAdditionalDemandQty())
+        assertThat(evidence.targetAdditionalDemandQty())
                 .isEqualByComparingTo("10");
-        assertThat(maximum.evidence().maxExecutableQty())
+        assertThat(evidence.maxExecutableQty())
                 .isEqualByComparingTo("10");
     }
 

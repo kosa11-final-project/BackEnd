@@ -280,6 +280,7 @@ public class StrategyCalculationContextLoaderImpl
                     salesPoint.getSalesPointCode(),
                     salesPoint.getSalesPointName(),
                     existingAvailableQty(inventory, salesPointId, asOfDate),
+                    !pricesBySalesPoint.getOrDefault(salesPointId, List.of()).isEmpty(),
                     price,
                     dailyForecast,
                     routesBySalesPoint.getOrDefault(salesPointId, List.of()).stream()

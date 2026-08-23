@@ -24,7 +24,7 @@ import com.stockit.backend.feature.strategy.calculation.candidate.domain.Movemen
 import com.stockit.backend.feature.strategy.calculation.candidate.domain.StrategyCandidate;
 import com.stockit.backend.feature.strategy.calculation.candidate.domain.StrategyCandidateIdGenerator;
 import com.stockit.backend.feature.strategy.calculation.candidate.policy.MovementLotAllocationPolicy;
-import com.stockit.backend.feature.strategy.calculation.candidate.policy.SafetyStockPolicyResolver;
+import com.stockit.backend.feature.strategy.calculation.candidate.policy.SourceInventoryCapacityPolicy;
 import com.stockit.backend.feature.strategy.calculation.candidate.policy.TargetAdditionalDemandPolicy;
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculationContext;
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculationContext.InventoryLot;
@@ -42,18 +42,18 @@ public class InventoryMovementCandidateFactory {
             CalculationPrecisionPolicy.MONEY_SCALE
     );
 
-    private final SafetyStockPolicyResolver safetyStockResolver;
+    private final SourceInventoryCapacityPolicy sourceCapacityPolicy;
     private final TargetAdditionalDemandPolicy targetDemandPolicy;
     private final MovementLotAllocationPolicy allocationPolicy;
     private final StrategyCandidateIdGenerator idGenerator;
 
     public InventoryMovementCandidateFactory(
-            SafetyStockPolicyResolver safetyStockResolver,
+            SourceInventoryCapacityPolicy sourceCapacityPolicy,
             TargetAdditionalDemandPolicy targetDemandPolicy,
             MovementLotAllocationPolicy allocationPolicy,
             StrategyCandidateIdGenerator idGenerator
     ) {
-        this.safetyStockResolver = safetyStockResolver;
+        this.sourceCapacityPolicy = sourceCapacityPolicy;
         this.targetDemandPolicy = targetDemandPolicy;
         this.allocationPolicy = allocationPolicy;
         this.idGenerator = idGenerator;
@@ -70,18 +70,41 @@ public class InventoryMovementCandidateFactory {
                     "Unsupported inventory movement strategy type: " + strategyType
             );
         }
+        return generate(
+                context,
+                strategyType,
+                strategyPriority,
+                orderedTargetSalesPointIds(context),
+                true
+        );
+    }
+
+    /** 채널 확대는 미입점 판매처도 물류 실행 가능성만 평가할 수 있다. */
+    public CandidateGenerationResult generate(
+            StrategyCalculationContext context,
+            StrategyType strategyType,
+            int strategyPriority,
+            List<Long> orderedTargetIds,
+            boolean requireCompleteTargetPrice
+    ) {
+        if (strategyType != StrategyType.REALLOCATION
+                && strategyType != StrategyType.RT_TRANSFER) {
+            throw new IllegalArgumentException(
+                    "Unsupported inventory movement strategy type: " + strategyType
+            );
+        }
         List<StrategyCandidate> candidates = new ArrayList<>();
         List<CandidateExclusion> exclusions = new ArrayList<>();
-        List<Long> targetIds = orderedTargetSalesPointIds(context);
 
-        for (int index = 0; index < targetIds.size(); index++) {
-            Long targetId = targetIds.get(index);
+        for (int index = 0; index < orderedTargetIds.size(); index++) {
+            Long targetId = orderedTargetIds.get(index);
             TargetResult targetResult = generateForTarget(
                     context,
                     strategyType,
                     strategyPriority,
                     index + 1,
-                    targetId
+                    targetId,
+                    requireCompleteTargetPrice
             );
             candidates.addAll(targetResult.candidates());
             exclusions.addAll(targetResult.exclusions());
@@ -94,14 +117,16 @@ public class InventoryMovementCandidateFactory {
             StrategyType strategyType,
             int strategyPriority,
             int targetPriority,
-            Long targetId
+            Long targetId,
+            boolean requireCompleteTargetPrice
     ) {
         if (Objects.equals(context.sourceSalesPointId(), targetId)) {
             return excluded(strategyType, targetId, CandidateExclusionReason.SAME_AS_SOURCE,
                     "Source sales point cannot also be the movement target");
         }
         SalesPoint target = context.salesPoints().get(targetId);
-        if (target == null || !target.hasCompletePrice()) {
+        if (target == null
+                || (requireCompleteTargetPrice && !target.hasCompletePrice())) {
             return excluded(
                     strategyType,
                     targetId,
@@ -124,7 +149,7 @@ public class InventoryMovementCandidateFactory {
             );
         }
 
-        SourceCapacity sourceCapacity = sourceCapacity(
+        SourceInventoryCapacityPolicy.Capacity sourceCapacity = sourceCapacityPolicy.resolve(
                 context,
                 selection.eligibleLots()
         );
@@ -216,7 +241,7 @@ public class InventoryMovementCandidateFactory {
                             targetPriority,
                             percentage
                     ),
-                    new StrategyCandidate.Evidence(
+                    new StrategyCandidate.MovementEvidence(
                             maximumPlan.plannedQuantity(),
                             sourceCapacity.total(),
                             targetDemandTotal,
@@ -267,51 +292,6 @@ public class InventoryMovementCandidateFactory {
             );
         }
         return new WarehouseSelection(eligible, primaryTargetWarehouseId, null, null);
-    }
-
-    private SourceCapacity sourceCapacity(
-            StrategyCalculationContext context,
-            List<InventoryLot> eligibleLots
-    ) {
-        Map<Long, List<InventoryLot>> selectedByWarehouse = eligibleLots.stream()
-                .collect(Collectors.groupingBy(
-                        InventoryLot::warehouseId,
-                        LinkedHashMap::new,
-                        Collectors.toList()
-                ));
-        Map<Long, BigDecimal> byWarehouse = new LinkedHashMap<>();
-        boolean defaulted = false;
-        boolean safetyBlocked = false;
-
-        for (Map.Entry<Long, List<InventoryLot>> entry : selectedByWarehouse.entrySet()) {
-            Long warehouseId = entry.getKey();
-            BigDecimal selectedQuantity = sum(entry.getValue().stream()
-                    .map(InventoryLot::availableQty)
-                    .toList());
-            BigDecimal sourceAvailable = sum(context.referenceInventory().stream()
-                    .filter(lot -> Objects.equals(lot.warehouseId(), warehouseId))
-                    .filter(lot -> matchesSource(lot, context.sourceSalesPointId()))
-                    .filter(lot -> isSellableAt(lot, context.calculatedAt().toLocalDate()))
-                    .map(InventoryLot::availableQty)
-                    .toList());
-            SafetyStockPolicyResolver.Resolution safety = safetyStockResolver.resolve(
-                    context.inventoryPolicies(),
-                    warehouseId,
-                    context.sourceSalesPointId()
-            );
-            defaulted |= safety.defaultedToZero();
-            BigDecimal afterSafety = quantity(sourceAvailable.subtract(
-                    safety.safetyStockQty()
-            ).max(BigDecimal.ZERO));
-            safetyBlocked |= sourceAvailable.signum() > 0 && afterSafety.signum() == 0;
-            byWarehouse.put(warehouseId, quantity(selectedQuantity.min(afterSafety)));
-        }
-        return new SourceCapacity(
-                byWarehouse,
-                sum(byWarehouse.values()),
-                defaulted,
-                safetyBlocked
-        );
     }
 
     private static List<StrategyCandidate.Action> toActions(
@@ -398,18 +378,6 @@ public class InventoryMovementCandidateFactory {
         return List.copyOf(assumptions);
     }
 
-    private static boolean matchesSource(InventoryLot lot, Long sourceSalesPointId) {
-        return sourceSalesPointId == null
-                ? lot.isPublicUnassigned()
-                : Objects.equals(lot.effectiveSalesPointId(), sourceSalesPointId);
-    }
-
-    private static boolean isSellableAt(InventoryLot lot, LocalDate date) {
-        return "AVAILABLE".equals(lot.lotStatus())
-                && (lot.expiryDate() == null || !date.isAfter(lot.expiryDate()))
-                && (lot.saleStopDate() == null || date.isBefore(lot.saleStopDate()));
-    }
-
     private static TargetResult excluded(
             StrategyType type,
             Long targetId,
@@ -446,14 +414,6 @@ public class InventoryMovementCandidateFactory {
         ) {
             return new WarehouseSelection(List.of(), null, reason, message);
         }
-    }
-
-    private record SourceCapacity(
-            Map<Long, BigDecimal> byWarehouse,
-            BigDecimal total,
-            boolean safetyStockDefaulted,
-            boolean safetyStockBlocked
-    ) {
     }
 
     private record TargetResult(
