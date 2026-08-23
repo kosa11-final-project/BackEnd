@@ -68,6 +68,8 @@ class StrategyExecutionMapperTest {
             assertThat(action.getActionQuantity()).isEqualByComparingTo("20");
             assertThat(action.getSourceWarehouseId()).isEqualTo(501L);
             assertThat(action.getSourceWarehouseName()).isEqualTo("성남센터");
+            assertThat(action.getDestinationWarehouseId()).isEqualTo(502L);
+            assertThat(action.getDestinationWarehouseName()).isEqualTo("경인1센터");
             assertThat(action.getTargetSalesPointId()).isEqualTo(10L);
             assertThat(action.getTargetSalesPointName()).isEqualTo("그리팅몰");
         });

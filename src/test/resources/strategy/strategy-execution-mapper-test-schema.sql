@@ -88,9 +88,10 @@ INSERT INTO strategy_execution_result VALUES (
 );
 INSERT INTO sales_point VALUES (10, 'GREETING', '그리팅몰', 0);
 INSERT INTO warehouse VALUES (501, 'SEONGNAM', '성남센터', 0);
+INSERT INTO warehouse VALUES (502, 'GYEONGIN1', '경인1센터', 0);
 INSERT INTO strategy_action VALUES (
     11, 1001, 'REALLOCATION', 20, 1, DATE '2026-05-01', DATE '2026-05-10',
-    NULL, 10, 501, NULL, 0
+    NULL, 10, 501, 502, 0
 );
 INSERT INTO strategy_action VALUES (
     12, 1001, 'PRICE_DISCOUNT', 10, 2, DATE '2026-05-01', DATE '2026-05-10',

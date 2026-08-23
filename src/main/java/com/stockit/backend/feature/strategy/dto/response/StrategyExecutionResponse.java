@@ -88,8 +88,18 @@ public record StrategyExecutionResponse(
     public record InventoryTransfer(
             @Schema(description = "출발 거점 ID", example = "501") Long fromLocationId,
             @Schema(description = "출발 거점명", example = "성남 물류센터") String fromLocationName,
-            @Schema(description = "도착 거점 ID", example = "10") Long toLocationId,
-            @Schema(description = "도착 거점명", example = "그리팅") String toLocationName,
+            @Schema(description = "도착 센터가 있으면 센터, 없으면 대상 판매처의 ID", example = "502")
+            Long toLocationId,
+            @Schema(description = "도착 센터가 있으면 센터, 없으면 대상 판매처의 이름", example = "경인1센터")
+            String toLocationName,
+            @Schema(description = "실제 재고 도착 센터 ID", example = "502", nullable = true)
+            Long destinationWarehouseId,
+            @Schema(description = "실제 재고 도착 센터명", example = "경인1센터", nullable = true)
+            String destinationWarehouseName,
+            @Schema(description = "재고 이동의 대상 판매처 ID", example = "10", nullable = true)
+            Long targetSalesPointId,
+            @Schema(description = "재고 이동의 대상 판매처명", example = "그리팅", nullable = true)
+            String targetSalesPointName,
             @Schema(description = "이동 수량. 항상 양수", example = "121") BigDecimal quantity
     ) {
     }

@@ -154,13 +154,19 @@ class StrategyExecutionServiceImplTest {
         assertThat(result.inventoryTransfers().get(0)).satisfies(transfer -> {
             assertThat(transfer.fromLocationId()).isEqualTo(501L);
             assertThat(transfer.fromLocationName()).isEqualTo("성남센터");
-            assertThat(transfer.toLocationId()).isEqualTo(10L);
-            assertThat(transfer.toLocationName()).isEqualTo("그리팅몰");
+            assertThat(transfer.toLocationId()).isEqualTo(502L);
+            assertThat(transfer.toLocationName()).isEqualTo("경인1센터");
+            assertThat(transfer.destinationWarehouseId()).isEqualTo(502L);
+            assertThat(transfer.destinationWarehouseName()).isEqualTo("경인1센터");
+            assertThat(transfer.targetSalesPointId()).isEqualTo(10L);
+            assertThat(transfer.targetSalesPointName()).isEqualTo("그리팅몰");
             assertThat(transfer.quantity()).isEqualByComparingTo("25");
         });
         assertThat(result.inventoryTransfers().get(1)).satisfies(transfer -> {
             assertThat(transfer.fromLocationId()).isEqualTo(11L);
             assertThat(transfer.toLocationId()).isEqualTo(502L);
+            assertThat(transfer.destinationWarehouseId()).isEqualTo(502L);
+            assertThat(transfer.targetSalesPointId()).isNull();
             assertThat(transfer.quantity()).isEqualByComparingTo("7");
         });
         assertThat(result.inventoryTransfers())
@@ -236,6 +242,8 @@ class StrategyExecutionServiceImplTest {
         action.setActionQuantity(new BigDecimal("20"));
         action.setSourceWarehouseId(501L);
         action.setSourceWarehouseName("성남센터");
+        action.setDestinationWarehouseId(502L);
+        action.setDestinationWarehouseName("경인1센터");
         action.setTargetSalesPointId(10L);
         action.setTargetSalesPointCode("GREETING");
         action.setTargetSalesPointName("그리팅몰");

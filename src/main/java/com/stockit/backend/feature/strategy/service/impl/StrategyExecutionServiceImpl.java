@@ -255,11 +255,19 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
                 continue;
             }
             TransferLocation source = sourceLocation(action);
-            TransferLocation target = targetLocation(action);
+            TransferLocation destinationWarehouse = transferLocation(
+                    "WAREHOUSE", action.getDestinationWarehouseId(), action.getDestinationWarehouseName()
+            );
+            TransferLocation targetSalesPoint = transferLocation(
+                    "SALES_POINT", action.getTargetSalesPointId(), action.getTargetSalesPointName()
+            );
+            TransferLocation target = destinationWarehouse != null ? destinationWarehouse : targetSalesPoint;
             if (source == null || target == null || source.sameLocation(target)) {
                 continue;
             }
-            InventoryTransferKey route = new InventoryTransferKey(source, target);
+            InventoryTransferKey route = new InventoryTransferKey(
+                    source, target, destinationWarehouse, targetSalesPoint
+            );
             quantitiesByRoute.merge(route, action.getActionQuantity().abs(), BigDecimal::add);
         }
         return quantitiesByRoute.entrySet().stream()
@@ -268,6 +276,10 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
                         entry.getKey().source().name(),
                         entry.getKey().target().id(),
                         entry.getKey().target().name(),
+                        locationId(entry.getKey().destinationWarehouse()),
+                        locationName(entry.getKey().destinationWarehouse()),
+                        locationId(entry.getKey().targetSalesPoint()),
+                        locationName(entry.getKey().targetSalesPoint()),
                         entry.getValue()
                 ))
                 .toList();
@@ -282,13 +294,12 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
         );
     }
 
-    private static TransferLocation targetLocation(StrategyExecutionActionVO action) {
-        TransferLocation salesPoint = transferLocation(
-                "SALES_POINT", action.getTargetSalesPointId(), action.getTargetSalesPointName()
-        );
-        return salesPoint != null ? salesPoint : transferLocation(
-                "WAREHOUSE", action.getDestinationWarehouseId(), action.getDestinationWarehouseName()
-        );
+    private static Long locationId(TransferLocation location) {
+        return location == null ? null : location.id();
+    }
+
+    private static String locationName(TransferLocation location) {
+        return location == null ? null : location.name();
     }
 
     private static TransferLocation transferLocation(String type, Long id, String name) {
@@ -301,7 +312,12 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
         }
     }
 
-    private record InventoryTransferKey(TransferLocation source, TransferLocation target) {
+    private record InventoryTransferKey(
+            TransferLocation source,
+            TransferLocation target,
+            TransferLocation destinationWarehouse,
+            TransferLocation targetSalesPoint
+    ) {
     }
 
     private static List<StrategyExecutionResponse.ChannelResult> channelResults(
