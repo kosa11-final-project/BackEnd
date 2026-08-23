@@ -133,7 +133,9 @@ public class PriceDiscountCandidateCalculator implements StrategyCandidateCalcul
                     periodDemand,
                     sourceCapacity.total().min(baselineDemand)
             );
-            if (maximumPlan.plannedQuantity().signum() == 0) {
+            BigDecimal maxExecutableQuantity = CalculationPrecisionPolicy
+                    .executableQuantity(maximumPlan.plannedQuantity());
+            if (maxExecutableQuantity.signum() == 0) {
                 continue;
             }
 
@@ -141,7 +143,8 @@ public class PriceDiscountCandidateCalculator implements StrategyCandidateCalcul
                     context,
                     sourceCapacity,
                     periodDemand,
-                    maximumPlan
+                    maximumPlan,
+                    maxExecutableQuantity
             );
             for (DiscountOption discount : discountOptions) {
                 addCandidates(
@@ -152,8 +155,8 @@ public class PriceDiscountCandidateCalculator implements StrategyCandidateCalcul
                         sourceCapacity,
                         period,
                         baselineDemand,
-                        maximumPlan,
                         quantityTiers,
+                        maxExecutableQuantity,
                         discount
                 );
             }
@@ -172,12 +175,14 @@ public class PriceDiscountCandidateCalculator implements StrategyCandidateCalcul
             StrategyCalculationContext context,
             SourceInventoryCapacityPolicy.Capacity sourceCapacity,
             Map<LocalDate, BigDecimal> periodDemand,
-            MovementCandidatePlan maximumPlan
+            MovementCandidatePlan maximumPlan,
+            BigDecimal maxExecutableQuantity
     ) {
         List<QuantityTier> tiers = new ArrayList<>();
         Set<BigDecimal> generatedQuantities = new LinkedHashSet<>();
         for (int percentage = 10; percentage <= 100; percentage += 10) {
-            BigDecimal requested = quantity(maximumPlan.plannedQuantity()
+            BigDecimal requested = CalculationPrecisionPolicy.executableQuantity(
+                    maxExecutableQuantity
                     .multiply(BigDecimal.valueOf(percentage))
                     .divide(ONE_HUNDRED, CalculationPrecisionPolicy.QUANTITY_SCALE,
                             RoundingMode.DOWN));
@@ -210,8 +215,8 @@ public class PriceDiscountCandidateCalculator implements StrategyCandidateCalcul
             SourceInventoryCapacityPolicy.Capacity sourceCapacity,
             StrategyPeriodCandidate period,
             BigDecimal baselineDemand,
-            MovementCandidatePlan maximumPlan,
             List<QuantityTier> quantityTiers,
+            BigDecimal maxExecutableQuantity,
             DiscountOption discount
     ) {
         for (QuantityTier quantityTier : quantityTiers) {
@@ -240,10 +245,10 @@ public class PriceDiscountCandidateCalculator implements StrategyCandidateCalcul
                             quantityTier.percentage()
                     ),
                     new StrategyCandidate.DiscountEvidence(
-                            maximumPlan.plannedQuantity(),
+                            maxExecutableQuantity,
                             sourceCapacity.total(),
                             baselineDemand,
-                            maximumPlan.plannedQuantity(),
+                            maxExecutableQuantity,
                             sourcePrice.actualPrice(),
                             sourcePrice.minimumSellingPrice()
                     )

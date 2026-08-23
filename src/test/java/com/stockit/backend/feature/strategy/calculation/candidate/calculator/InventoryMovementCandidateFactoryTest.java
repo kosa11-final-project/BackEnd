@@ -84,6 +84,35 @@ class InventoryMovementCandidateFactoryTest {
     }
 
     @Test
+    void roundsTenPercentCandidateTiersDownToWholeUnits() {
+        StrategyCalculationContext context = context(
+                List.of(lot(1L, 1001L, 501L, 10L, "15", null)),
+                List.of(policy(1L, 501L, 10L, "0")),
+                List.of(route(20L, 501L, 1)),
+                forecasts("10"),
+                StrategyType.REALLOCATION
+        );
+
+        CandidateGenerationResult result = factory.generate(
+                context,
+                StrategyType.REALLOCATION,
+                1
+        );
+
+        assertThat(result.candidates())
+                .extracting(candidate -> candidate.actions().get(0).actionQuantity())
+                .containsExactly(
+                        decimal("1.000"), decimal("3.000"), decimal("4.000"),
+                        decimal("6.000"), decimal("7.000"), decimal("9.000"),
+                        decimal("10.000"), decimal("12.000"), decimal("13.000"),
+                        decimal("15.000")
+                );
+        assertThat(result.candidates()).allSatisfy(candidate ->
+                assertThat(candidate.evidence().maxExecutableQty())
+                        .isEqualByComparingTo("15"));
+    }
+
+    @Test
     void generatesPhysicalTransferToPrimaryWarehouseAndLeavesCostUnknown() {
         StrategyCalculationContext context = context(
                 List.of(lot(1L, 1001L, 501L, 10L, "100", null)),

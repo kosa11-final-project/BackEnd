@@ -17,6 +17,12 @@ public final class CalculationPrecisionPolicy {
         return value.setScale(QUANTITY_SCALE, RoundingMode.DOWN);
     }
 
+    /** 실제 전략에 적용할 수량을 낱개 단위의 정수로 정규화한다. */
+    public static BigDecimal executableQuantity(BigDecimal value) {
+        return value.setScale(0, RoundingMode.DOWN)
+                .setScale(QUANTITY_SCALE, RoundingMode.UNNECESSARY);
+    }
+
     public static BigDecimal money(BigDecimal value) {
         return value.setScale(MONEY_SCALE, RoundingMode.HALF_UP);
     }

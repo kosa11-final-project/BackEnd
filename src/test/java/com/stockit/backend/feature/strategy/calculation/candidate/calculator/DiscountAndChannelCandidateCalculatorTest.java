@@ -111,6 +111,30 @@ class DiscountAndChannelCandidateCalculatorTest {
     }
 
     @Test
+    void roundsDiscountCandidateQuantitiesDownToWholeUnits() {
+        StrategyCalculationContext context = context(
+                null,
+                List.of(StrategyType.PRICE_DISCOUNT),
+                "15",
+                "7.5"
+        );
+
+        CandidateGenerationResult result = discountCalculator.generate(context, 1);
+
+        assertThat(result.candidates().stream()
+                .filter(candidate -> candidate.actions().get(0).discountRate()
+                        .compareTo(decimal("0.0500")) == 0)
+                .map(candidate -> candidate.actions().get(0).actionQuantity())
+                .toList())
+                .containsExactly(
+                        decimal("1.000"), decimal("3.000"), decimal("4.000"),
+                        decimal("6.000"), decimal("7.000"), decimal("9.000"),
+                        decimal("10.000"), decimal("12.000"), decimal("13.000"),
+                        decimal("15.000")
+                );
+    }
+
+    @Test
     void expandsOnlyToUnlistedTargetUsingCopiedSourceCommercialTerms() {
         StrategyCalculationContext context = context(
                 null,
@@ -316,6 +340,15 @@ class DiscountAndChannelCandidateCalculatorTest {
             StrategyCalculationContext.Price targetPrice,
             List<StrategyType> requestedTypes
     ) {
+        return context(targetPrice, requestedTypes, "100", "5");
+    }
+
+    private static StrategyCalculationContext context(
+            StrategyCalculationContext.Price targetPrice,
+            List<StrategyType> requestedTypes,
+            String sourceInventoryQuantity,
+            String sourceDailyForecast
+    ) {
         StrategyCalculationContext.InventoryLot sourceInventory =
                 new StrategyCalculationContext.InventoryLot(
                         1L,
@@ -323,7 +356,7 @@ class DiscountAndChannelCandidateCalculatorTest {
                         501L,
                         10L,
                         10L,
-                        decimal("100"),
+                        decimal(sourceInventoryQuantity),
                         BigDecimal.ZERO,
                         null,
                         LocalDate.of(2026, 8, 1),
@@ -336,7 +369,7 @@ class DiscountAndChannelCandidateCalculatorTest {
         salesPoints.put(10L, salesPoint(
                 10L,
                 price(10L, "100", "90"),
-                forecasts("5"),
+                forecasts(sourceDailyForecast),
                 List.of(route(10L, 501L))
         ));
         salesPoints.put(20L, salesPoint(

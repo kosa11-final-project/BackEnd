@@ -185,7 +185,9 @@ public class InventoryMovementCandidateFactory {
                 unmetDemand,
                 sourceCapacity.total().min(targetDemandTotal)
         );
-        if (maximumPlan.plannedQuantity().signum() == 0) {
+        BigDecimal maxExecutableQuantity = CalculationPrecisionPolicy
+                .executableQuantity(maximumPlan.plannedQuantity());
+        if (maxExecutableQuantity.signum() == 0) {
             return excluded(
                     strategyType,
                     targetId,
@@ -201,7 +203,8 @@ public class InventoryMovementCandidateFactory {
         List<StrategyCandidate> candidates = new ArrayList<>();
         Set<BigDecimal> generatedQuantities = new LinkedHashSet<>();
         for (int percentage = 10; percentage <= 100; percentage += 10) {
-            BigDecimal requested = quantity(maximumPlan.plannedQuantity()
+            BigDecimal requested = CalculationPrecisionPolicy.executableQuantity(
+                    maxExecutableQuantity
                     .multiply(BigDecimal.valueOf(percentage))
                     .divide(ONE_HUNDRED, CalculationPrecisionPolicy.QUANTITY_SCALE,
                             RoundingMode.DOWN));
@@ -242,10 +245,10 @@ public class InventoryMovementCandidateFactory {
                             percentage
                     ),
                     new StrategyCandidate.MovementEvidence(
-                            maximumPlan.plannedQuantity(),
+                            maxExecutableQuantity,
                             sourceCapacity.total(),
                             targetDemandTotal,
-                            maximumPlan.plannedQuantity()
+                            maxExecutableQuantity
                     )
             ));
         }
