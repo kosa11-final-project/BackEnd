@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.stockit.backend.feature.strategy.calculation.mapper.StrategyCalculationInputMapper">
+
+    <select id="selectActiveSku"
+            resultType="com.stockit.backend.feature.strategy.calculation.vo.StrategyCalculationSkuVO">
+        SELECT s.sku_id,
+               s.sku_code,
+               s.sku_name,
+               s.unit_code,
+               s.package_quantity
+        FROM sku s
+        WHERE s.sku_id = #{skuId}
+          AND s.active_yn = 'Y'
+          AND s.is_deleted = 0
+    </select>
+
+    <select id="selectInventory"
+            resultType="com.stockit.backend.feature.strategy.calculation.vo.StrategyCalculationInventoryVO">
+        SELECT ib.inventory_balance_id,
+               ib.sku_id,
+               ib.warehouse_id,
+               ib.stock_sales_point_id,
+               ib.allocated_sales_point_id,
+               ib.lot_id,
+               ib.on_hand_qty,
+               ib.reserved_qty,
+               l.manufactured_date,
+               l.received_date,
+               l.expiry_date,
+               l.sale_stop_date,
+               l.lot_status
+        FROM inventory_balance ib
+        LEFT JOIN lot l
+               ON l.lot_id = ib.lot_id
+              AND l.is_deleted = 0
+        WHERE ib.sku_id = #{skuId}
+          AND ib.is_deleted = 0
+          AND ib.on_hand_qty &gt; 0
+        ORDER BY ib.inventory_balance_id
+    </select>
+
+    <select id="selectActiveSalesPoints"
+            resultType="com.stockit.backend.feature.strategy.calculation.vo.StrategyCalculationSalesPointVO">
+        SELECT sp.sales_point_id,
+               sp.sales_point_code,
+               sp.sales_point_name
+        FROM sales_point sp
+        WHERE sp.sales_point_id IN
+        <foreach collection="salesPointIds" item="salesPointId" open="(" separator="," close=")">
+            #{salesPointId}
+        </foreach>
+          AND sp.active_yn = 'Y'
+          AND sp.is_deleted = 0
+        ORDER BY sp.sales_point_id
+    </select>
+
+    <select id="selectEffectivePrices"
+            resultType="com.stockit.backend.feature.strategy.calculation.vo.StrategyCalculationPriceVO">
+        SELECT scp.sku_channel_price_id,
+               scp.sales_point_id,
+               scp.selling_price,
+               scp.minimum_selling_price,
+               scp.actual_price,
+               scp.payment_fee,
+               scp.logistics_cost
+        FROM sku_channel_price scp
+        WHERE scp.sku_id = #{skuId}
+          AND scp.sales_point_id IN
+        <foreach collection="salesPointIds" item="salesPointId" open="(" separator="," close=")">
+            #{salesPointId}
+        </foreach>
+          AND scp.is_deleted = 0
+          AND scp.effective_from &lt;= #{asOfDate}
+          AND (scp.effective_to IS NULL OR scp.effective_to &gt;= #{asOfDate})
+        ORDER BY scp.sales_point_id, scp.effective_from DESC, scp.sku_channel_price_id DESC
+    </select>
+
+    <select id="selectEffectiveCosts"
+            resultType="com.stockit.backend.feature.strategy.calculation.vo.StrategyCalculationCostVO">
+        SELECT sc.sku_cost_id,
+               sc.unit_cost
+        FROM sku_cost sc
+        WHERE sc.sku_id = #{skuId}
+          AND sc.is_deleted = 0
+          AND sc.effective_from &lt;= #{asOfDate}
+          AND (sc.effective_to IS NULL OR sc.effective_to &gt;= #{asOfDate})
+        ORDER BY sc.effective_from DESC, sc.sku_cost_id DESC
+    </select>
+
+    <select id="selectEffectivePolicies"
+            resultType="com.stockit.backend.feature.strategy.calculation.vo.StrategyCalculationPolicyVO">
+        SELECT ip.inventory_policy_id,
+               ip.warehouse_id,
+               ip.stock_sales_point_id,
+               ip.allocated_sales_point_id,
+               ip.safety_stock_qty,
+               ip.target_stock_qty,
+               ip.daily_unit_holding_cost,
+               ip.unit_disposal_cost
+        FROM inventory_policy ip
+        WHERE ip.sku_id = #{skuId}
+          AND ip.is_deleted = 0
+          AND (ip.effective_from IS NULL OR ip.effective_from &lt;= #{asOfDate})
+          AND (ip.effective_to IS NULL OR ip.effective_to &gt;= #{asOfDate})
+        ORDER BY ip.inventory_policy_id
+    </select>
+</mapper>
