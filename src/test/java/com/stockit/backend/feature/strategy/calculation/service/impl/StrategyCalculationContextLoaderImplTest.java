@@ -31,6 +31,7 @@ import com.stockit.backend.feature.strategy.calculation.vo.StrategyCalculationIn
 import com.stockit.backend.feature.strategy.calculation.vo.StrategyCalculationPriceVO;
 import com.stockit.backend.feature.strategy.calculation.vo.StrategyCalculationSalesPointVO;
 import com.stockit.backend.feature.strategy.calculation.vo.StrategyCalculationSkuVO;
+import com.stockit.backend.feature.strategy.calculation.vo.StrategyCalculationWarehouseRouteVO;
 import com.stockit.backend.feature.strategy.domain.StrategyCaseStatus;
 import com.stockit.backend.feature.strategy.domain.StrategyGenerationStage;
 import com.stockit.backend.feature.strategy.dto.StrategyCaseRequestPayload;
@@ -99,6 +100,8 @@ class StrategyCalculationContextLoaderImplTest {
         StrategyCalculationPriceVO incompleteCandidate = price(20L, "110", "5", null);
         when(inputMapper.selectEffectivePrices(101L, List.of(10L, 20L), START))
                 .thenReturn(List.of(sourcePrice, incompleteCandidate));
+        when(inputMapper.selectActiveWarehouseRoutes(List.of(10L, 20L)))
+                .thenReturn(List.of(route(10L, 501L, 1), route(20L, 501L, 1)));
         when(inputMapper.selectEffectivePolicies(101L, START)).thenReturn(List.of());
 
         StrategyCalculationContext context = loader.load(12345L);
@@ -115,6 +118,12 @@ class StrategyCalculationContextLoaderImplTest {
         assertThat(context.salesPoints().get(20L).price()).isNull();
         assertThat(context.salesPoints().get(20L).existingAvailableQty())
                 .isEqualByComparingTo("5");
+        assertThat(context.salesPoints().get(20L).warehouseRoutes())
+                .extracting(StrategyCalculationContext.WarehouseRoute::warehouseId)
+                .containsExactly(501L);
+        assertThat(context.requestConstraints().orderedCandidateSalesPointIds())
+                .containsExactly(20L);
+        assertThat(context.referenceInventory()).hasSize(2);
         assertThat(context.unitCost()).isEqualByComparingTo("50");
         verify(checkpointStore).find(12345L, "request-hash", List.of(10L, 20L));
         verify(responseValidator).validate(requestContext(10L), forecastResponse(10L));
@@ -136,6 +145,8 @@ class StrategyCalculationContextLoaderImplTest {
         when(inputMapper.selectActiveSalesPoints(List.of(10L, 20L)))
                 .thenReturn(List.of(salesPoint(10L), salesPoint(20L)));
         when(inputMapper.selectEffectivePrices(101L, List.of(10L, 20L), START))
+                .thenReturn(List.of());
+        when(inputMapper.selectActiveWarehouseRoutes(List.of(10L, 20L)))
                 .thenReturn(List.of());
         when(inputMapper.selectEffectivePolicies(101L, START)).thenReturn(List.of());
 
@@ -187,6 +198,48 @@ class StrategyCalculationContextLoaderImplTest {
                         StrategyCalculationException.class,
                         exception -> assertThat(exception.getCode())
                                 .isEqualTo("CALCULATION_FORECAST_NOT_READY")
+                );
+    }
+
+    @Test
+    void rejectsPreferredStrategyPeriodOutsideValidatedForecastRange() {
+        StrategyCaseRequestPayload payload = new StrategyCaseRequestPayload(
+                List.of(1001L),
+                List.of(20L),
+                List.of(),
+                START.minusDays(1),
+                null,
+                START,
+                END
+        );
+        givenForecastCheckpoint(10L, payload, forecastResponse(10L));
+
+        assertThatThrownBy(() -> loader.load(12345L))
+                .isInstanceOfSatisfying(
+                        StrategyCalculationException.class,
+                        exception -> assertThat(exception.getCode())
+                                .isEqualTo("CALCULATION_STRATEGY_PERIOD_INVALID")
+                );
+    }
+
+    @Test
+    void rejectsReversedPreferredStrategyPeriod() {
+        StrategyCaseRequestPayload payload = new StrategyCaseRequestPayload(
+                List.of(1001L),
+                List.of(20L),
+                List.of(),
+                END,
+                START,
+                START,
+                END
+        );
+        givenForecastCheckpoint(10L, payload, forecastResponse(10L));
+
+        assertThatThrownBy(() -> loader.load(12345L))
+                .isInstanceOfSatisfying(
+                        StrategyCalculationException.class,
+                        exception -> assertThat(exception.getCode())
+                                .isEqualTo("CALCULATION_STRATEGY_PERIOD_INVALID")
                 );
     }
 
@@ -299,7 +352,6 @@ class StrategyCalculationContextLoaderImplTest {
     }
 
     private void givenCommonCase(Long sourceSalesPointId, List<Long> lotIds) {
-        StrategyCaseVO strategyCase = strategyCase(sourceSalesPointId);
         StrategyCaseRequestPayload payload = new StrategyCaseRequestPayload(
                 lotIds,
                 List.of(20L),
@@ -309,8 +361,22 @@ class StrategyCalculationContextLoaderImplTest {
                 START,
                 END
         );
+        givenForecastCheckpoint(
+                sourceSalesPointId,
+                payload,
+                forecastResponse(sourceSalesPointId)
+        );
+        when(dateTimeProvider.now()).thenReturn(LocalDateTime.of(2026, 8, 20, 10, 0));
+        when(inputMapper.selectActiveSku(101L)).thenReturn(sku());
+    }
+
+    private void givenForecastCheckpoint(
+            Long sourceSalesPointId,
+            StrategyCaseRequestPayload payload,
+            StrategyForecastResponse response
+    ) {
+        StrategyCaseVO strategyCase = strategyCase(sourceSalesPointId);
         StrategyForecastRequestContext requestContext = requestContext(sourceSalesPointId);
-        StrategyForecastResponse response = forecastResponse(sourceSalesPointId);
         ForecastCheckpoint checkpoint = new ForecastCheckpoint(
                 ForecastCheckpoint.CURRENT_SCHEMA_VERSION,
                 12345L,
@@ -324,8 +390,6 @@ class StrategyCalculationContextLoaderImplTest {
         when(requestFactory.create(strategyCase, payload)).thenReturn(requestContext);
         when(checkpointStore.find(12345L, "request-hash", List.of(10L, 20L)))
                 .thenReturn(Optional.of(checkpoint));
-        when(dateTimeProvider.now()).thenReturn(LocalDateTime.of(2026, 8, 20, 10, 0));
-        when(inputMapper.selectActiveSku(101L)).thenReturn(sku());
     }
 
     private static StrategyCaseVO strategyCase(Long sourceSalesPointId) {
@@ -446,6 +510,21 @@ class StrategyCalculationContextLoaderImplTest {
         cost.setSkuCostId(1L);
         cost.setUnitCost(decimal(unitCost));
         return cost;
+    }
+
+    private static StrategyCalculationWarehouseRouteVO route(
+            Long salesPointId,
+            Long warehouseId,
+            int priorityNo
+    ) {
+        StrategyCalculationWarehouseRouteVO route =
+                new StrategyCalculationWarehouseRouteVO();
+        route.setSalesPointWarehouseId(salesPointId * 100 + warehouseId);
+        route.setSalesPointId(salesPointId);
+        route.setWarehouseId(warehouseId);
+        route.setPriorityNo(priorityNo);
+        route.setBaseDeliveryCost(decimal("1000"));
+        return route;
     }
 
     private static BigDecimal decimal(String value) {

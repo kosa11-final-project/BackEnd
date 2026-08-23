@@ -1,4 +1,6 @@
 DROP TABLE IF EXISTS inventory_policy;
+DROP TABLE IF EXISTS sales_point_warehouse;
+DROP TABLE IF EXISTS warehouse;
 DROP TABLE IF EXISTS sku_cost;
 DROP TABLE IF EXISTS sku_channel_price;
 DROP TABLE IF EXISTS inventory_balance;
@@ -20,6 +22,24 @@ CREATE TABLE sales_point (
     sales_point_id NUMBER PRIMARY KEY,
     sales_point_code VARCHAR2(50) NOT NULL,
     sales_point_name VARCHAR2(200) NOT NULL,
+    active_yn CHAR(1) NOT NULL,
+    is_deleted NUMBER(1) DEFAULT 0 NOT NULL
+);
+
+CREATE TABLE warehouse (
+    warehouse_id NUMBER PRIMARY KEY,
+    warehouse_code VARCHAR2(50) NOT NULL,
+    warehouse_name VARCHAR2(200) NOT NULL,
+    active_yn CHAR(1) NOT NULL,
+    is_deleted NUMBER(1) DEFAULT 0 NOT NULL
+);
+
+CREATE TABLE sales_point_warehouse (
+    sales_point_warehouse_id NUMBER PRIMARY KEY,
+    sales_point_id NUMBER NOT NULL,
+    warehouse_id NUMBER NOT NULL,
+    priority_no NUMBER(5),
+    base_delivery_cost NUMBER(18,2),
     active_yn CHAR(1) NOT NULL,
     is_deleted NUMBER(1) DEFAULT 0 NOT NULL
 );
@@ -89,6 +109,11 @@ INSERT INTO sales_point VALUES (10, 'SP-10', '판매처 10', 'Y', 0);
 INSERT INTO sales_point VALUES (20, 'SP-20', '판매처 20', 'Y', 0);
 INSERT INTO sales_point VALUES (30, 'SP-30', '판매처 30', 'Y', 0);
 INSERT INTO sales_point VALUES (40, 'SP-40', '판매처 40', 'Y', 0);
+INSERT INTO warehouse VALUES (501, 'WH-501', '창고 501', 'Y', 0);
+INSERT INTO warehouse VALUES (502, 'WH-502', '창고 502', 'Y', 0);
+INSERT INTO sales_point_warehouse VALUES (1, 10, 502, 2, 2000, 'Y', 0);
+INSERT INTO sales_point_warehouse VALUES (2, 10, 501, 1, 1000, 'Y', 0);
+INSERT INTO sales_point_warehouse VALUES (3, 20, 501, 1, 1000, 'Y', 0);
 INSERT INTO lot VALUES (
     1001,
     DATE '2026-07-30',

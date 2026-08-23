@@ -12,6 +12,7 @@ import com.stockit.backend.feature.strategy.calculation.vo.StrategyCalculationPo
 import com.stockit.backend.feature.strategy.calculation.vo.StrategyCalculationPriceVO;
 import com.stockit.backend.feature.strategy.calculation.vo.StrategyCalculationSalesPointVO;
 import com.stockit.backend.feature.strategy.calculation.vo.StrategyCalculationSkuVO;
+import com.stockit.backend.feature.strategy.calculation.vo.StrategyCalculationWarehouseRouteVO;
 
 /** 계산 시점의 전략 입력을 원본 grain 그대로 조회한다. */
 @Mapper
@@ -41,5 +42,9 @@ public interface StrategyCalculationInputMapper {
     List<StrategyCalculationPolicyVO> selectEffectivePolicies(
             @Param("skuId") Long skuId,
             @Param("asOfDate") LocalDate asOfDate
+    );
+
+    List<StrategyCalculationWarehouseRouteVO> selectActiveWarehouseRoutes(
+            @Param("salesPointIds") List<Long> salesPointIds
     );
 }

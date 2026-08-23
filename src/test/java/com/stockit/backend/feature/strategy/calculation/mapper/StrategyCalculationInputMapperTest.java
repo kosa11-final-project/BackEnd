@@ -50,6 +50,9 @@ class StrategyCalculationInputMapperTest {
         assertThat(mapper.selectActiveSalesPoints(List.of(10L, 20L)))
                 .extracting(point -> point.getSalesPointId())
                 .containsExactly(10L, 20L);
+        assertThat(mapper.selectActiveWarehouseRoutes(List.of(10L, 20L)))
+                .extracting(route -> route.getWarehouseId())
+                .containsExactly(501L, 502L, 501L);
         assertThat(mapper.selectEffectivePrices(101L, List.of(10L, 20L), asOfDate))
                 .singleElement()
                 .satisfies(price -> {
