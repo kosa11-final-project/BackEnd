@@ -192,7 +192,10 @@ public class StrategyCalculationContextLoaderImpl
                 )
         );
         Map<Long, List<StrategyCalculationWarehouseRouteVO>> routesBySalesPoint =
-                inputMapper.selectActiveWarehouseRoutes(expectedSalesPointIds).stream()
+                OracleInClauseBatcher.select(
+                        expectedSalesPointIds,
+                        inputMapper::selectActiveWarehouseRoutes
+                ).stream()
                         .collect(Collectors.groupingBy(
                                 StrategyCalculationWarehouseRouteVO::getSalesPointId,
                                 LinkedHashMap::new,
