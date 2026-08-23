@@ -5,9 +5,12 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+
+import com.stockit.backend.feature.strategy.domain.StrategyType;
 
 /**
  * 하나의 AI 전략 Case를 동일한 입력으로 반복 계산하기 위한 불변 스냅샷.
@@ -23,7 +26,9 @@ public record StrategyCalculationContext(
         LocalDate forecastEndDate,
         Sku sku,
         BigDecimal unitCost,
+        RequestConstraints requestConstraints,
         List<InventoryLot> evaluationInventory,
+        List<InventoryLot> referenceInventory,
         List<InventoryPolicy> inventoryPolicies,
         Map<Long, SalesPoint> salesPoints,
         ForecastMetadata forecastMetadata
@@ -40,14 +45,37 @@ public record StrategyCalculationContext(
                 || sku == null
                 || unitCost == null
                 || unitCost.signum() < 0
+                || requestConstraints == null
                 || forecastMetadata == null) {
             throw new IllegalArgumentException("calculation context metadata is invalid");
         }
         evaluationInventory = List.copyOf(evaluationInventory);
+        referenceInventory = List.copyOf(referenceInventory);
         inventoryPolicies = List.copyOf(inventoryPolicies);
         salesPoints = Collections.unmodifiableMap(new LinkedHashMap<>(salesPoints));
         if (evaluationInventory.isEmpty()) {
             throw new IllegalArgumentException("evaluation inventory must not be empty");
+        }
+    }
+
+    /** 사용자 선택 순서와 직접 입력한 기간을 후속 후보·AI 단계까지 보존한다. */
+    public record RequestConstraints(
+            List<Long> orderedCandidateSalesPointIds,
+            List<StrategyType> orderedStrategyTypes,
+            LocalDate preferredStartDate,
+            LocalDate preferredEndDate
+    ) {
+        public RequestConstraints {
+            orderedCandidateSalesPointIds = List.copyOf(orderedCandidateSalesPointIds);
+            orderedStrategyTypes = List.copyOf(orderedStrategyTypes);
+        }
+
+        public boolean isStartDateFixed() {
+            return preferredStartDate != null;
+        }
+
+        public boolean isEndDateFixed() {
+            return preferredEndDate != null;
         }
     }
 
@@ -132,7 +160,8 @@ public record StrategyCalculationContext(
             String salesPointName,
             BigDecimal existingAvailableQty,
             Price price,
-            Map<LocalDate, BigDecimal> dailyForecast
+            Map<LocalDate, BigDecimal> dailyForecast,
+            List<WarehouseRoute> warehouseRoutes
     ) {
         public SalesPoint {
             if (salesPointId == null || salesPointId <= 0
@@ -145,10 +174,35 @@ public record StrategyCalculationContext(
             dailyForecast = Collections.unmodifiableMap(
                     new LinkedHashMap<>(dailyForecast)
             );
+            warehouseRoutes = warehouseRoutes.stream()
+                    .sorted(Comparator
+                            .comparing(
+                                    WarehouseRoute::priorityNo,
+                                    Comparator.nullsLast(Comparator.naturalOrder())
+                            )
+                            .thenComparing(WarehouseRoute::salesPointWarehouseId))
+                    .toList();
         }
 
         public boolean hasCompletePrice() {
             return price != null;
+        }
+    }
+
+    public record WarehouseRoute(
+            Long salesPointWarehouseId,
+            Long salesPointId,
+            Long warehouseId,
+            Integer priorityNo,
+            BigDecimal baseDeliveryCost
+    ) {
+        public WarehouseRoute {
+            if (salesPointWarehouseId == null || salesPointWarehouseId <= 0
+                    || salesPointId == null || salesPointId <= 0
+                    || warehouseId == null || warehouseId <= 0
+                    || (baseDeliveryCost != null && baseDeliveryCost.signum() < 0)) {
+                throw new IllegalArgumentException("warehouse route input is invalid");
+            }
         }
     }
 

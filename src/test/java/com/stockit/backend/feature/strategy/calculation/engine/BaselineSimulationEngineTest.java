@@ -199,7 +199,8 @@ class BaselineSimulationEngineTest {
                             decimal("5"),
                             decimal("10")
                     ),
-                    forecasts
+                    forecasts,
+                    List.of()
             ));
         }
         return new StrategyCalculationContext(
@@ -216,6 +217,13 @@ class BaselineSimulationEngineTest {
                         BigDecimal.ONE
                 ),
                 decimal("50"),
+                new StrategyCalculationContext.RequestConstraints(
+                        List.of(),
+                        List.of(),
+                        null,
+                        null
+                ),
+                inventory,
                 inventory,
                 List.of(),
                 salesPoints,

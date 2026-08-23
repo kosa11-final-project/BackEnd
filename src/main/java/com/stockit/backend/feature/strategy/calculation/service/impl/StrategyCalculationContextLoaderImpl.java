@@ -26,6 +26,7 @@ import com.stockit.backend.feature.strategy.calculation.vo.StrategyCalculationPo
 import com.stockit.backend.feature.strategy.calculation.vo.StrategyCalculationPriceVO;
 import com.stockit.backend.feature.strategy.calculation.vo.StrategyCalculationSalesPointVO;
 import com.stockit.backend.feature.strategy.calculation.vo.StrategyCalculationSkuVO;
+import com.stockit.backend.feature.strategy.calculation.vo.StrategyCalculationWarehouseRouteVO;
 import com.stockit.backend.feature.strategy.domain.StrategyCaseStatus;
 import com.stockit.backend.feature.strategy.domain.StrategyGenerationStage;
 import com.stockit.backend.feature.strategy.dto.StrategyCaseRequestPayload;
@@ -190,6 +191,13 @@ public class StrategyCalculationContextLoaderImpl
                         asOfDate
                 )
         );
+        Map<Long, List<StrategyCalculationWarehouseRouteVO>> routesBySalesPoint =
+                inputMapper.selectActiveWarehouseRoutes(expectedSalesPointIds).stream()
+                        .collect(Collectors.groupingBy(
+                                StrategyCalculationWarehouseRouteVO::getSalesPointId,
+                                LinkedHashMap::new,
+                                Collectors.toList()
+                        ));
         Map<Long, List<StrategyCalculationPriceVO>> pricesBySalesPoint = priceRows.stream()
                 .collect(Collectors.groupingBy(
                         StrategyCalculationPriceVO::getSalesPointId,
@@ -239,7 +247,10 @@ public class StrategyCalculationContextLoaderImpl
                     salesPoint.getSalesPointName(),
                     existingAvailableQty(inventory, salesPointId, asOfDate),
                     price,
-                    dailyForecast
+                    dailyForecast,
+                    routesBySalesPoint.getOrDefault(salesPointId, List.of()).stream()
+                            .map(this::toWarehouseRoute)
+                            .toList()
             ));
         }
 
@@ -255,7 +266,14 @@ public class StrategyCalculationContextLoaderImpl
                 forecast.forecastEndDate(),
                 toSku(sku),
                 costs.get(0).getUnitCost(),
+                new StrategyCalculationContext.RequestConstraints(
+                        payload.candidateSalesPointIds(),
+                        payload.strategyTypes(),
+                        payload.preferredStartDate(),
+                        payload.preferredEndDate()
+                ),
                 evaluationInventory.stream().map(this::toInventoryLot).toList(),
+                inventory.stream().map(this::toInventoryLot).toList(),
                 policyRows.stream().map(this::toPolicy).toList(),
                 salesPoints,
                 new StrategyCalculationContext.ForecastMetadata(
@@ -443,6 +461,18 @@ public class StrategyCalculationContextLoaderImpl
                 policy.getTargetStockQty(),
                 policy.getDailyUnitHoldingCost(),
                 policy.getUnitDisposalCost()
+        );
+    }
+
+    private StrategyCalculationContext.WarehouseRoute toWarehouseRoute(
+            StrategyCalculationWarehouseRouteVO route
+    ) {
+        return new StrategyCalculationContext.WarehouseRoute(
+                route.getSalesPointWarehouseId(),
+                route.getSalesPointId(),
+                route.getWarehouseId(),
+                route.getPriorityNo(),
+                route.getBaseDeliveryCost()
         );
     }
 

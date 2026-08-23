@@ -106,4 +106,28 @@
           AND (ip.effective_to IS NULL OR ip.effective_to &gt;= #{asOfDate})
         ORDER BY ip.inventory_policy_id
     </select>
+
+    <select id="selectActiveWarehouseRoutes"
+            resultType="com.stockit.backend.feature.strategy.calculation.vo.StrategyCalculationWarehouseRouteVO">
+        SELECT spw.sales_point_warehouse_id,
+               spw.sales_point_id,
+               spw.warehouse_id,
+               spw.priority_no,
+               spw.base_delivery_cost
+        FROM sales_point_warehouse spw
+        INNER JOIN warehouse w
+                ON w.warehouse_id = spw.warehouse_id
+               AND w.active_yn = 'Y'
+               AND w.is_deleted = 0
+        WHERE spw.sales_point_id IN
+        <foreach collection="salesPointIds" item="salesPointId" open="(" separator="," close=")">
+            #{salesPointId}
+        </foreach>
+          AND spw.active_yn = 'Y'
+          AND spw.is_deleted = 0
+        ORDER BY spw.sales_point_id,
+                 CASE WHEN spw.priority_no IS NULL THEN 1 ELSE 0 END,
+                 spw.priority_no,
+                 spw.sales_point_warehouse_id
+    </select>
 </mapper>
