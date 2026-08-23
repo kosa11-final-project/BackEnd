@@ -70,6 +70,8 @@ class InventoryMovementCandidateFactoryTest {
                         decimal("80.000")
                 );
         StrategyCandidate maximum = result.candidates().get(9);
+        assertThat(maximum.startDate()).isEqualTo(START);
+        assertThat(maximum.endDate()).isNull();
         assertThat(maximum.evidence().maxExecutableQty()).isEqualByComparingTo("80");
         assertThat(maximum.actions()).singleElement().satisfies(action -> {
             assertThat(action.source().warehouseId()).isEqualTo(501L);
@@ -79,6 +81,35 @@ class InventoryMovementCandidateFactoryTest {
             assertThat(action.estimatedActionCost()).isEqualByComparingTo("0");
         });
         assertThat(maximum.assumptions()).isEmpty();
+    }
+
+    @Test
+    void roundsTenPercentCandidateTiersDownToWholeUnits() {
+        StrategyCalculationContext context = context(
+                List.of(lot(1L, 1001L, 501L, 10L, "15", null)),
+                List.of(policy(1L, 501L, 10L, "0")),
+                List.of(route(20L, 501L, 1)),
+                forecasts("10"),
+                StrategyType.REALLOCATION
+        );
+
+        CandidateGenerationResult result = factory.generate(
+                context,
+                StrategyType.REALLOCATION,
+                1
+        );
+
+        assertThat(result.candidates())
+                .extracting(candidate -> candidate.actions().get(0).actionQuantity())
+                .containsExactly(
+                        decimal("1.000"), decimal("3.000"), decimal("4.000"),
+                        decimal("6.000"), decimal("7.000"), decimal("9.000"),
+                        decimal("10.000"), decimal("12.000"), decimal("13.000"),
+                        decimal("15.000")
+                );
+        assertThat(result.candidates()).allSatisfy(candidate ->
+                assertThat(candidate.evidence().maxExecutableQty())
+                        .isEqualByComparingTo("15"));
     }
 
     @Test
@@ -99,6 +130,7 @@ class InventoryMovementCandidateFactoryTest {
 
         assertThat(result.candidates()).hasSize(10);
         StrategyCandidate maximum = result.candidates().get(9);
+        assertThat(maximum.endDate()).isNull();
         assertThat(maximum.actions()).singleElement().satisfies(action -> {
             assertThat(action.target().warehouseId()).isEqualTo(502L);
             assertThat(action.estimatedActionCost()).isNull();
@@ -186,7 +218,7 @@ class InventoryMovementCandidateFactoryTest {
     }
 
     @Test
-    void appliesUserFixedSingleDayToDemandAndCandidatePeriod() {
+    void appliesUserFixedSingleDayToDemandAndKeepsStandaloneEndDateOpen() {
         LocalDate fixedDate = START.plusDays(4);
         StrategyCalculationContext context = context(
                 List.of(lot(1L, 1001L, 501L, 10L, "100", null)),
@@ -208,7 +240,7 @@ class InventoryMovementCandidateFactoryTest {
         StrategyCandidate.MovementEvidence evidence =
                 (StrategyCandidate.MovementEvidence) maximum.evidence();
         assertThat(maximum.startDate()).isEqualTo(fixedDate);
-        assertThat(maximum.endDate()).isEqualTo(fixedDate);
+        assertThat(maximum.endDate()).isNull();
         assertThat(evidence.targetAdditionalDemandQty())
                 .isEqualByComparingTo("10");
         assertThat(evidence.maxExecutableQty())

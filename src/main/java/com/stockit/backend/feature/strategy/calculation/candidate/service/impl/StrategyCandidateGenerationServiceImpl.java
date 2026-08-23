@@ -60,6 +60,16 @@ public class StrategyCandidateGenerationServiceImpl
         List<StrategyType> orderedTypes = requestedOrDefaultTypes(context);
         for (int index = 0; index < orderedTypes.size(); index++) {
             StrategyType strategyType = orderedTypes.get(index);
+            if (context.sourceSalesPointId() == null
+                    && strategyType != StrategyType.REALLOCATION) {
+                exclusions.add(new CandidateExclusion(
+                        strategyType,
+                        null,
+                        CandidateExclusionReason.PUBLIC_UNASSIGNED_STRATEGY_NOT_SUPPORTED,
+                        "Public unassigned inventory supports sales point allocation only"
+                ));
+                continue;
+            }
             StrategyCandidateCalculator calculator = calculators.get(strategyType);
             if (calculator == null) {
                 continue;
@@ -91,6 +101,9 @@ public class StrategyCandidateGenerationServiceImpl
             StrategyCalculationContext context
     ) {
         List<StrategyType> requested = context.requestConstraints().orderedStrategyTypes();
+        if (context.sourceSalesPointId() == null && requested.isEmpty()) {
+            return List.of(StrategyType.REALLOCATION);
+        }
         List<StrategyType> source = requested.isEmpty()
                 ? DEFAULT_GENERATION_TYPES
                 : requested;

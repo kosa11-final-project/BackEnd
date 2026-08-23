@@ -210,15 +210,15 @@ abstract class AbstractChannelStrategyCandidateCalculator
 
         String candidateId = idGenerator.generate(
                 strategyTypes,
-                movementCandidate.startDate(),
-                movementCandidate.endDate(),
+                context.forecastStartDate(),
+                context.forecastEndDate(),
                 actions
         );
         return new StrategyCandidate(
                 candidateId,
                 strategyTypes,
-                movementCandidate.startDate(),
-                movementCandidate.endDate(),
+                context.forecastStartDate(),
+                context.forecastEndDate(),
                 actions,
                 assumptions,
                 new StrategyCandidate.Preference(
@@ -229,8 +229,8 @@ abstract class AbstractChannelStrategyCandidateCalculator
                 new StrategyCandidate.ChannelEvidence(
                         movementEvidence.maxExecutableQty(),
                         forecastTotal(target.dailyForecast(),
-                                movementCandidate.startDate(),
-                                movementCandidate.endDate()),
+                                context.forecastStartDate(),
+                                context.forecastEndDate()),
                         target.existingAvailableQty(),
                         movementEvidence.targetAdditionalDemandQty(),
                         movementType,

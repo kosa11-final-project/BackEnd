@@ -67,13 +67,38 @@ class MovementLotAllocationPolicyTest {
         assertThat(result.plannedQuantity()).isEqualByComparingTo("10");
     }
 
+    @Test
+    void doesNotAllocateDemandOnOrAfterSaleStopDate() {
+        StrategyCalculationContext.InventoryLot inventory = lot(
+                1L,
+                1001L,
+                LocalDate.of(2026, 8, 1),
+                LocalDate.of(2026, 9, 1),
+                SALE_DATE.plusDays(1)
+        );
+        Map<LocalDate, BigDecimal> demand = new LinkedHashMap<>();
+        demand.put(SALE_DATE, decimal("3"));
+        demand.put(SALE_DATE.plusDays(1), decimal("7"));
+
+        MovementCandidatePlan result = policy.plan(
+                List.of(inventory),
+                Map.of(501L, decimal("10")),
+                demand,
+                decimal("10")
+        );
+
+        assertThat(result.plannedQuantity()).isEqualByComparingTo("3");
+        assertThat(result.allocations()).singleElement().satisfies(allocation ->
+                assertThat(allocation.quantity()).isEqualByComparingTo("3"));
+    }
+
     private static StrategyCalculationContext.InventoryLot lot(
             Long balanceId,
             Long lotId,
             LocalDate receivedDate,
             LocalDate expiryDate
     ) {
-        return lot(balanceId, lotId, receivedDate, expiryDate, "10", "0");
+        return lot(balanceId, lotId, receivedDate, expiryDate, "10", "0", null);
     }
 
     private static StrategyCalculationContext.InventoryLot lot(
@@ -83,6 +108,44 @@ class MovementLotAllocationPolicyTest {
             LocalDate expiryDate,
             String onHandQuantity,
             String reservedQuantity
+    ) {
+        return lot(
+                balanceId,
+                lotId,
+                receivedDate,
+                expiryDate,
+                onHandQuantity,
+                reservedQuantity,
+                null
+        );
+    }
+
+    private static StrategyCalculationContext.InventoryLot lot(
+            Long balanceId,
+            Long lotId,
+            LocalDate receivedDate,
+            LocalDate expiryDate,
+            LocalDate saleStopDate
+    ) {
+        return lot(
+                balanceId,
+                lotId,
+                receivedDate,
+                expiryDate,
+                "10",
+                "0",
+                saleStopDate
+        );
+    }
+
+    private static StrategyCalculationContext.InventoryLot lot(
+            Long balanceId,
+            Long lotId,
+            LocalDate receivedDate,
+            LocalDate expiryDate,
+            String onHandQuantity,
+            String reservedQuantity,
+            LocalDate saleStopDate
     ) {
         return new StrategyCalculationContext.InventoryLot(
                 balanceId,
@@ -95,7 +158,7 @@ class MovementLotAllocationPolicyTest {
                 null,
                 receivedDate,
                 expiryDate,
-                null,
+                saleStopDate,
                 "AVAILABLE"
         );
     }
