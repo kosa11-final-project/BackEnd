@@ -55,6 +55,7 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
 
     @Override
     public StrategyExecutionPageResponse findAll(StrategyExecutionQuery query) {
+        LocalDate asOfDate = LocalDate.now(clock.withZone(BUSINESS_ZONE));
         Objects.requireNonNull(query, "query must not be null");
         long totalElements = strategyExecutionMapper.countFinalStrategyExecutions(query);
         List<StrategyExecutionBaseVO> bases = totalElements == 0
@@ -80,7 +81,7 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
                         List.of(),
                         List.of(),
                         null,
-                        LocalDate.now(clock.withZone(BUSINESS_ZONE))
+                        asOfDate
                 ))
                 .toList();
         int totalPages = totalElements == 0
@@ -99,6 +100,7 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
 
     @Override
     public StrategyExecutionResponse findByStrategyCaseId(Long strategyCaseId) {
+        LocalDate asOfDate = LocalDate.now(clock.withZone(BUSINESS_ZONE));
         if (strategyCaseId == null || strategyCaseId <= 0) {
             throw new AppException(ErrorCode.AI_STRATEGY_EXECUTION_NOT_FOUND);
         }
@@ -119,14 +121,13 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
         List<StrategyExecutionDailySalesVO> dailySales = safe(
                 strategyExecutionMapper.selectDailySales(
                         strategyCaseId,
-                        LocalDate.now(clock.withZone(BUSINESS_ZONE))
+                        asOfDate
                 )
         );
         StrategyExecutionPerformanceVO performance = strategyExecutionMapper.selectPerformance(
                 strategyOptionId
         );
-        return response(base, actions, inventories, dailySales, performance,
-                LocalDate.now(clock.withZone(BUSINESS_ZONE)));
+        return response(base, actions, inventories, dailySales, performance, asOfDate);
     }
 
     private static StrategyExecutionResponse response(
