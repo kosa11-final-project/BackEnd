@@ -17,6 +17,9 @@ import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -143,6 +146,96 @@ class StrategyCalculationContextLoaderImplTest {
                 .satisfies(inventory -> assertThat(inventory.isPublicUnassigned()).isTrue());
         assertThat(context.salesPoints().values())
                 .allSatisfy(salesPoint -> assertThat(salesPoint.price()).isNull());
+        assertThat(context.salesPoints().values())
+                .allSatisfy(salesPoint -> assertThat(salesPoint.existingAvailableQty())
+                        .isEqualByComparingTo("0"));
+    }
+
+    @ParameterizedTest
+    @NullSource
+    @ValueSource(longs = {0L, -1L})
+    void rejectsInvalidStrategyCaseId(Long strategyCaseId) {
+        assertThatThrownBy(() -> loader.load(strategyCaseId))
+                .isInstanceOfSatisfying(
+                        StrategyCalculationException.class,
+                        exception -> assertThat(exception.getCode())
+                                .isEqualTo("CALCULATION_CASE_ID_INVALID")
+                );
+    }
+
+    @Test
+    void rejectsWhenValidatedForecastCheckpointIsMissing() {
+        StrategyCaseVO strategyCase = strategyCase(10L);
+        StrategyCaseRequestPayload payload = new StrategyCaseRequestPayload(
+                List.of(1001L),
+                List.of(20L),
+                List.of(),
+                START,
+                END,
+                START,
+                END
+        );
+        StrategyForecastRequestContext requestContext = requestContext(10L);
+        when(strategyCaseMapper.selectStrategyCaseById(12345L)).thenReturn(strategyCase);
+        when(payloadSerializer.deserialize("{}")) .thenReturn(payload);
+        when(requestFactory.create(strategyCase, payload)).thenReturn(requestContext);
+        when(checkpointStore.find(12345L, "request-hash", List.of(10L, 20L)))
+                .thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> loader.load(12345L))
+                .isInstanceOfSatisfying(
+                        StrategyCalculationException.class,
+                        exception -> assertThat(exception.getCode())
+                                .isEqualTo("CALCULATION_FORECAST_NOT_READY")
+                );
+    }
+
+    @Test
+    void rejectsWhenEffectiveSkuCostIsMissing() {
+        givenCommonCase(10L, List.of(1001L));
+        when(inputMapper.selectInventory(101L)).thenReturn(List.of(
+                inventory(1L, 1001L, 10L, "20", "0")
+        ));
+        when(inputMapper.selectEffectiveCosts(101L, START)).thenReturn(List.of());
+
+        assertThatThrownBy(() -> loader.load(12345L))
+                .isInstanceOfSatisfying(
+                        StrategyCalculationException.class,
+                        exception -> assertThat(exception.getCode())
+                                .isEqualTo("CALCULATION_COST_INVALID")
+                );
+    }
+
+    @Test
+    void rejectsOverlappingEffectiveSkuCostsInsteadOfSelectingOneArbitrarily() {
+        givenCommonCase(10L, List.of(1001L));
+        when(inputMapper.selectInventory(101L)).thenReturn(List.of(
+                inventory(1L, 1001L, 10L, "20", "0")
+        ));
+        when(inputMapper.selectEffectiveCosts(101L, START)).thenReturn(List.of(
+                cost("50"),
+                cost("55")
+        ));
+
+        assertThatThrownBy(() -> loader.load(12345L))
+                .isInstanceOfSatisfying(
+                        StrategyCalculationException.class,
+                        exception -> assertThat(exception.getCode())
+                                .isEqualTo("CALCULATION_COST_INVALID")
+                );
+    }
+
+    @Test
+    void rejectsEmptyEvaluationInventory() {
+        givenCommonCase(10L, List.of());
+        when(inputMapper.selectInventory(101L)).thenReturn(List.of());
+
+        assertThatThrownBy(() -> loader.load(12345L))
+                .isInstanceOfSatisfying(
+                        StrategyCalculationException.class,
+                        exception -> assertThat(exception.getCode())
+                                .isEqualTo("CALCULATION_INVENTORY_EMPTY")
+                );
     }
 
     @Test
@@ -172,6 +265,30 @@ class StrategyCalculationContextLoaderImplTest {
                 .thenReturn(List.of(salesPoint(10L), salesPoint(20L)));
         when(inputMapper.selectEffectivePrices(101L, List.of(10L, 20L), START))
                 .thenReturn(List.of(price(10L, "100", null, "10")));
+
+        assertThatThrownBy(() -> loader.load(12345L))
+                .isInstanceOfSatisfying(
+                        StrategyCalculationException.class,
+                        exception -> assertThat(exception.getCode())
+                                .isEqualTo("CALCULATION_SOURCE_PRICE_INVALID")
+                );
+    }
+
+    @Test
+    void rejectsOverlappingSourcePricesInsteadOfSelectingOneArbitrarily() {
+        givenCommonCase(10L, List.of(1001L));
+        when(inputMapper.selectInventory(101L)).thenReturn(List.of(
+                inventory(1L, 1001L, 10L, "20", "0")
+        ));
+        when(inputMapper.selectEffectiveCosts(101L, START))
+                .thenReturn(List.of(cost("50")));
+        when(inputMapper.selectActiveSalesPoints(List.of(10L, 20L)))
+                .thenReturn(List.of(salesPoint(10L), salesPoint(20L)));
+        when(inputMapper.selectEffectivePrices(101L, List.of(10L, 20L), START))
+                .thenReturn(List.of(
+                        price(10L, "100", "5", "10"),
+                        price(10L, "95", "5", "10")
+                ));
 
         assertThatThrownBy(() -> loader.load(12345L))
                 .isInstanceOfSatisfying(

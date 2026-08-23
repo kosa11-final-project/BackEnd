@@ -1,6 +1,7 @@
 package com.stockit.backend.feature.strategy.calculation.service.impl;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.stockit.backend.feature.strategy.calculation.domain.BaselineSimulation;
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculationContext;
@@ -25,6 +26,7 @@ public class StrategyBaselineSimulationServiceImpl
     }
 
     @Override
+    @Transactional(readOnly = true)
     public BaselineSimulation simulate(Long strategyCaseId) {
         StrategyCalculationContext context = contextLoader.load(strategyCaseId);
         return simulationEngine.simulate(context);

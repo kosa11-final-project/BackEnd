@@ -75,6 +75,7 @@ class BaselineSimulationEngineTest {
         assertThat(result.summary().expectedSalesQty()).isEqualByComparingTo("3.000");
         assertThat(result.summary().expectedRemainingQty()).isEqualByComparingTo("7.000");
         assertThat(result.summary().expectedDisposalQty()).isEqualByComparingTo("0.000");
+        assertThat(result.summary().expectedSellThroughDays()).isNull();
         assertThat(result.dailySeries()).extracting(BaselineSimulation.DailyPoint::expectedSalesQty)
                 .containsExactly(decimal("3.000"), decimal("0.000"), decimal("0.000"));
     }

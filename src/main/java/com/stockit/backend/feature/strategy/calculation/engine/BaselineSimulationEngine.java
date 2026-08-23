@@ -30,7 +30,14 @@ public class BaselineSimulationEngine {
             CalculationPrecisionPolicy.MONEY_SCALE
     );
 
-    /** 동일 Context에는 항상 동일한 결과를 반환하며 외부 상태를 변경하지 않는다. */
+    /**
+     * 동일 Context에는 항상 동일한 결과를 반환하며 외부 상태를 변경하지 않는다.
+     *
+     * <p>{@code availableQty}는 현재 프로젝트의 {@code on_hand_qty}이며
+     * {@code reservedQty}를 다시 차감하지 않는다. 예상 소진 기간은 평가 대상 재고가
+     * 폐기 없이 전량 판매된 경우에만 반환하며, 폐기 또는 판매중지 잔여재고가 있으면
+     * {@code null}을 반환한다.</p>
+     */
     public BaselineSimulation simulate(StrategyCalculationContext context) {
         SalesPoint source = resolveSource(context);
         Price sourcePrice = source == null ? null : source.price();

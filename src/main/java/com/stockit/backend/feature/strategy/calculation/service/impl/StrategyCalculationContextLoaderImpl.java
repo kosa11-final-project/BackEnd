@@ -45,7 +45,9 @@ import com.stockit.backend.feature.strategy.vo.StrategyCaseVO;
  * 전략 Case, Redis 예측 체크포인트와 계산 시점 DB 데이터를 조립한다.
  *
  * <p>후보 판매처의 가격 누락은 해당 판매처만 후속 후보 계산에서 제외할 수 있도록
- * {@code price=null}로 보존하지만, 기준 판매처 가격과 SKU 원가는 필수로 검증한다.</p>
+ * {@code price=null}로 보존하지만, 기준 판매처 가격과 SKU 원가는 필수로 검증한다.
+ * 같은 시점에 유효한 기준 가격이나 원가가 중복되면 임의의 최신 행을 선택하지 않고
+ * 데이터 무결성 오류로 처리한다.</p>
  */
 @Service
 public class StrategyCalculationContextLoaderImpl
@@ -175,12 +177,18 @@ public class StrategyCalculationContextLoaderImpl
         }
 
         List<StrategyCalculationSalesPointVO> salesPointRows =
-                inputMapper.selectActiveSalesPoints(expectedSalesPointIds);
+                OracleInClauseBatcher.select(
+                        expectedSalesPointIds,
+                        inputMapper::selectActiveSalesPoints
+                );
         validateSalesPointScope(expectedSalesPointIds, salesPointRows);
-        List<StrategyCalculationPriceVO> priceRows = inputMapper.selectEffectivePrices(
-                strategyCase.getSkuId(),
+        List<StrategyCalculationPriceVO> priceRows = OracleInClauseBatcher.select(
                 expectedSalesPointIds,
-                asOfDate
+                salesPointIds -> inputMapper.selectEffectivePrices(
+                        strategyCase.getSkuId(),
+                        salesPointIds,
+                        asOfDate
+                )
         );
         Map<Long, List<StrategyCalculationPriceVO>> pricesBySalesPoint = priceRows.stream()
                 .collect(Collectors.groupingBy(
@@ -368,6 +376,7 @@ public class StrategyCalculationContextLoaderImpl
         );
     }
 
+    /** 공용 미할당 재고는 어느 판매처에도 귀속하지 않고 재할당 후보의 원천으로만 사용한다. */
     private static BigDecimal existingAvailableQty(
             Collection<StrategyCalculationInventoryVO> inventory,
             Long salesPointId,
