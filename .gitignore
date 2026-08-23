@@ -16,6 +16,7 @@ docs/*
 !docs/azure-sales-daily-export.md
 !docs/ai-strategy-rabbitmq.md
 !docs/demand-forecast-orchestration.md
+!docs/ai-strategy-candidate-simulation.md
 
 *.log
 hs_err_pid*
