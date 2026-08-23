@@ -158,7 +158,7 @@ class InventoryMovementCandidateFactoryTest {
                 1L, 1001L, 501L, 10L, "100", null
         );
         StrategyCalculationContext.InventoryLot targetExisting = lot(
-                2L, 2001L, 501L, 20L, "30", null
+                2L, 2001L, 501L, 20L, "30", "25", null
         );
         StrategyCalculationContext context = context(
                 List.of(source),
@@ -181,6 +181,34 @@ class InventoryMovementCandidateFactoryTest {
                 .isEqualByComparingTo("20");
     }
 
+    @Test
+    void appliesUserFixedSingleDayToDemandAndCandidatePeriod() {
+        LocalDate fixedDate = START.plusDays(4);
+        StrategyCalculationContext context = context(
+                List.of(lot(1L, 1001L, 501L, 10L, "100", null)),
+                List.of(policy(1L, 501L, 10L, "0")),
+                List.of(route(20L, 501L, 1)),
+                forecasts("10"),
+                StrategyType.REALLOCATION,
+                fixedDate,
+                fixedDate
+        );
+
+        CandidateGenerationResult result = factory.generate(
+                context,
+                StrategyType.REALLOCATION,
+                1
+        );
+
+        StrategyCandidate maximum = result.candidates().get(9);
+        assertThat(maximum.startDate()).isEqualTo(fixedDate);
+        assertThat(maximum.endDate()).isEqualTo(fixedDate);
+        assertThat(maximum.evidence().targetAdditionalDemandQty())
+                .isEqualByComparingTo("10");
+        assertThat(maximum.evidence().maxExecutableQty())
+                .isEqualByComparingTo("10");
+    }
+
     private static StrategyCalculationContext context(
             List<StrategyCalculationContext.InventoryLot> inventory,
             List<StrategyCalculationContext.InventoryPolicy> policies,
@@ -188,8 +216,28 @@ class InventoryMovementCandidateFactoryTest {
             Map<LocalDate, BigDecimal> targetForecast,
             StrategyType requestedType
     ) {
+        return context(
+                inventory,
+                policies,
+                targetRoutes,
+                targetForecast,
+                requestedType,
+                null,
+                null
+        );
+    }
+
+    private static StrategyCalculationContext context(
+            List<StrategyCalculationContext.InventoryLot> inventory,
+            List<StrategyCalculationContext.InventoryPolicy> policies,
+            List<StrategyCalculationContext.WarehouseRoute> targetRoutes,
+            Map<LocalDate, BigDecimal> targetForecast,
+            StrategyType requestedType,
+            LocalDate preferredStartDate,
+            LocalDate preferredEndDate
+    ) {
         return context(inventory, inventory, policies, targetRoutes, targetForecast,
-                requestedType);
+                requestedType, preferredStartDate, preferredEndDate);
     }
 
     private static StrategyCalculationContext context(
@@ -199,6 +247,28 @@ class InventoryMovementCandidateFactoryTest {
             List<StrategyCalculationContext.WarehouseRoute> targetRoutes,
             Map<LocalDate, BigDecimal> targetForecast,
             StrategyType requestedType
+    ) {
+        return context(
+                evaluationInventory,
+                referenceInventory,
+                policies,
+                targetRoutes,
+                targetForecast,
+                requestedType,
+                null,
+                null
+        );
+    }
+
+    private static StrategyCalculationContext context(
+            List<StrategyCalculationContext.InventoryLot> evaluationInventory,
+            List<StrategyCalculationContext.InventoryLot> referenceInventory,
+            List<StrategyCalculationContext.InventoryPolicy> policies,
+            List<StrategyCalculationContext.WarehouseRoute> targetRoutes,
+            Map<LocalDate, BigDecimal> targetForecast,
+            StrategyType requestedType,
+            LocalDate preferredStartDate,
+            LocalDate preferredEndDate
     ) {
         Map<Long, StrategyCalculationContext.SalesPoint> salesPoints = new LinkedHashMap<>();
         salesPoints.put(10L, salesPoint(10L, forecasts("3"), List.of()));
@@ -216,8 +286,8 @@ class InventoryMovementCandidateFactoryTest {
                 new StrategyCalculationContext.RequestConstraints(
                         List.of(20L),
                         List.of(requestedType),
-                        null,
-                        null
+                        preferredStartDate,
+                        preferredEndDate
                 ),
                 evaluationInventory,
                 referenceInventory,
@@ -265,6 +335,26 @@ class InventoryMovementCandidateFactoryTest {
             String quantity,
             LocalDate expiryDate
     ) {
+        return lot(
+                balanceId,
+                lotId,
+                warehouseId,
+                salesPointId,
+                quantity,
+                "0",
+                expiryDate
+        );
+    }
+
+    private static StrategyCalculationContext.InventoryLot lot(
+            Long balanceId,
+            Long lotId,
+            Long warehouseId,
+            Long salesPointId,
+            String quantity,
+            String reservedQuantity,
+            LocalDate expiryDate
+    ) {
         return new StrategyCalculationContext.InventoryLot(
                 balanceId,
                 lotId,
@@ -272,7 +362,7 @@ class InventoryMovementCandidateFactoryTest {
                 salesPointId,
                 salesPointId,
                 decimal(quantity),
-                BigDecimal.ZERO,
+                decimal(reservedQuantity),
                 null,
                 LocalDate.of(2026, 8, 1),
                 expiryDate,

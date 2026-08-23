@@ -58,6 +58,20 @@ public record StrategyCalculationContext(
         }
     }
 
+    /** 사용자 고정 시작일이 있으면 우선하고, 없으면 예측 시작일을 사용한다. */
+    public LocalDate strategyStartDate() {
+        return requestConstraints.preferredStartDate() != null
+                ? requestConstraints.preferredStartDate()
+                : forecastStartDate;
+    }
+
+    /** 사용자 고정 종료일이 있으면 우선하고, 없으면 예측 종료일을 사용한다. */
+    public LocalDate strategyEndDate() {
+        return requestConstraints.preferredEndDate() != null
+                ? requestConstraints.preferredEndDate()
+                : forecastEndDate;
+    }
+
     /** 사용자 선택 순서와 직접 입력한 기간을 후속 후보·AI 단계까지 보존한다. */
     public record RequestConstraints(
             List<Long> orderedCandidateSalesPointIds,

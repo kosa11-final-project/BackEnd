@@ -202,6 +202,48 @@ class StrategyCalculationContextLoaderImplTest {
     }
 
     @Test
+    void rejectsPreferredStrategyPeriodOutsideValidatedForecastRange() {
+        StrategyCaseRequestPayload payload = new StrategyCaseRequestPayload(
+                List.of(1001L),
+                List.of(20L),
+                List.of(),
+                START.minusDays(1),
+                null,
+                START,
+                END
+        );
+        givenForecastCheckpoint(10L, payload, forecastResponse(10L));
+
+        assertThatThrownBy(() -> loader.load(12345L))
+                .isInstanceOfSatisfying(
+                        StrategyCalculationException.class,
+                        exception -> assertThat(exception.getCode())
+                                .isEqualTo("CALCULATION_STRATEGY_PERIOD_INVALID")
+                );
+    }
+
+    @Test
+    void rejectsReversedPreferredStrategyPeriod() {
+        StrategyCaseRequestPayload payload = new StrategyCaseRequestPayload(
+                List.of(1001L),
+                List.of(20L),
+                List.of(),
+                END,
+                START,
+                START,
+                END
+        );
+        givenForecastCheckpoint(10L, payload, forecastResponse(10L));
+
+        assertThatThrownBy(() -> loader.load(12345L))
+                .isInstanceOfSatisfying(
+                        StrategyCalculationException.class,
+                        exception -> assertThat(exception.getCode())
+                                .isEqualTo("CALCULATION_STRATEGY_PERIOD_INVALID")
+                );
+    }
+
+    @Test
     void rejectsWhenEffectiveSkuCostIsMissing() {
         givenCommonCase(10L, List.of(1001L));
         when(inputMapper.selectInventory(101L)).thenReturn(List.of(
@@ -310,7 +352,6 @@ class StrategyCalculationContextLoaderImplTest {
     }
 
     private void givenCommonCase(Long sourceSalesPointId, List<Long> lotIds) {
-        StrategyCaseVO strategyCase = strategyCase(sourceSalesPointId);
         StrategyCaseRequestPayload payload = new StrategyCaseRequestPayload(
                 lotIds,
                 List.of(20L),
@@ -320,8 +361,22 @@ class StrategyCalculationContextLoaderImplTest {
                 START,
                 END
         );
+        givenForecastCheckpoint(
+                sourceSalesPointId,
+                payload,
+                forecastResponse(sourceSalesPointId)
+        );
+        when(dateTimeProvider.now()).thenReturn(LocalDateTime.of(2026, 8, 20, 10, 0));
+        when(inputMapper.selectActiveSku(101L)).thenReturn(sku());
+    }
+
+    private void givenForecastCheckpoint(
+            Long sourceSalesPointId,
+            StrategyCaseRequestPayload payload,
+            StrategyForecastResponse response
+    ) {
+        StrategyCaseVO strategyCase = strategyCase(sourceSalesPointId);
         StrategyForecastRequestContext requestContext = requestContext(sourceSalesPointId);
-        StrategyForecastResponse response = forecastResponse(sourceSalesPointId);
         ForecastCheckpoint checkpoint = new ForecastCheckpoint(
                 ForecastCheckpoint.CURRENT_SCHEMA_VERSION,
                 12345L,
@@ -335,8 +390,6 @@ class StrategyCalculationContextLoaderImplTest {
         when(requestFactory.create(strategyCase, payload)).thenReturn(requestContext);
         when(checkpointStore.find(12345L, "request-hash", List.of(10L, 20L)))
                 .thenReturn(Optional.of(checkpoint));
-        when(dateTimeProvider.now()).thenReturn(LocalDateTime.of(2026, 8, 20, 10, 0));
-        when(inputMapper.selectActiveSku(101L)).thenReturn(sku());
     }
 
     private static StrategyCaseVO strategyCase(Long sourceSalesPointId) {

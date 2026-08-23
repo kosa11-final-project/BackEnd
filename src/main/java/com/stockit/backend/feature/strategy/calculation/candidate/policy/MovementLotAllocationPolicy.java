@@ -14,7 +14,12 @@ import com.stockit.backend.feature.strategy.calculation.candidate.domain.Movemen
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculationContext.InventoryLot;
 import com.stockit.backend.feature.strategy.calculation.engine.CalculationPrecisionPolicy;
 
-/** FEFO(소비기한 없음은 FIFO)로 LOT를 대상 판매처의 일자별 미충족 수요에 배분한다. */
+/**
+ * FEFO(소비기한 없음은 FIFO)로 LOT를 대상 판매처의 일자별 미충족 수요에 배분한다.
+ *
+ * <p>{@code availableQty}는 DB의 {@code on_hand_qty}로, 예약분을 제외한
+ * 판매가능재고이므로 {@code reservedQty}를 다시 차감하지 않는다.</p>
+ */
 @Component
 public class MovementLotAllocationPolicy {
 

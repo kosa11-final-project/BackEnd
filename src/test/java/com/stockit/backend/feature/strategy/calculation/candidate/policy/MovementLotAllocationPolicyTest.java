@@ -46,11 +46,43 @@ class MovementLotAllocationPolicyTest {
                 .containsExactly(decimal("10.000"), decimal("10.000"), decimal("5.000"));
     }
 
+    @Test
+    void doesNotSubtractReservedQuantityFromAlreadyUnreservedOnHandQuantity() {
+        StrategyCalculationContext.InventoryLot lot = lot(
+                1L,
+                1001L,
+                LocalDate.of(2026, 8, 1),
+                null,
+                "10",
+                "8"
+        );
+
+        MovementCandidatePlan result = policy.plan(
+                List.of(lot),
+                Map.of(501L, decimal("10")),
+                new LinkedHashMap<>(Map.of(SALE_DATE, decimal("10"))),
+                decimal("10")
+        );
+
+        assertThat(result.plannedQuantity()).isEqualByComparingTo("10");
+    }
+
     private static StrategyCalculationContext.InventoryLot lot(
             Long balanceId,
             Long lotId,
             LocalDate receivedDate,
             LocalDate expiryDate
+    ) {
+        return lot(balanceId, lotId, receivedDate, expiryDate, "10", "0");
+    }
+
+    private static StrategyCalculationContext.InventoryLot lot(
+            Long balanceId,
+            Long lotId,
+            LocalDate receivedDate,
+            LocalDate expiryDate,
+            String onHandQuantity,
+            String reservedQuantity
     ) {
         return new StrategyCalculationContext.InventoryLot(
                 balanceId,
@@ -58,8 +90,8 @@ class MovementLotAllocationPolicyTest {
                 501L,
                 10L,
                 10L,
-                decimal("10"),
-                BigDecimal.ZERO,
+                decimal(onHandQuantity),
+                decimal(reservedQuantity),
                 null,
                 receivedDate,
                 expiryDate,

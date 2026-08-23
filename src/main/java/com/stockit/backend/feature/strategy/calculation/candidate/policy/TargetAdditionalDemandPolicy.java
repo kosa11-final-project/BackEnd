@@ -16,7 +16,12 @@ import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculati
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculationException;
 import com.stockit.backend.feature.strategy.calculation.engine.CalculationPrecisionPolicy;
 
-/** 대상 판매처의 기존 재고로 충족할 수 없는 일자별 추가 판매 가능 수요를 계산한다. */
+/**
+ * 대상 판매처의 기존 재고로 충족할 수 없는 일자별 추가 판매 가능 수요를 계산한다.
+ *
+ * <p>{@code availableQty}는 DB의 {@code on_hand_qty}로, 예약분을 제외한
+ * 판매가능재고이므로 {@code reservedQty}를 다시 차감하지 않는다.</p>
+ */
 @Component
 public class TargetAdditionalDemandPolicy {
 
@@ -42,8 +47,8 @@ public class TargetAdditionalDemandPolicy {
                 .toList();
         Map<LocalDate, BigDecimal> unmetByDate = new LinkedHashMap<>();
 
-        for (LocalDate date = context.forecastStartDate();
-                !date.isAfter(context.forecastEndDate());
+        for (LocalDate date = context.strategyStartDate();
+                !date.isAfter(context.strategyEndDate());
                 date = date.plusDays(1)) {
             BigDecimal forecast = target.dailyForecast().get(date);
             if (forecast == null || forecast.signum() < 0) {

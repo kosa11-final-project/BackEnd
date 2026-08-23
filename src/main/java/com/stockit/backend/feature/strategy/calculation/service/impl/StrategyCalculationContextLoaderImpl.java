@@ -100,6 +100,7 @@ public class StrategyCalculationContextLoaderImpl
                 "Validated demand forecast checkpoint does not exist"
         ));
         responseValidator.validate(forecastContext, checkpoint.forecastResponse());
+        validateStrategyPeriod(payload, checkpoint.forecastResponse());
 
         LocalDateTime calculatedAt = dateTimeProvider.now();
         return assemble(
@@ -109,6 +110,36 @@ public class StrategyCalculationContextLoaderImpl
                 forecastContext.expectedSalesPointIds(),
                 calculatedAt
         );
+    }
+
+    private static void validateStrategyPeriod(
+            StrategyCaseRequestPayload payload,
+            StrategyForecastResponse forecast
+    ) {
+        if (forecast == null
+                || forecast.forecastStartDate() == null
+                || forecast.forecastEndDate() == null) {
+            throw failure(
+                    "CALCULATION_STRATEGY_PERIOD_INVALID",
+                    "Validated forecast range is missing"
+            );
+        }
+        LocalDate strategyStartDate = payload.preferredStartDate() != null
+                ? payload.preferredStartDate()
+                : forecast.forecastStartDate();
+        LocalDate strategyEndDate = payload.preferredEndDate() != null
+                ? payload.preferredEndDate()
+                : forecast.forecastEndDate();
+        if (strategyStartDate == null
+                || strategyEndDate == null
+                || strategyStartDate.isBefore(forecast.forecastStartDate())
+                || strategyEndDate.isAfter(forecast.forecastEndDate())
+                || strategyStartDate.isAfter(strategyEndDate)) {
+            throw failure(
+                    "CALCULATION_STRATEGY_PERIOD_INVALID",
+                    "Preferred strategy period must be within the validated forecast range"
+            );
+        }
     }
 
     private StrategyCaseVO loadStrategyCase(Long strategyCaseId) {
