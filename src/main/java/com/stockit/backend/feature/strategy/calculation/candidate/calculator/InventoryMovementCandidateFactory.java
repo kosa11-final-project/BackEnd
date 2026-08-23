@@ -226,14 +226,14 @@ public class InventoryMovementCandidateFactory {
             String candidateId = idGenerator.generate(
                     strategyType,
                     context.strategyStartDate(),
-                    context.strategyEndDate(),
+                    null,
                     actions
             );
             candidates.add(new StrategyCandidate(
                     candidateId,
                     List.of(strategyType),
                     context.strategyStartDate(),
-                    context.strategyEndDate(),
+                    null,
                     actions,
                     assumptions,
                     new StrategyCandidate.Preference(

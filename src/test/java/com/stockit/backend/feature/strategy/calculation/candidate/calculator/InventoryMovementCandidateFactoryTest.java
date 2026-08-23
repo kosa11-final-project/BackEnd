@@ -70,6 +70,8 @@ class InventoryMovementCandidateFactoryTest {
                         decimal("80.000")
                 );
         StrategyCandidate maximum = result.candidates().get(9);
+        assertThat(maximum.startDate()).isEqualTo(START);
+        assertThat(maximum.endDate()).isNull();
         assertThat(maximum.evidence().maxExecutableQty()).isEqualByComparingTo("80");
         assertThat(maximum.actions()).singleElement().satisfies(action -> {
             assertThat(action.source().warehouseId()).isEqualTo(501L);
@@ -99,6 +101,7 @@ class InventoryMovementCandidateFactoryTest {
 
         assertThat(result.candidates()).hasSize(10);
         StrategyCandidate maximum = result.candidates().get(9);
+        assertThat(maximum.endDate()).isNull();
         assertThat(maximum.actions()).singleElement().satisfies(action -> {
             assertThat(action.target().warehouseId()).isEqualTo(502L);
             assertThat(action.estimatedActionCost()).isNull();

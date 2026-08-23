@@ -20,10 +20,24 @@ public record StrategyCandidate(
     public StrategyCandidate {
         if (candidateId == null || candidateId.isBlank()
                 || strategyTypes == null || strategyTypes.isEmpty()
-                || startDate == null || endDate == null || startDate.isAfter(endDate)
+                || startDate == null
+                || (endDate != null && startDate.isAfter(endDate))
                 || actions == null || actions.isEmpty()
                 || preference == null || evidence == null) {
             throw new IllegalArgumentException("strategy candidate is invalid");
+        }
+        boolean standaloneMovement = strategyTypes.size() == 1
+                && (strategyTypes.get(0) == StrategyType.REALLOCATION
+                || strategyTypes.get(0) == StrategyType.RT_TRANSFER);
+        if (endDate == null && !standaloneMovement) {
+            throw new IllegalArgumentException(
+                    "only standalone inventory movement may omit endDate"
+            );
+        }
+        if (standaloneMovement && endDate != null) {
+            throw new IllegalArgumentException(
+                    "standalone inventory movement must omit endDate"
+            );
         }
         strategyTypes = List.copyOf(strategyTypes);
         actions = List.copyOf(actions);

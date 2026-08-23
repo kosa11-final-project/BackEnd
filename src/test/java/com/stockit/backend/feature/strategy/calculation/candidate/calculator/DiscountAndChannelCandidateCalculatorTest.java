@@ -124,6 +124,7 @@ class DiscountAndChannelCandidateCalculatorTest {
                 .filter(candidate -> candidate.preference().quantityPercentage() == 100)
                 .findFirst()
                 .orElseThrow();
+        assertThat(maximum.endDate()).isEqualTo(END);
         assertThat(maximum.strategyTypes()).containsExactly(
                 StrategyType.CHANNEL_EXPANSION,
                 StrategyType.REALLOCATION
