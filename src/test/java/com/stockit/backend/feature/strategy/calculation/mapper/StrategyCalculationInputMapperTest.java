@@ -1,0 +1,61 @@
+package com.stockit.backend.feature.strategy.calculation.mapper;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.time.LocalDate;
+import java.util.List;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.jdbc.Sql;
+
+@SpringBootTest
+@ActiveProfiles("test")
+@Sql(
+        scripts = "/strategy/strategy-calculation-mapper-test-schema.sql",
+        executionPhase = Sql.ExecutionPhase.BEFORE_TEST_METHOD
+)
+class StrategyCalculationInputMapperTest {
+
+    @Autowired
+    private StrategyCalculationInputMapper mapper;
+
+    @Test
+    void readsCalculationInputsAtEffectiveDateWithoutRecalculatingOnHand() {
+        LocalDate asOfDate = LocalDate.of(2026, 8, 20);
+
+        assertThat(mapper.selectActiveSku(101L)).satisfies(sku -> {
+            assertThat(sku.getSkuCode()).isEqualTo("SKU-101");
+            assertThat(sku.getPackageQuantity()).isEqualByComparingTo("1");
+        });
+        assertThat(mapper.selectInventory(101L)).singleElement().satisfies(inventory -> {
+            assertThat(inventory.getLotId()).isEqualTo(1001L);
+            assertThat(inventory.getOnHandQty()).isEqualByComparingTo("20");
+            assertThat(inventory.getReservedQty()).isEqualByComparingTo("3");
+            assertThat(inventory.getExpiryDate()).isEqualTo(LocalDate.of(2026, 9, 1));
+        });
+        assertThat(mapper.selectActiveSalesPoints(List.of(10L, 20L)))
+                .extracting(point -> point.getSalesPointId())
+                .containsExactly(10L, 20L);
+        assertThat(mapper.selectEffectivePrices(101L, List.of(10L, 20L), asOfDate))
+                .singleElement()
+                .satisfies(price -> {
+                    assertThat(price.getSalesPointId()).isEqualTo(10L);
+                    assertThat(price.getPaymentFee()).isEqualByComparingTo("300");
+                    assertThat(price.getLogisticsCost()).isEqualByComparingTo("500");
+                });
+        assertThat(mapper.selectEffectiveCosts(101L, asOfDate))
+                .singleElement()
+                .satisfies(cost -> assertThat(cost.getUnitCost())
+                        .isEqualByComparingTo("6000"));
+        assertThat(mapper.selectEffectivePolicies(101L, asOfDate))
+                .singleElement()
+                .satisfies(policy -> {
+                    assertThat(policy.getSafetyStockQty()).isEqualByComparingTo("5");
+                    assertThat(policy.getDailyUnitHoldingCost())
+                            .isEqualByComparingTo("2.5");
+                });
+    }
+}
