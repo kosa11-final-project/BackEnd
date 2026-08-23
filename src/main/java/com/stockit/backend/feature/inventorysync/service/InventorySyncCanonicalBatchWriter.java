@@ -1,12 +1,15 @@
 package com.stockit.backend.feature.inventorysync.service;
 
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.Collection;
 import java.util.function.ToIntFunction;
 import java.util.stream.Collectors;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import com.stockit.backend.feature.inventorysync.adapter.CanonicalInventoryRecord;
@@ -26,19 +29,33 @@ public class InventorySyncCanonicalBatchWriter implements InventorySyncPublisher
     private final InventorySyncRunSourceMapper runSourceMapper;
     private final InventorySyncRiskWriter riskWriter;
     private final InventorySyncRiskScopeSnapshotLoader riskSnapshotLoader;
+    private final InventorySyncSnapshotCoordinator snapshotCoordinator;
 
+    @Autowired
     public InventorySyncCanonicalBatchWriter(InventorySyncCanonicalMapper mapper,
                                              InventorySyncRunMapper runMapper,
                                              InventorySyncSourceWriteMapper sourceWriteMapper,
                                              InventorySyncRunSourceMapper runSourceMapper,
                                              InventorySyncRiskWriter riskWriter,
-                                             InventorySyncRiskScopeSnapshotLoader riskSnapshotLoader) {
+                                             InventorySyncRiskScopeSnapshotLoader riskSnapshotLoader,
+                                             InventorySyncSnapshotCoordinator snapshotCoordinator) {
         this.mapper = mapper;
         this.runMapper = runMapper;
         this.sourceWriteMapper = sourceWriteMapper;
         this.runSourceMapper = runSourceMapper;
         this.riskWriter = riskWriter;
         this.riskSnapshotLoader = riskSnapshotLoader;
+        this.snapshotCoordinator = snapshotCoordinator;
+    }
+
+    /** Backward-compatible constructor for focused writer tests that do not exercise snapshots. */
+    public InventorySyncCanonicalBatchWriter(InventorySyncCanonicalMapper mapper,
+                                             InventorySyncRunMapper runMapper,
+                                             InventorySyncSourceWriteMapper sourceWriteMapper,
+                                             InventorySyncRunSourceMapper runSourceMapper,
+                                             InventorySyncRiskWriter riskWriter,
+                                             InventorySyncRiskScopeSnapshotLoader riskSnapshotLoader) {
+        this(mapper, runMapper, sourceWriteMapper, runSourceMapper, riskWriter, riskSnapshotLoader, null);
     }
 
     @Override
@@ -112,5 +129,11 @@ public class InventorySyncCanonicalBatchWriter implements InventorySyncPublisher
         sourceWriteMapper.refreshState(sourceTypes, Long.valueOf(runId));
         sourceVersions.forEach((sourceType, version) -> runSourceMapper.completeSource(Long.valueOf(runId), sourceType, version, "SUCCESS"));
         riskWriter.evaluateAndPersist(Long.valueOf(runId), actorId, riskScopes, riskSnapshotLoader);
+        if (snapshotCoordinator != null) {
+            snapshotCoordinator.scheduleAfterCommit(
+                    Long.valueOf(runId),
+                    LocalDate.now(ZoneId.of("Asia/Seoul"))
+            );
+        }
     }
 }
