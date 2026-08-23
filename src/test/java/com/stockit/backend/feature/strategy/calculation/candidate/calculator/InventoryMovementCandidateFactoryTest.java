@@ -205,11 +205,13 @@ class InventoryMovementCandidateFactoryTest {
         );
 
         StrategyCandidate maximum = result.candidates().get(9);
+        StrategyCandidate.MovementEvidence evidence =
+                (StrategyCandidate.MovementEvidence) maximum.evidence();
         assertThat(maximum.startDate()).isEqualTo(fixedDate);
         assertThat(maximum.endDate()).isEqualTo(fixedDate);
-        assertThat(maximum.evidence().targetAdditionalDemandQty())
+        assertThat(evidence.targetAdditionalDemandQty())
                 .isEqualByComparingTo("10");
-        assertThat(maximum.evidence().maxExecutableQty())
+        assertThat(evidence.maxExecutableQty())
                 .isEqualByComparingTo("10");
     }
 
