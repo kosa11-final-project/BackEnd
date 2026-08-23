@@ -197,9 +197,25 @@ public class StrategyCandidateSimulationEngine {
             } else {
                 result.put(
                         salesPointId,
-                        targetDemandPolicy.calculate(context, salesPointId)
+                        completeForecastRange(
+                                context,
+                                targetDemandPolicy.calculate(context, salesPointId)
+                        )
                 );
             }
+        }
+        return result;
+    }
+
+    private static Map<LocalDate, BigDecimal> completeForecastRange(
+            StrategyCalculationContext context,
+            Map<LocalDate, BigDecimal> strategyPeriodDemand
+    ) {
+        Map<LocalDate, BigDecimal> result = new LinkedHashMap<>();
+        for (LocalDate date = context.forecastStartDate();
+                !date.isAfter(context.forecastEndDate());
+                date = date.plusDays(1)) {
+            result.put(date, strategyPeriodDemand.getOrDefault(date, ZERO_QUANTITY));
         }
         return result;
     }
@@ -247,7 +263,7 @@ public class StrategyCandidateSimulationEngine {
                 : demandBySalesPoint.entrySet()) {
             BigDecimal remainingDemand = entry.getValue().get(date);
             if (remainingDemand == null) {
-                throw new StrategyCalculationException(
+                throw new CandidateSimulationException(
                         "CALCULATION_FORECAST_INVALID",
                         "Daily forecast is missing: " + date
                 );

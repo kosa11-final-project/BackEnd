@@ -13,8 +13,11 @@ public record StrategyCandidateEvaluationResult(
         List<CandidateSimulationFailure> simulationFailures
 ) {
     public StrategyCandidateEvaluationResult {
-        if (baselineSimulation == null) {
-            throw new IllegalArgumentException("baseline simulation is required");
+        if (baselineSimulation == null
+                || evaluatedCandidates == null
+                || generationExclusions == null
+                || simulationFailures == null) {
+            throw new IllegalArgumentException("candidate evaluation result is invalid");
         }
         evaluatedCandidates = List.copyOf(evaluatedCandidates);
         generationExclusions = List.copyOf(generationExclusions);

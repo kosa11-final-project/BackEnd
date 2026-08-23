@@ -120,6 +120,63 @@ class StrategyCandidateSimulationEngineTest {
     }
 
     @Test
+    void fillsTargetDemandOutsideRequestedStrategyPeriodWithZero() {
+        StrategyCalculationContext original = context(
+                lot("10", null),
+                forecasts("0", "0", "0"),
+                forecasts("5", "5", "5"),
+                price(10L, "100", "70"),
+                price(20L, "110", "70"),
+                true
+        );
+        StrategyCalculationContext context = withRequestPeriod(
+                original,
+                START.plusDays(1),
+                START.plusDays(1)
+        );
+
+        StrategyCandidateSimulation result = engine.simulate(
+                context,
+                movementCandidate(
+                        "10",
+                        START.plusDays(1),
+                        null,
+                        StrategyType.REALLOCATION
+                ),
+                baselineEngine.simulate(context),
+                SimulationDetailLevel.WITH_DAILY_SERIES
+        );
+
+        assertThat(result.dailySeries())
+                .extracting(StrategyCandidateSimulation.DailyPoint::expectedSalesQty)
+                .containsExactly(decimal("0.000"), decimal("5.000"), decimal("0.000"));
+    }
+
+    @Test
+    void leavesSellThroughDaysNullWhenAllocatedInventoryIsDisposed() {
+        StrategyCalculationContext context = context(
+                lot("5", START),
+                forecasts("0", "0", "0"),
+                forecasts("2", "0", "0"),
+                price(10L, "100", "70"),
+                price(20L, "110", "70"),
+                true
+        );
+
+        StrategyCandidateSimulation result = engine.simulate(
+                context,
+                movementCandidate("5", START, null, StrategyType.REALLOCATION),
+                baselineEngine.simulate(context),
+                SimulationDetailLevel.SUMMARY_ONLY
+        );
+
+        assertThat(result.summary().expectedSalesQty()).isEqualByComparingTo("2");
+        assertThat(result.summary().expectedDisposalQty()).isEqualByComparingTo("3");
+        assertThat(result.summary().expectedRemainingQty()).isZero();
+        assertThat(result.summary().expectedSellThroughDays()).isNull();
+    }
+
+    @Test
     void letsExistingTargetInventoryConsumeDemandBeforeMovedInventory() {
         StrategyCalculationContext original = context(
                 lot("10", null),
@@ -506,6 +563,33 @@ class StrategyCandidateSimulationEngineTest {
                 original.requestConstraints(),
                 original.evaluationInventory(),
                 List.of(original.evaluationInventory().get(0), targetInventory),
+                original.inventoryPolicies(),
+                original.salesPoints(),
+                original.forecastMetadata()
+        );
+    }
+
+    private static StrategyCalculationContext withRequestPeriod(
+            StrategyCalculationContext original,
+            LocalDate preferredStartDate,
+            LocalDate preferredEndDate
+    ) {
+        return new StrategyCalculationContext(
+                original.strategyCaseId(),
+                original.sourceSalesPointId(),
+                original.calculatedAt(),
+                original.forecastStartDate(),
+                original.forecastEndDate(),
+                original.sku(),
+                original.unitCost(),
+                new StrategyCalculationContext.RequestConstraints(
+                        original.requestConstraints().orderedCandidateSalesPointIds(),
+                        original.requestConstraints().orderedStrategyTypes(),
+                        preferredStartDate,
+                        preferredEndDate
+                ),
+                original.evaluationInventory(),
+                original.referenceInventory(),
                 original.inventoryPolicies(),
                 original.salesPoints(),
                 original.forecastMetadata()

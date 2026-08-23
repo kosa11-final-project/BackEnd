@@ -1,6 +1,7 @@
 package com.stockit.backend.feature.strategy.calculation.service.impl;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -90,5 +91,18 @@ class StrategyCandidateEvaluationServiceImplTest {
                     "CANDIDATE_RESERVED_INVENTORY_UNAVAILABLE"
             );
         });
+    }
+
+    @Test
+    void rejectsNullEvaluationResultListsBeforeDefensiveCopy() {
+        BaselineSimulation baseline = mock(BaselineSimulation.class);
+
+        assertThatThrownBy(() -> new StrategyCandidateEvaluationResult(
+                baseline,
+                null,
+                List.of(),
+                List.of()
+        )).isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("candidate evaluation result is invalid");
     }
 }
