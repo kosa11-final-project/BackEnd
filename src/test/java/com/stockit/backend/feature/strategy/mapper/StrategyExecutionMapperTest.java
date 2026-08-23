@@ -53,11 +53,10 @@ class StrategyExecutionMapperTest {
             assertThat(base.getImageUrl()).isEqualTo("https://example.com/image.jpg");
             assertThat(base.getLastSyncedAt()).isNotNull();
         });
-        assertThat(actions).singleElement().satisfies(action -> {
-            assertThat(action.getActionType()).isEqualTo("REALLOCATION");
-            assertThat(action.getSourceWarehouseName()).isEqualTo("성남센터");
-            assertThat(action.getTargetSalesPointName()).isEqualTo("그리팅몰");
-        });
+        assertThat(actions).extracting(StrategyExecutionActionVO::getActionType)
+                .containsExactly("REALLOCATION", "PRICE_DISCOUNT");
+        assertThat(actions.get(0).getSourceWarehouseName()).isEqualTo("성남센터");
+        assertThat(actions.get(0).getTargetSalesPointName()).isEqualTo("그리팅몰");
     }
 
     @Test
@@ -96,7 +95,7 @@ class StrategyExecutionMapperTest {
     }
 
     @Test
-    void readsInventoryPerformanceAndAtMostNinetyDaysOfSales() {
+    void readsInventoryPerformanceAndSalesOnlyInsideExecutionPeriod() {
         List<StrategyExecutionInventoryVO> inventory = mapper.selectInventoryResults(101L);
         LocalDate asOfDate = LocalDate.of(2026, 7, 28);
         List<StrategyExecutionDailySalesVO> sales = mapper.selectDailySales(101L, asOfDate);
@@ -107,7 +106,7 @@ class StrategyExecutionMapperTest {
             assertThat(row.getCurrentQuantity()).isEqualByComparingTo("80");
         });
         assertThat(sales).extracting(StrategyExecutionDailySalesVO::getSalesDate)
-                .containsExactly(LocalDate.of(2026, 5, 2), LocalDate.of(2026, 7, 28));
+                .containsExactly(LocalDate.of(2026, 5, 2));
         assertThat(performance.getActualSalesQuantity()).isEqualByComparingTo("12");
         assertThat(performance.getActualRemainingQuantity()).isEqualByComparingTo("88");
     }

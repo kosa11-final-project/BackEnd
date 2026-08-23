@@ -1,5 +1,7 @@
 package com.stockit.backend.feature.strategy.vo;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 import lombok.Getter;
@@ -24,4 +26,10 @@ public class StrategyExecutionBaseVO {
     private String imageUrl;
     private String optionName;
     private String recommendationReason;
+    private String resultStatus;
+    private LocalDate plannedStartDate;
+    private LocalDate plannedEndDate;
+    private BigDecimal goalTargetValue;
+    private BigDecimal goalActualValue;
+    private BigDecimal achievementRate;
 }

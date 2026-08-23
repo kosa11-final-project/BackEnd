@@ -19,7 +19,13 @@
                product.product_name,
                product.image_url,
                strategy_option.option_name,
-               strategy_option.recommendation_reason
+               strategy_option.recommendation_reason,
+               execution_result.result_status,
+               execution_result.planned_start_date,
+               execution_result.planned_end_date,
+               execution_result.goal_target_value,
+               execution_result.goal_actual_value,
+               execution_result.achievement_rate
         FROM (
             SELECT selection.*,
                    ROW_NUMBER() OVER (
@@ -43,6 +49,9 @@
         JOIN product
           ON product.product_id = sku.product_id
          AND product.is_deleted = 0
+        LEFT JOIN strategy_execution_result execution_result
+          ON execution_result.final_selection_id = final_selection.final_selection_id
+         AND execution_result.is_deleted = 0
         WHERE final_selection.selection_rank = 1
     </sql>
 
@@ -134,12 +143,6 @@
           ON destination_warehouse.warehouse_id = action.destination_warehouse_id
          AND destination_warehouse.is_deleted = 0
         WHERE action.is_deleted = 0
-          AND action.action_type IN (
-              'REALLOCATION',
-              'RT_TRANSFER',
-              'CHANNEL_EXPANSION',
-              'CHANNEL_CONCENTRATION'
-          )
           AND action.strategy_option_id IN
         <foreach collection="strategyOptionIds" item="strategyOptionId" open="(" separator="," close=")">
             #{strategyOptionId}
@@ -183,11 +186,15 @@
         WITH selected_strategy AS (
             SELECT final_selection.strategy_option_id,
                    strategy_case.sku_id,
-                   TRUNC(final_selection.created_at) AS established_date
+                   execution_result.planned_start_date,
+                   execution_result.planned_end_date
             FROM final_strategy_selection final_selection
             JOIN strategy_case
               ON strategy_case.strategy_case_id = final_selection.strategy_case_id
              AND strategy_case.is_deleted = 0
+            JOIN strategy_execution_result execution_result
+              ON execution_result.final_selection_id = final_selection.final_selection_id
+             AND execution_result.is_deleted = 0
             WHERE final_selection.strategy_case_id = #{strategyCaseId}
               AND final_selection.is_deleted = 0
             ORDER BY final_selection.created_at DESC,
@@ -200,9 +207,6 @@
             JOIN selected_strategy selected
               ON selected.strategy_option_id = action.strategy_option_id
             WHERE action.is_deleted = 0
-              AND action.action_type IN (
-                  'REALLOCATION', 'RT_TRANSFER', 'CHANNEL_EXPANSION', 'CHANNEL_CONCENTRATION'
-              )
               AND action.source_sales_point_id IS NOT NULL
             UNION
             SELECT action.target_sales_point_id
@@ -210,9 +214,6 @@
             JOIN selected_strategy selected
               ON selected.strategy_option_id = action.strategy_option_id
             WHERE action.is_deleted = 0
-              AND action.action_type IN (
-                  'REALLOCATION', 'RT_TRANSFER', 'CHANNEL_EXPANSION', 'CHANNEL_CONCENTRATION'
-              )
               AND action.target_sales_point_id IS NOT NULL
         )
         SELECT sales.sales_date,
@@ -224,8 +225,8 @@
         FROM selected_strategy selected
         JOIN sales_daily sales
           ON sales.sku_id = selected.sku_id
-         AND sales.sales_date &gt;= selected.established_date
-         AND sales.sales_date &lt; selected.established_date + 90
+         AND sales.sales_date &gt;= selected.planned_start_date
+         AND sales.sales_date &lt;= selected.planned_end_date
          AND sales.sales_date &lt;= #{asOfDate}
          AND sales.is_deleted = 0
         JOIN relevant_points relevant

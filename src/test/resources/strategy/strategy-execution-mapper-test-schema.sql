@@ -51,6 +51,12 @@ CREATE TABLE strategy_performance (
     actual_remaining_qty NUMBER(15,3), moved_quantity NUMBER(15,3), disposed_quantity NUMBER(15,3),
     is_deleted NUMBER(1)
 );
+CREATE TABLE strategy_execution_result (
+    strategy_execution_result_id NUMBER PRIMARY KEY, final_selection_id NUMBER,
+    result_status VARCHAR2(20), planned_start_date DATE, planned_end_date DATE,
+    goal_target_value NUMBER(18,4), goal_actual_value NUMBER(18,4),
+    achievement_rate NUMBER(10,6), is_deleted NUMBER(1)
+);
 
 INSERT INTO product VALUES (1, '테스트 상품', 'https://example.com/image.jpg', 0);
 INSERT INTO product VALUES (2, '국산콩 두부', NULL, 0);
@@ -76,6 +82,9 @@ INSERT INTO final_strategy_selection VALUES (
 );
 INSERT INTO final_strategy_selection VALUES (
     5003, 103, 1003, TIMESTAMP '2026-04-30 10:00:00', NULL, 0
+);
+INSERT INTO strategy_execution_result VALUES (
+    9001, 5001, 'COMPLETED', DATE '2026-05-01', DATE '2026-05-10', 12, 12, 100, 0
 );
 INSERT INTO sales_point VALUES (10, 'GREETING', '그리팅몰', 0);
 INSERT INTO warehouse VALUES (501, 'SEONGNAM', '성남센터', 0);
