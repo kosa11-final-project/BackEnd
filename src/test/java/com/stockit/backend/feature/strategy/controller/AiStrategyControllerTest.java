@@ -28,6 +28,8 @@ import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.stockit.backend.common.exception.AppException;
+import com.stockit.backend.common.exception.ErrorCode;
 import com.stockit.backend.feature.strategy.domain.StrategyCaseCreated;
 import com.stockit.backend.feature.strategy.domain.StrategyCaseStatus;
 import com.stockit.backend.feature.strategy.dto.response.AiStrategyCaseResponse;
@@ -87,16 +89,44 @@ class AiStrategyControllerTest {
     @WithMockUser(roles = "GREENFOOD_ADMIN")
     void returnsCurrentGenerationStageAndOptionalResult() throws Exception {
         when(queryService.find(123L)).thenReturn(new AiStrategyCaseResponse(
-                123L, 1001L, "테스트 전략", StrategyCaseStatus.GENERATING,
-                null, null, null, null,
-                LocalDateTime.of(2026, 8, 24, 10, 0), null, null
+                123L, "테스트 전략", StrategyCaseStatus.GENERATING, null,
+                new AiStrategyCaseResponse.Sku(
+                        1001L, "SKU-1001", "테스트 상품", null,
+                        new AiStrategyCaseResponse.Category(301L, "국·탕", 3)
+                ),
+                new AiStrategyCaseResponse.Requester(7L, "이주영"),
+                null, null,
+                LocalDateTime.of(2026, 8, 24, 10, 0), null, null,
+                new AiStrategyCaseResponse.RequestConditions(
+                        null, List.of(), List.of(), List.of(),
+                        null, null,
+                        LocalDate.of(2026, 8, 24),
+                        LocalDate.of(2027, 2, 19)
+                ),
+                null
         ));
 
         mockMvc.perform(get("/api/v1/ai-strategies/123"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.strategyCaseId").value(123))
                 .andExpect(jsonPath("$.data.caseStatus").value("GENERATING"))
+                .andExpect(jsonPath("$.data.sku.skuCode").value("SKU-1001"))
+                .andExpect(jsonPath("$.data.requester.userName").value("이주영"))
+                .andExpect(jsonPath("$.data.requestConditions.forecastStartDate")
+                        .value("2026-08-24"))
                 .andExpect(jsonPath("$.data.result").doesNotExist());
+    }
+
+    @Test
+    @WithMockUser(roles = "GREENFOOD_ADMIN")
+    void returnsGoneWhenGeneratedDetailResultHasExpired() throws Exception {
+        when(queryService.find(123L)).thenThrow(
+                new AppException(ErrorCode.AI_STRATEGY_RESULT_EXPIRED)
+        );
+
+        mockMvc.perform(get("/api/v1/ai-strategies/123"))
+                .andExpect(status().isGone())
+                .andExpect(jsonPath("$.code").value("AI_STRATEGY-014"));
     }
 
     @Test
