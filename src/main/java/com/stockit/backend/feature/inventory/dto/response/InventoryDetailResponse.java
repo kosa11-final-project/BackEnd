@@ -14,6 +14,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 @Schema(description = "선택한 SKU × 판매처 상세")
 public record InventoryDetailResponse(
         String rowId,
+        Long skuId,
         String productCode,
         String productName,
         String supplierName,
@@ -85,7 +86,7 @@ public record InventoryDetailResponse(
             Instant updatedAt,
             List<InventoryLotResponse> lots
     ) {
-        this(rowId, productCode, productName, null, skuCode, skuName, imageUrl, categoryId, categoryName, category,
+        this(rowId, null, productCode, productName, null, skuCode, skuName, imageUrl, categoryId, categoryName, category,
                 channelType, salesPointCode, salesPointName, storageType, sellingPrice, currentQuantity,
                 availableQuantity, reservedQuantity, safetyQuantity, inventoryFactState, risk, locations,
                 locationCount, salesPoints, UnassignedInventoryResponse.empty(), lotCount, nearestExpiryDays, nearestExpiryDate,
@@ -120,7 +121,41 @@ public record InventoryDetailResponse(
             Instant updatedAt,
             List<InventoryLotResponse> lots
     ) {
-        this(rowId, productCode, productName, null, skuCode, skuName, imageUrl, null, null, null, channelType,
+        this(rowId, null, productCode, productName, null, skuCode, skuName, imageUrl, null, null, null, channelType,
+                salesPointCode, salesPointName, storageType, sellingPrice, currentQuantity, availableQuantity,
+                reservedQuantity, safetyQuantity, inventoryFactState, risk, locations, locationCount, salesPoints,
+                UnassignedInventoryResponse.empty(), lotCount, nearestExpiryDays, nearestExpiryDate, updatedAt, lots, List.of());
+    }
+
+    public InventoryDetailResponse(
+            String rowId,
+            Long skuId,
+            String productCode,
+            String productName,
+            String skuCode,
+            String skuName,
+            String imageUrl,
+            String channelType,
+            String salesPointCode,
+            String salesPointName,
+            String storageType,
+            BigDecimal sellingPrice,
+            BigDecimal currentQuantity,
+            BigDecimal availableQuantity,
+            BigDecimal reservedQuantity,
+            BigDecimal safetyQuantity,
+            String inventoryFactState,
+            RiskResponse risk,
+            List<LocationResponse> locations,
+            int locationCount,
+            List<SalesPointResponse> salesPoints,
+            Integer lotCount,
+            Integer nearestExpiryDays,
+            LocalDate nearestExpiryDate,
+            Instant updatedAt,
+            List<InventoryLotResponse> lots
+    ) {
+        this(rowId, skuId, productCode, productName, null, skuCode, skuName, imageUrl, null, null, null, channelType,
                 salesPointCode, salesPointName, storageType, sellingPrice, currentQuantity, availableQuantity,
                 reservedQuantity, safetyQuantity, inventoryFactState, risk, locations, locationCount, salesPoints,
                 UnassignedInventoryResponse.empty(), lotCount, nearestExpiryDays, nearestExpiryDate, updatedAt, lots, List.of());

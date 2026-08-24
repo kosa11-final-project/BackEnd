@@ -6,6 +6,7 @@ import java.sql.Date;
 
 public class InventoryItemVO {
 
+    private Long skuId;
     private String productCode;
     private String productName;
     private String supplierName;
@@ -53,6 +54,8 @@ public class InventoryItemVO {
     private Date nearestExpiryDate;
     private Timestamp updatedAt;
 
+    public Long getSkuId() { return skuId; }
+    public void setSkuId(Long skuId) { this.skuId = skuId; }
     public String getProductCode() { return productCode; }
     public void setProductCode(String productCode) { this.productCode = productCode; }
     public String getProductName() { return productName; }

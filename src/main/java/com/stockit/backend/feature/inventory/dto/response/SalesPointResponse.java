@@ -6,6 +6,9 @@ import io.swagger.v3.oas.annotations.media.Schema;
 
 @Schema(description = "판매처별 재고 및 정보")
 public record SalesPointResponse(
+        @Schema(description = "판매처 ID", example = "77")
+        Long salesPointId,
+
         @Schema(description = "판매처 코드", example = "GREETING")
         String salesPointCode,
 
@@ -49,7 +52,7 @@ public record SalesPointResponse(
             String riskGrade,
             String warehouseName
     ) {
-        this(salesPointCode, salesPointName, channelType, currentQuantity, availableQuantity, reservedQuantity,
+        this(null, salesPointCode, salesPointName, channelType, currentQuantity, availableQuantity, reservedQuantity,
                 riskGrade, warehouseName, null, "OWNED", "NOT_LOADED");
     }
 
@@ -64,7 +67,38 @@ public record SalesPointResponse(
             String warehouseName,
             BigDecimal sellingPrice
     ) {
-        this(salesPointCode, salesPointName, channelType, currentQuantity, availableQuantity, reservedQuantity,
+        this(null, salesPointCode, salesPointName, channelType, currentQuantity, availableQuantity, reservedQuantity,
+                riskGrade, warehouseName, sellingPrice, "OWNED", sellingPrice == null ? "NOT_LOADED" : "AVAILABLE");
+    }
+
+    public SalesPointResponse(
+            Long salesPointId,
+            String salesPointCode,
+            String salesPointName,
+            String channelType,
+            BigDecimal currentQuantity,
+            BigDecimal availableQuantity,
+            BigDecimal reservedQuantity,
+            String riskGrade,
+            String warehouseName
+    ) {
+        this(salesPointId, salesPointCode, salesPointName, channelType, currentQuantity, availableQuantity, reservedQuantity,
+                riskGrade, warehouseName, null, "OWNED", "NOT_LOADED");
+    }
+
+    public SalesPointResponse(
+            Long salesPointId,
+            String salesPointCode,
+            String salesPointName,
+            String channelType,
+            BigDecimal currentQuantity,
+            BigDecimal availableQuantity,
+            BigDecimal reservedQuantity,
+            String riskGrade,
+            String warehouseName,
+            BigDecimal sellingPrice
+    ) {
+        this(salesPointId, salesPointCode, salesPointName, channelType, currentQuantity, availableQuantity, reservedQuantity,
                 riskGrade, warehouseName, sellingPrice, "OWNED", sellingPrice == null ? "NOT_LOADED" : "AVAILABLE");
     }
 }

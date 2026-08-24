@@ -52,6 +52,7 @@ class InventoryOracleMapperTest {
         assertThat(count).isPositive();
         assertThat(items).isNotEmpty();
         InventoryItemVO first = items.get(0);
+        assertThat(first.getSkuId()).isNotNull();
         assertThat(first.getSkuCode()).isNotBlank();
         assertThat(first.getCurrentQty()).isNotNull();
         assertThat(summary).isNotNull();
@@ -60,7 +61,9 @@ class InventoryOracleMapperTest {
         InventoryListResponse response = inventoryQueryService.find(query);
         assertThat(response.items()).isNotEmpty();
         assertThat(response.items().get(0).rowId()).isNotBlank();
+        assertThat(response.items().get(0).skuId()).isEqualTo(first.getSkuId());
         assertThat(response.items().get(0).salesPoints()).isNotEmpty();
+        assertThat(response.items().get(0).salesPoints().get(0).salesPointId()).isNotNull();
         assertThat(response.items().get(0).locations()).isNotEmpty();
         assertThat(response.items().get(0).ownerSalesPointCount())
                 .isNotNull()

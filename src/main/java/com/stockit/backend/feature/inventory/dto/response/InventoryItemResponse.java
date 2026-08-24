@@ -7,6 +7,7 @@ import java.util.List;
 
 public record InventoryItemResponse(
         String rowId,
+        Long skuId,
         String productCode,
         String productName,
         String supplierName,
@@ -70,6 +71,36 @@ public record InventoryItemResponse(
             LocalDate nearestExpiryDate,
             Instant updatedAt
     ) {
-        this(rowId, productCode, productName, null, skuCode, skuName, imageUrl, null, null, null, channelType, salesPointCode, salesPointName, storageType, sellingPrice, currentQuantity, availableQuantity, reservedQuantity, safetyQuantity, inventoryFactState, risk, locations, locationCount, salesPoints, salesPoints == null ? 0 : salesPoints.size(), UnassignedInventoryResponse.empty(), lotCount, nearestExpiryDays, nearestExpiryDate, updatedAt);
+        this(rowId, null, productCode, productName, null, skuCode, skuName, imageUrl, null, null, null, channelType, salesPointCode, salesPointName, storageType, sellingPrice, currentQuantity, availableQuantity, reservedQuantity, safetyQuantity, inventoryFactState, risk, locations, locationCount, salesPoints, salesPoints == null ? 0 : salesPoints.size(), UnassignedInventoryResponse.empty(), lotCount, nearestExpiryDays, nearestExpiryDate, updatedAt);
+    }
+
+    public InventoryItemResponse(
+            String rowId,
+            Long skuId,
+            String productCode,
+            String productName,
+            String skuCode,
+            String skuName,
+            String imageUrl,
+            String channelType,
+            String salesPointCode,
+            String salesPointName,
+            String storageType,
+            BigDecimal sellingPrice,
+            BigDecimal currentQuantity,
+            BigDecimal availableQuantity,
+            BigDecimal reservedQuantity,
+            BigDecimal safetyQuantity,
+            String inventoryFactState,
+            RiskResponse risk,
+            List<LocationResponse> locations,
+            int locationCount,
+            List<SalesPointResponse> salesPoints,
+            Integer lotCount,
+            Integer nearestExpiryDays,
+            LocalDate nearestExpiryDate,
+            Instant updatedAt
+    ) {
+        this(rowId, skuId, productCode, productName, null, skuCode, skuName, imageUrl, null, null, null, channelType, salesPointCode, salesPointName, storageType, sellingPrice, currentQuantity, availableQuantity, reservedQuantity, safetyQuantity, inventoryFactState, risk, locations, locationCount, salesPoints, salesPoints == null ? 0 : salesPoints.size(), UnassignedInventoryResponse.empty(), lotCount, nearestExpiryDays, nearestExpiryDate, updatedAt);
     }
 }
