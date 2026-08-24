@@ -9,7 +9,7 @@ public enum StrategyType {
     PRICE_DISCOUNT(true),
     PROMOTION_STOP(false),
     CHANNEL_EXPANSION(true),
-    CHANNEL_CONCENTRATION(true),
+    CHANNEL_CONCENTRATION(false),
     REPLENISHMENT_REQUEST(false),
     SAFETY_STOCK_ADJUSTMENT(false);
 

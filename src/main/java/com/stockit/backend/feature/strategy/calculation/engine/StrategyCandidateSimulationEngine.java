@@ -6,7 +6,6 @@ import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -16,8 +15,8 @@ import java.util.Set;
 
 import org.springframework.stereotype.Component;
 
-import com.stockit.backend.feature.strategy.calculation.candidate.domain.CandidateAssumption;
 import com.stockit.backend.feature.strategy.calculation.candidate.domain.StrategyCandidate;
+import com.stockit.backend.feature.strategy.calculation.candidate.policy.SourceInventoryCapacityPolicy;
 import com.stockit.backend.feature.strategy.calculation.candidate.policy.TargetAdditionalDemandPolicy;
 import com.stockit.backend.feature.strategy.calculation.domain.BaselineSimulation;
 import com.stockit.backend.feature.strategy.calculation.domain.SimulationDetailLevel;
@@ -29,7 +28,9 @@ import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculati
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCandidateSimulation;
 import com.stockit.backend.feature.strategy.domain.StrategyType;
 
-/** 후보 액션을 일자별 재고에 반영해 무전략 대비 정량 결과를 계산한다. */
+/**
+ * 후보 액션과 판매처별 수요를 일자별 재고에 반영해 무전략 대비 효과를 계산하는 엔진
+ */
 @Component
 public class StrategyCandidateSimulationEngine {
 
@@ -41,13 +42,22 @@ public class StrategyCandidateSimulationEngine {
     );
 
     private final TargetAdditionalDemandPolicy targetDemandPolicy;
+    private final SourceInventoryCapacityPolicy sourceCapacityPolicy;
 
     public StrategyCandidateSimulationEngine(
-            TargetAdditionalDemandPolicy targetDemandPolicy
+            TargetAdditionalDemandPolicy targetDemandPolicy,
+            SourceInventoryCapacityPolicy sourceCapacityPolicy
     ) {
         this.targetDemandPolicy = targetDemandPolicy;
+        this.sourceCapacityPolicy = sourceCapacityPolicy;
     }
 
+    /**
+     * 전략 시작 전 정상 판매와 시작 후 액션을 하나의 일별 흐름으로 시뮬레이션한다
+     *
+     * <p>후보 생성 시 계산한 예상 잔여 수량을 신뢰하되, 실제 일별 흐름에서도
+     * 시작 시점에 같은 수량이 남아 있는지 재검증한다</p>
+     */
     public StrategyCandidateSimulation simulate(
             StrategyCalculationContext context,
             StrategyCandidate candidate,
@@ -59,7 +69,11 @@ public class StrategyCandidateSimulationEngine {
         List<LotState> lots = plan.createLotStates(context.evaluationInventory());
         Map<Long, Map<LocalDate, BigDecimal>> demandBySalesPoint = demandBySalesPoint(
                 context,
-                plan
+                plan,
+                candidate.startDate(),
+                candidate.endDate() == null
+                        ? context.strategyEndDate()
+                        : candidate.endDate()
         );
 
         BigDecimal cumulativeSales = ZERO_QUANTITY;
@@ -78,6 +92,7 @@ public class StrategyCandidateSimulationEngine {
             cumulativeDisposal = quantity(cumulativeDisposal.add(disposal.total()));
             allocatedDisposal = quantity(allocatedDisposal.add(disposal.allocated()));
 
+            // 시작일 당일 수요에는 이동·할인 조건이 적용되도록 판매 전에 액션 반영
             if (date.equals(candidate.startDate())) {
                 applyStrategy(plan, lots, date);
                 strategyApplied = true;
@@ -173,13 +188,15 @@ public class StrategyCandidateSimulationEngine {
                 summary,
                 comparison,
                 dailySeries,
-                assumptions(context, candidate)
+                candidate.assumptions()
         );
     }
 
     private Map<Long, Map<LocalDate, BigDecimal>> demandBySalesPoint(
             StrategyCalculationContext context,
-            CandidatePlan plan
+            CandidatePlan plan,
+            LocalDate strategyStartDate,
+            LocalDate strategyEndDate
     ) {
         Set<Long> salesPointIds = new LinkedHashSet<>();
         if (context.sourceSalesPointId() != null) {
@@ -190,6 +207,19 @@ public class StrategyCandidateSimulationEngine {
                 .filter(Objects::nonNull)
                 .forEach(salesPointIds::add);
 
+        StrategyCalculationContext projectedContext = context;
+        boolean hasMovementTarget = salesPointIds.stream().anyMatch(salesPointId ->
+                !Objects.equals(salesPointId, context.sourceSalesPointId()));
+        if (hasMovementTarget) {
+            // 대상 판매처도 전략 시작 전 정상 판매를 반영한 동일 시점의 재고로 추가 수요 계산
+            SourceInventoryCapacityPolicy.Projection projection =
+                    sourceCapacityPolicy.projectAt(context, strategyStartDate);
+            projectedContext = context.withInventory(
+                    projection.evaluationInventory(),
+                    projection.referenceInventory()
+            );
+        }
+
         Map<Long, Map<LocalDate, BigDecimal>> result = new LinkedHashMap<>();
         for (Long salesPointId : salesPointIds) {
             if (Objects.equals(salesPointId, context.sourceSalesPointId())) {
@@ -199,7 +229,12 @@ public class StrategyCandidateSimulationEngine {
                         salesPointId,
                         completeForecastRange(
                                 context,
-                                targetDemand(context, salesPointId)
+                                targetDemand(
+                                        projectedContext,
+                                        salesPointId,
+                                        strategyStartDate,
+                                        strategyEndDate
+                                )
                         )
                 );
             }
@@ -209,10 +244,17 @@ public class StrategyCandidateSimulationEngine {
 
     private Map<LocalDate, BigDecimal> targetDemand(
             StrategyCalculationContext context,
-            Long salesPointId
+            Long salesPointId,
+            LocalDate strategyStartDate,
+            LocalDate strategyEndDate
     ) {
         try {
-            return targetDemandPolicy.calculate(context, salesPointId);
+            return targetDemandPolicy.calculate(
+                    context,
+                    salesPointId,
+                    strategyStartDate,
+                    strategyEndDate
+            );
         } catch (StrategyCalculationException exception) {
             throw new CandidateSimulationException(
                     exception.getCode(),
@@ -383,29 +425,48 @@ public class StrategyCandidateSimulationEngine {
             List<LotState> lots,
             LocalDate date
     ) {
-        for (LotState lot : lots) {
-            if (!lot.strategyAllocated) {
-                continue;
-            }
-            if (lot.remaining.compareTo(lot.initialQuantity) != 0
-                    || !lot.isBaseSellableAt(date)) {
+        // 시작일까지 정상 판매되고 남은 원본 LOT에서만 전략 적용분 분리
+        List<LotState> allocatedLots = new ArrayList<>();
+        for (AllocationPlan allocation : plan.allocations().values()) {
+            LotState source = lots.stream()
+                    .filter(lot -> !lot.strategyAllocated)
+                    .filter(lot -> Objects.equals(
+                            lot.input.inventoryBalanceId(),
+                            allocation.inventoryBalanceId()
+                    ))
+                    .findFirst()
+                    .orElseThrow(() -> new CandidateSimulationException(
+                            "CANDIDATE_ALLOCATION_NOT_FOUND",
+                            "Candidate allocation is outside evaluation inventory"
+                    ));
+            if (!Objects.equals(source.input.lotId(), allocation.lotId())
+                    || source.remaining.compareTo(allocation.quantity()) < 0
+                    || !source.isBaseSellableAt(date)) {
                 throw new CandidateSimulationException(
-                        "CANDIDATE_RESERVED_INVENTORY_UNAVAILABLE",
-                        "Reserved candidate inventory is unavailable at strategy start"
+                        "CANDIDATE_PROJECTED_INVENTORY_UNAVAILABLE",
+                        "Projected candidate inventory is unavailable at strategy start"
                 );
             }
-            AllocationPlan allocation = plan.allocations().get(
-                    lot.input.inventoryBalanceId()
+
+            source.remaining = quantity(source.remaining.subtract(
+                    allocation.quantity()
+            ));
+            LotState allocated = new LotState(
+                    source.input,
+                    allocation.quantity(),
+                    true
             );
             if (allocation.targetWarehouseId() != null) {
-                lot.warehouseId = allocation.targetWarehouseId();
+                allocated.warehouseId = allocation.targetWarehouseId();
             }
             if (allocation.targetSalesPointId() != null) {
-                lot.salesPointId = allocation.targetSalesPointId();
+                allocated.salesPointId = allocation.targetSalesPointId();
             }
-            lot.discountPrice = allocation.discountPrice();
-            lot.strategyApplied = true;
+            allocated.discountPrice = allocation.discountPrice();
+            allocated.strategyApplied = true;
+            allocatedLots.add(allocated);
         }
+        lots.addAll(allocatedLots);
     }
 
     private static void validateRange(
@@ -428,19 +489,6 @@ public class StrategyCandidateSimulationEngine {
                 .map(StrategyCandidate.Action::estimatedActionCost)
                 .filter(Objects::nonNull)
                 .reduce(BigDecimal.ZERO, BigDecimal::add));
-    }
-
-    private static List<CandidateAssumption> assumptions(
-            StrategyCalculationContext context,
-            StrategyCandidate candidate
-    ) {
-        EnumSet<CandidateAssumption> result = candidate.assumptions().isEmpty()
-                ? EnumSet.noneOf(CandidateAssumption.class)
-                : EnumSet.copyOf(candidate.assumptions());
-        if (candidate.startDate().isAfter(context.calculatedAt().toLocalDate())) {
-            result.add(CandidateAssumption.INVENTORY_RESERVED_UNTIL_STRATEGY_START);
-        }
-        return List.copyOf(result);
     }
 
     private static BigDecimal totalRemaining(List<LotState> lots) {
@@ -553,25 +601,17 @@ public class StrategyCandidateSimulationEngine {
             Set<Long> found = new LinkedHashSet<>();
             for (InventoryLot lot : inventory) {
                 AllocationPlan allocation = allocations.get(lot.inventoryBalanceId());
-                if (allocation == null) {
-                    result.add(new LotState(lot, lot.availableQty(), false));
-                    continue;
+                if (allocation != null) {
+                    found.add(lot.inventoryBalanceId());
+                    if (!Objects.equals(lot.lotId(), allocation.lotId())
+                            || allocation.quantity().compareTo(lot.availableQty()) > 0) {
+                        throw new CandidateSimulationException(
+                                "CANDIDATE_ALLOCATION_INVALID",
+                                "Candidate LOT allocation exceeds evaluation inventory"
+                        );
+                    }
                 }
-                found.add(lot.inventoryBalanceId());
-                if (!Objects.equals(lot.lotId(), allocation.lotId())
-                        || allocation.quantity().compareTo(lot.availableQty()) > 0) {
-                    throw new CandidateSimulationException(
-                            "CANDIDATE_ALLOCATION_INVALID",
-                            "Candidate LOT allocation exceeds evaluation inventory"
-                    );
-                }
-                result.add(new LotState(lot, allocation.quantity(), true));
-                BigDecimal unallocated = quantity(
-                        lot.availableQty().subtract(allocation.quantity())
-                );
-                if (unallocated.signum() > 0) {
-                    result.add(new LotState(lot, unallocated, false));
-                }
+                result.add(new LotState(lot, lot.availableQty(), false));
             }
             if (!found.equals(allocations.keySet())) {
                 throw new CandidateSimulationException(
@@ -671,7 +711,6 @@ public class StrategyCandidateSimulationEngine {
                 .thenComparing(lot -> lot.strategyAllocated ? 0 : 1);
 
         private final InventoryLot input;
-        private final BigDecimal initialQuantity;
         private final boolean strategyAllocated;
         private BigDecimal remaining;
         private Long warehouseId;
@@ -685,7 +724,6 @@ public class StrategyCandidateSimulationEngine {
                 boolean strategyAllocated
         ) {
             this.input = input;
-            this.initialQuantity = quantity(initialQuantity);
             this.strategyAllocated = strategyAllocated;
             this.remaining = quantity(initialQuantity);
             this.warehouseId = input.warehouseId();

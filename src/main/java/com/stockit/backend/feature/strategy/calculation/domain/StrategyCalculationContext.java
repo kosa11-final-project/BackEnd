@@ -72,6 +72,30 @@ public record StrategyCalculationContext(
                 : forecastEndDate;
     }
 
+    /**
+     * 원본 계산 조건은 유지하고 특정 시점으로 투영된 재고만 교체한 계산 문맥을 생성한다
+     */
+    public StrategyCalculationContext withInventory(
+            List<InventoryLot> projectedEvaluationInventory,
+            List<InventoryLot> projectedReferenceInventory
+    ) {
+        return new StrategyCalculationContext(
+                strategyCaseId,
+                sourceSalesPointId,
+                calculatedAt,
+                forecastStartDate,
+                forecastEndDate,
+                sku,
+                unitCost,
+                requestConstraints,
+                projectedEvaluationInventory,
+                projectedReferenceInventory,
+                inventoryPolicies,
+                salesPoints,
+                forecastMetadata
+        );
+    }
+
     /** 사용자 선택 순서와 직접 입력한 기간을 후속 후보·AI 단계까지 보존한다. */
     public record RequestConstraints(
             List<Long> orderedCandidateSalesPointIds,

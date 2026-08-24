@@ -44,11 +44,25 @@
         </foreach>
     </select>
 
-    <select id="selectAllActiveSalesPointIds" resultType="long">
-        SELECT sales_point_id
-        FROM sales_point
-        WHERE active_yn = 'Y'
-          AND is_deleted = 0
+    <select id="selectActiveSalesPointIdsBySkuInventory" resultType="long">
+        SELECT DISTINCT
+               COALESCE(balance.stock_sales_point_id, balance.allocated_sales_point_id)
+                   AS sales_point_id
+        FROM inventory_balance balance
+        INNER JOIN sales_point point
+                ON point.sales_point_id = COALESCE(
+                    balance.stock_sales_point_id,
+                    balance.allocated_sales_point_id
+                )
+               AND point.active_yn = 'Y'
+               AND point.is_deleted = 0
+        WHERE balance.sku_id = #{skuId}
+          AND balance.on_hand_qty &gt; 0
+          AND balance.is_deleted = 0
+          AND COALESCE(
+              balance.stock_sales_point_id,
+              balance.allocated_sales_point_id
+          ) IS NOT NULL
         ORDER BY sales_point_id
     </select>
 
@@ -141,6 +155,23 @@
         WHERE strategy_case_id = #{strategyCaseId}
           AND case_status = 'GENERATING'
           AND generation_stage = 'FORECASTING'
+          AND is_deleted = 0
+    </update>
+
+    <update id="markGeneratedIfStrategyGenerating">
+        UPDATE strategy_case
+        SET case_status = 'GENERATED',
+            generation_stage = 'COMPARISON_READY',
+            result_cache_key = #{resultCacheKey},
+            result_expires_at = #{resultExpiresAt},
+            completed_at = SYSTIMESTAMP,
+            failure_code = NULL,
+            failure_message = NULL,
+            updated_at = SYSTIMESTAMP,
+            updated_by = created_by
+        WHERE strategy_case_id = #{strategyCaseId}
+          AND case_status = 'GENERATING'
+          AND generation_stage = 'STRATEGY_GENERATING'
           AND is_deleted = 0
     </update>
 

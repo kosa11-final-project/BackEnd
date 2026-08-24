@@ -25,11 +25,11 @@ class StrategyForecastDateRangeResolverTest {
     }
 
     @Test
-    void resolvesStartOnlyWithinRequestDateForecastHorizon() {
+    void includesPreStrategyDemandWhenOnlyFutureStartIsRequested() {
         LocalDate startDate = TODAY.plusDays(10);
 
         assertThat(resolver.resolve(startDate, null, TODAY))
-                .isEqualTo(new ForecastDateRange(startDate, TODAY.plusDays(89)));
+                .isEqualTo(new ForecastDateRange(TODAY, TODAY.plusDays(89)));
     }
 
     @Test
@@ -44,9 +44,9 @@ class StrategyForecastDateRangeResolverTest {
     }
 
     @Test
-    void keepsExplicitRange() {
+    void includesPreStrategyDemandForExplicitFutureRange() {
         assertThat(resolver.resolve(TODAY.plusDays(1), TODAY.plusDays(89), TODAY))
-                .isEqualTo(new ForecastDateRange(TODAY.plusDays(1), TODAY.plusDays(89)));
+                .isEqualTo(new ForecastDateRange(TODAY, TODAY.plusDays(89)));
     }
 
     @Test

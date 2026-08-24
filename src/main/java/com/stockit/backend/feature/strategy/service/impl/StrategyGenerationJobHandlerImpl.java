@@ -31,6 +31,7 @@ import com.stockit.backend.feature.strategy.service.StrategyCasePayloadException
 import com.stockit.backend.feature.strategy.service.StrategyCaseRequestPayloadSerializer;
 import com.stockit.backend.feature.strategy.service.StrategyGenerationJobHandler;
 import com.stockit.backend.feature.strategy.service.StrategyGenerationStageService;
+import com.stockit.backend.feature.strategy.service.StrategyRecommendationStageProcessor;
 import com.stockit.backend.feature.strategy.vo.StrategyCaseVO;
 
 /**
@@ -59,6 +60,7 @@ public class StrategyGenerationJobHandlerImpl implements StrategyGenerationJobHa
     private final ForecastProvider forecastProvider;
     private final StrategyForecastResponseValidator responseValidator;
     private final StrategyGenerationStageService stageService;
+    private final StrategyRecommendationStageProcessor recommendationStageProcessor;
 
     public StrategyGenerationJobHandlerImpl(
             StrategyCaseMapper strategyCaseMapper,
@@ -68,7 +70,8 @@ public class StrategyGenerationJobHandlerImpl implements StrategyGenerationJobHa
             ForecastLockManager lockManager,
             ForecastProvider forecastProvider,
             StrategyForecastResponseValidator responseValidator,
-            StrategyGenerationStageService stageService
+            StrategyGenerationStageService stageService,
+            StrategyRecommendationStageProcessor recommendationStageProcessor
     ) {
         this.strategyCaseMapper = strategyCaseMapper;
         this.payloadSerializer = payloadSerializer;
@@ -78,6 +81,7 @@ public class StrategyGenerationJobHandlerImpl implements StrategyGenerationJobHa
         this.forecastProvider = forecastProvider;
         this.responseValidator = responseValidator;
         this.stageService = stageService;
+        this.recommendationStageProcessor = recommendationStageProcessor;
     }
 
     /**
@@ -87,6 +91,12 @@ public class StrategyGenerationJobHandlerImpl implements StrategyGenerationJobHa
     public void handle(StrategyGenerationJobMessage message) {
         validateMessage(message);
         StrategyCaseVO strategyCase = loadCase(message.strategyCaseId());
+        if (strategyCase.getCaseStatus() == StrategyCaseStatus.GENERATING
+                && strategyCase.getGenerationStage()
+                == StrategyGenerationStage.STRATEGY_GENERATING) {
+            recommendationStageProcessor.process(message.strategyCaseId());
+            return;
+        }
         if (isForecastStepCompleteOrTerminal(strategyCase)) {
             return;
         }
@@ -349,10 +359,16 @@ public class StrategyGenerationJobHandlerImpl implements StrategyGenerationJobHa
             );
         }
         if (completed) {
+            recommendationStageProcessor.process(strategyCaseId);
             return;
         }
         StrategyCaseVO latest = loadCase(strategyCaseId);
         if (isForecastStepCompleteOrTerminal(latest)) {
+            if (latest.getCaseStatus() == StrategyCaseStatus.GENERATING
+                    && latest.getGenerationStage()
+                    == StrategyGenerationStage.STRATEGY_GENERATING) {
+                recommendationStageProcessor.process(strategyCaseId);
+            }
             return;
         }
         throw new RetryableStrategyGenerationException(

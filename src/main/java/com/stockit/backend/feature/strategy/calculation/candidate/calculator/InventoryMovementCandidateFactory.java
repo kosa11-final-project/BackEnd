@@ -33,7 +33,9 @@ import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculati
 import com.stockit.backend.feature.strategy.calculation.engine.CalculationPrecisionPolicy;
 import com.stockit.backend.feature.strategy.domain.StrategyType;
 
-/** 재할당과 실제 이동이 공유하는 실행 가능량·LOT 배분·10% 수량 후보 규칙. */
+/**
+ * 재할당과 실제 이동 후보에 공통으로 적용되는 수량·LOT·이동 경로 계산 팩토리
+ */
 @Component
 public class InventoryMovementCandidateFactory {
 
@@ -59,6 +61,7 @@ public class InventoryMovementCandidateFactory {
         this.idGenerator = idGenerator;
     }
 
+    /** 사용자 조건에 맞는 판매처별 재할당 또는 실제 이동 후보를 생성한다 */
     public CandidateGenerationResult generate(
             StrategyCalculationContext context,
             StrategyType strategyType,
@@ -79,7 +82,12 @@ public class InventoryMovementCandidateFactory {
         );
     }
 
-    /** 채널 확대는 미입점 판매처도 물류 실행 가능성만 평가할 수 있다. */
+    /**
+     * 대상 판매처 목록과 가격 정보 필수 여부를 지정해 이동 기반 후보를 생성한다
+     *
+     * <p>채널 확대는 아직 입점하지 않은 판매처도 물류 실행 가능성을 평가해야 하므로
+     * 가격 정보 검증을 선택적으로 생략할 수 있다</p>
+     */
     public CandidateGenerationResult generate(
             StrategyCalculationContext context,
             StrategyType strategyType,
@@ -95,11 +103,21 @@ public class InventoryMovementCandidateFactory {
         }
         List<StrategyCandidate> candidates = new ArrayList<>();
         List<CandidateExclusion> exclusions = new ArrayList<>();
+        if (orderedTargetIds.isEmpty()) {
+            return new CandidateGenerationResult(candidates, exclusions);
+        }
+        // 모든 판매처 후보가 같은 전략 시작일을 사용하므로 재고 투영은 한 번만 수행
+        SourceInventoryCapacityPolicy.Projection projection =
+                sourceCapacityPolicy.projectAt(context, context.strategyStartDate());
+        StrategyCalculationContext projectedContext = context.withInventory(
+                projection.evaluationInventory(),
+                projection.referenceInventory()
+        );
 
         for (int index = 0; index < orderedTargetIds.size(); index++) {
             Long targetId = orderedTargetIds.get(index);
             TargetResult targetResult = generateForTarget(
-                    context,
+                    projectedContext,
                     strategyType,
                     strategyPriority,
                     index + 1,

@@ -1,6 +1,8 @@
 package com.stockit.backend.feature.strategy.calculation.candidate.service.impl;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -63,7 +65,7 @@ class StrategyCandidateGenerationServiceImplTest {
     }
 
     @Test
-    void generatesAllFiveSupportedTypesInDefaultPriorityOrder() {
+    void generatesFourSupportedTypesInDefaultPriorityOrder() {
         when(reallocationCalculator.supportedType()).thenReturn(StrategyType.REALLOCATION);
         when(transferCalculator.supportedType()).thenReturn(StrategyType.RT_TRANSFER);
         when(discountCalculator.supportedType()).thenReturn(StrategyType.PRICE_DISCOUNT);
@@ -87,7 +89,6 @@ class StrategyCandidateGenerationServiceImplTest {
         when(transferCalculator.generate(context, 2)).thenReturn(empty);
         when(discountCalculator.generate(context, 3)).thenReturn(empty);
         when(expansionCalculator.generate(context, 4)).thenReturn(empty);
-        when(concentrationCalculator.generate(context, 5)).thenReturn(empty);
 
         service.generate(context);
 
@@ -95,7 +96,7 @@ class StrategyCandidateGenerationServiceImplTest {
         verify(transferCalculator).generate(context, 2);
         verify(discountCalculator).generate(context, 3);
         verify(expansionCalculator).generate(context, 4);
-        verify(concentrationCalculator).generate(context, 5);
+        verify(concentrationCalculator, never()).generate(eq(context), anyInt());
     }
 
     @Test
