@@ -22,7 +22,8 @@
     <select id="selectExistingSelection" resultType="com.stockit.backend.feature.strategy.approval.StrategyApprovalRecords$ExistingSelectionRecord">
         SELECT final_selection.final_selection_id,
                final_selection.strategy_option_id,
-               strategy_option.option_rank
+               strategy_option.option_rank,
+               strategy_option.constraint_text
         FROM final_strategy_selection final_selection
         JOIN strategy_option
           ON strategy_option.strategy_option_id = final_selection.strategy_option_id
@@ -181,13 +182,30 @@
         ORDER BY reviewer_id
     </select>
 
-    <update id="updateReviewStatus">
+    <update id="claimReviewRequest">
+        UPDATE strategy_review_request
+        SET review_status = 'SENDING',
+            updated_at = SYSTIMESTAMP,
+            updated_by = #{actorId}
+        WHERE review_request_id = #{reviewRequestId}
+          AND is_deleted = 0
+          AND (
+              review_status IN ('PENDING', 'FAILED')
+              OR (
+                  review_status = 'SENDING'
+                  AND updated_at &lt; SYSTIMESTAMP
+                      - NUMTODSINTERVAL(#{claimTimeoutSeconds}, 'SECOND')
+              )
+          )
+    </update>
+
+    <update id="completeReviewRequest">
         UPDATE strategy_review_request
         SET review_status = #{reviewStatus},
             updated_at = SYSTIMESTAMP,
             updated_by = #{actorId}
         WHERE review_request_id = #{reviewRequestId}
-          AND review_status != 'SENT'
+          AND review_status = 'SENDING'
           AND is_deleted = 0
     </update>
 

@@ -119,6 +119,17 @@ public class AiStrategyApprovalServiceImpl implements AiStrategyApprovalService 
                 deliveries.add(delivery(reviewer, StrategyReviewStatus.SENT, null));
                 continue;
             }
+            boolean claimed = deliveryStateService.tryClaim(
+                    reviewRequest.getReviewRequestId(),
+                    actorId,
+                    properties.getClaimTimeout()
+            );
+            if (!claimed) {
+                deliveries.add(delivery(
+                        reviewer, StrategyReviewStatus.SENDING, null
+                ));
+                continue;
+            }
             try {
                 teamsApprovalSender.send(new TeamsApprovalMessage(
                         reviewer.getEmail(),
@@ -186,6 +197,17 @@ public class AiStrategyApprovalServiceImpl implements AiStrategyApprovalService 
         if (sent == deliveries.size()) {
             return DeliveryStatus.SENT;
         }
-        return sent == 0 ? DeliveryStatus.FAILED : DeliveryStatus.PARTIAL_FAILED;
+        boolean sending = deliveries.stream()
+                .anyMatch(delivery -> delivery.deliveryStatus()
+                        == StrategyReviewStatus.SENDING);
+        boolean failed = deliveries.stream()
+                .anyMatch(delivery -> delivery.deliveryStatus()
+                        == StrategyReviewStatus.FAILED);
+        if (sending && !failed) {
+            return DeliveryStatus.IN_PROGRESS;
+        }
+        return sent == 0 && !sending
+                ? DeliveryStatus.FAILED
+                : DeliveryStatus.PARTIAL_FAILED;
     }
 }

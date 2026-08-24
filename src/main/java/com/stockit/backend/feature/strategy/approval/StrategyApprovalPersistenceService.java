@@ -6,7 +6,6 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.LocalDate;
-import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -14,7 +13,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
@@ -48,7 +46,9 @@ import com.stockit.backend.feature.strategy.vo.AiStrategyReviewerVO;
 @Service
 public class StrategyApprovalPersistenceService {
 
-    private static final int TEXT_LIMIT = 2_000;
+    private static final int OPTION_NAME_BYTE_LIMIT = 200;
+    private static final int OPTION_TEXT_BYTE_LIMIT = 2_000;
+    private static final String CANDIDATE_ID_PREFIX = "candidateId=";
 
     private final StrategyApprovalMapper approvalMapper;
     private final ObjectMapper objectMapper;
@@ -98,7 +98,11 @@ public class StrategyApprovalPersistenceService {
                     strategyCase, actorId, option, context
             );
         } else {
-            if (!Objects.equals(existing.getOptionRank(), option.rank())) {
+            if (!Objects.equals(existing.getOptionRank(), option.rank())
+                    || !Objects.equals(
+                            candidateId(existing.getConstraintText()),
+                            option.candidate().candidateId()
+                    )) {
                 throw new AppException(ErrorCode.AI_STRATEGY_SELECTION_CONFLICT);
             }
             selectionIds = new SelectionIds(
@@ -190,13 +194,21 @@ public class StrategyApprovalPersistenceService {
         OptionWrite write = new OptionWrite();
         write.setStrategyCaseId(strategyCase.getStrategyCaseId());
         write.setOptionRank(option.rank());
-        write.setOptionName(option.optionName());
-        write.setRecommendationReason(truncate(option.recommendationReason()));
-        write.setAdvantageText(truncate(option.advantage()));
-        write.setCautionText(truncate(option.caution()));
-        write.setConstraintText(truncate(option.candidate().assumptions().stream()
-                .map(Enum::name)
-                .collect(Collectors.joining(","))));
+        write.setOptionName(truncateUtf8(
+                option.optionName(), OPTION_NAME_BYTE_LIMIT
+        ));
+        write.setRecommendationReason(truncateUtf8(
+                option.recommendationReason(), OPTION_TEXT_BYTE_LIMIT
+        ));
+        write.setAdvantageText(truncateUtf8(
+                option.advantage(), OPTION_TEXT_BYTE_LIMIT
+        ));
+        write.setCautionText(truncateUtf8(
+                option.caution(), OPTION_TEXT_BYTE_LIMIT
+        ));
+        write.setConstraintText(truncateUtf8(
+                constraintText(option), OPTION_TEXT_BYTE_LIMIT
+        ));
         audit(write, actorId);
         return write;
     }
@@ -564,11 +576,53 @@ public class StrategyApprovalPersistenceService {
         }
     }
 
-    private static String truncate(String value) {
-        if (value == null || value.length() <= TEXT_LIMIT) {
+    private static String constraintText(StrategyGenerationResult.Option option) {
+        String assumptions = option.candidate().assumptions().stream()
+                .map(Enum::name)
+                .collect(Collectors.joining(","));
+        return CANDIDATE_ID_PREFIX + option.candidate().candidateId()
+                + "\nassumptions=" + assumptions;
+    }
+
+    private static String candidateId(String constraintText) {
+        if (constraintText == null
+                || !constraintText.startsWith(CANDIDATE_ID_PREFIX)) {
+            return null;
+        }
+        int end = constraintText.indexOf('\n');
+        return constraintText.substring(
+                CANDIDATE_ID_PREFIX.length(),
+                end < 0 ? constraintText.length() : end
+        );
+    }
+
+    static String truncateUtf8(String value, int maximumBytes) {
+        if (value == null
+                || value.getBytes(StandardCharsets.UTF_8).length <= maximumBytes) {
             return value;
         }
-        return value.substring(0, TEXT_LIMIT);
+        int byteCount = 0;
+        int endIndex = 0;
+        while (endIndex < value.length()) {
+            int codePoint = value.codePointAt(endIndex);
+            int codePointBytes = utf8Length(codePoint);
+            if (byteCount + codePointBytes > maximumBytes) {
+                break;
+            }
+            byteCount += codePointBytes;
+            endIndex += Character.charCount(codePoint);
+        }
+        return value.substring(0, endIndex);
+    }
+
+    private static int utf8Length(int codePoint) {
+        if (codePoint <= 0x7F) {
+            return 1;
+        }
+        if (codePoint <= 0x7FF) {
+            return 2;
+        }
+        return codePoint <= 0xFFFF ? 3 : 4;
     }
 
     private static void audit(

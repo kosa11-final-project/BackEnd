@@ -21,6 +21,7 @@ public record AiStrategyTeamsRequestResponse(
 
     public enum DeliveryStatus {
         SENT,
+        IN_PROGRESS,
         PARTIAL_FAILED,
         FAILED
     }

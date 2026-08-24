@@ -1,5 +1,7 @@
 package com.stockit.backend.feature.strategy.approval;
 
+import java.time.Duration;
+
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -18,15 +20,27 @@ public class StrategyApprovalDeliveryStateService {
     }
 
     @Transactional
+    public boolean tryClaim(
+            Long reviewRequestId,
+            Long actorId,
+            Duration claimTimeout
+    ) {
+        long timeoutSeconds = Math.max(1, claimTimeout.toSeconds());
+        return approvalMapper.claimReviewRequest(
+                reviewRequestId, actorId, timeoutSeconds
+        ) == 1;
+    }
+
+    @Transactional
     public void markSent(Long reviewRequestId, Long actorId) {
-        approvalMapper.updateReviewStatus(
+        approvalMapper.completeReviewRequest(
                 reviewRequestId, StrategyReviewStatus.SENT, actorId
         );
     }
 
     @Transactional
     public void markFailed(Long reviewRequestId, Long actorId) {
-        approvalMapper.updateReviewStatus(
+        approvalMapper.completeReviewRequest(
                 reviewRequestId, StrategyReviewStatus.FAILED, actorId
         );
     }

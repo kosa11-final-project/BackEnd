@@ -7,6 +7,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -33,6 +34,7 @@ class StrategyApprovalPersistenceServiceTest {
 
     @Mock private StrategyApprovalMapper approvalMapper;
     @Mock private StrategyGenerationResult.Option option;
+    @Mock private StrategyGenerationResult.Candidate candidate;
     @Mock private StrategyCalculationContext context;
 
     private StrategyApprovalPersistenceService service;
@@ -48,16 +50,14 @@ class StrategyApprovalPersistenceServiceTest {
         reviewer.setReviewerName("검토자");
         reviewer.setEmail("reviewer@stockit.test");
         reviewer.setOrganizationId(1L);
-
-        when(approvalMapper.selectCaseForUpdate(123L)).thenReturn(strategyCase());
-        when(context.strategyCaseId()).thenReturn(123L);
     }
 
     @Test
     void rejectsChangingOptionAfterFinalSelectionWasPersisted() {
+        stubValidCase();
         when(option.rank()).thenReturn(2);
         when(approvalMapper.selectExistingSelection(123L))
-                .thenReturn(existingSelection(1));
+                .thenReturn(existingSelection(1, "CAND-1"));
 
         assertThatThrownBy(() -> service.prepare(
                 123L, 3L, 1L, option, context, List.of(reviewer)
@@ -71,9 +71,12 @@ class StrategyApprovalPersistenceServiceTest {
 
     @Test
     void reusesSameSelectionAndCreatesOnlyMissingReviewerRequest() {
+        stubValidCase();
         when(option.rank()).thenReturn(1);
+        when(option.candidate()).thenReturn(candidate);
+        when(candidate.candidateId()).thenReturn("CAND-1");
         when(approvalMapper.selectExistingSelection(123L))
-                .thenReturn(existingSelection(1));
+                .thenReturn(existingSelection(1, "CAND-1"));
         ReviewRequestRecord request = reviewRequest();
         when(approvalMapper.selectReviewRequests(55L, List.of(7L)))
                 .thenReturn(List.of(), List.of(request));
@@ -88,6 +91,49 @@ class StrategyApprovalPersistenceServiceTest {
         verify(approvalMapper).insertReviewRequest(any(ReviewRequestWrite.class));
     }
 
+    @Test
+    void rejectsDifferentCandidateEvenWhenOptionRankMatches() {
+        stubValidCase();
+        when(option.rank()).thenReturn(1);
+        when(option.candidate()).thenReturn(candidate);
+        when(candidate.candidateId()).thenReturn("CAND-2");
+        when(approvalMapper.selectExistingSelection(123L))
+                .thenReturn(existingSelection(1, "CAND-1"));
+
+        assertThatThrownBy(() -> service.prepare(
+                123L, 3L, 1L, option, context, List.of(reviewer)
+        ))
+                .isInstanceOf(AppException.class)
+                .extracting(exception -> ((AppException) exception).getErrorCode())
+                .isEqualTo(ErrorCode.AI_STRATEGY_SELECTION_CONFLICT);
+
+        verify(approvalMapper, never()).insertReviewRequest(any());
+    }
+
+    @Test
+    void truncatesTextByUtf8BytesWithoutSplittingCharacters() {
+        String korean = "한".repeat(667);
+        String emoji = "😀".repeat(501);
+
+        String truncatedKorean = StrategyApprovalPersistenceService.truncateUtf8(
+                korean, 2_000
+        );
+        String truncatedEmoji = StrategyApprovalPersistenceService.truncateUtf8(
+                emoji, 2_000
+        );
+
+        assertThat(truncatedKorean).hasSize(666);
+        assertThat(truncatedKorean.getBytes(StandardCharsets.UTF_8)).hasSize(1_998);
+        assertThat(truncatedEmoji.codePointCount(0, truncatedEmoji.length()))
+                .isEqualTo(500);
+        assertThat(truncatedEmoji.getBytes(StandardCharsets.UTF_8)).hasSize(2_000);
+    }
+
+    private void stubValidCase() {
+        when(approvalMapper.selectCaseForUpdate(123L)).thenReturn(strategyCase());
+        when(context.strategyCaseId()).thenReturn(123L);
+    }
+
     private static CaseRecord strategyCase() {
         CaseRecord strategyCase = new CaseRecord();
         strategyCase.setStrategyCaseId(123L);
@@ -98,11 +144,17 @@ class StrategyApprovalPersistenceServiceTest {
         return strategyCase;
     }
 
-    private static ExistingSelectionRecord existingSelection(int optionRank) {
+    private static ExistingSelectionRecord existingSelection(
+            int optionRank,
+            String candidateId
+    ) {
         ExistingSelectionRecord selection = new ExistingSelectionRecord();
         selection.setFinalSelectionId(44L);
         selection.setStrategyOptionId(55L);
         selection.setOptionRank(optionRank);
+        selection.setConstraintText(
+                "candidateId=" + candidateId + "\nassumptions="
+        );
         return selection;
     }
 

@@ -143,6 +143,7 @@ app:
       webhook-url: ${TEAMS_APPROVAL_WEBHOOK_URL:}
       connect-timeout: ${TEAMS_APPROVAL_CONNECT_TIMEOUT:3s}
       read-timeout: ${TEAMS_APPROVAL_READ_TIMEOUT:15s}
+      claim-timeout: ${TEAMS_APPROVAL_CLAIM_TIMEOUT:1m}
       max-reviewers: ${AI_STRATEGY_TEAMS_MAX_REVIEWERS:10}
     forecast:
       base-url: ${ML_FORECAST_BASE_URL:}

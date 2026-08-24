@@ -3,9 +3,12 @@ package com.stockit.backend.feature.strategy.service.impl;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 
@@ -73,9 +76,9 @@ class AiStrategyApprovalServiceImplTest {
         when(option.candidate()).thenReturn(candidate);
         when(candidate.candidateId()).thenReturn("CAND-1");
         when(contextStore.find(123L)).thenReturn(Optional.of(context));
-        when(context.sku()).thenReturn(sku);
-        when(sku.skuCode()).thenReturn("SKU-1");
-        when(sku.skuName()).thenReturn("테스트 상품");
+        lenient().when(context.sku()).thenReturn(sku);
+        lenient().when(sku.skuCode()).thenReturn("SKU-1");
+        lenient().when(sku.skuName()).thenReturn("테스트 상품");
         when(reviewerService.requireReviewers(1L, List.of(7L, 8L), 10))
                 .thenReturn(List.of(first, second));
     }
@@ -85,6 +88,12 @@ class AiStrategyApprovalServiceImplTest {
         when(persistenceService.prepare(
                 123L, 3L, 1L, option, context, List.of(first, second)
         )).thenReturn(prepared());
+        when(deliveryStateService.tryClaim(
+                701L, 3L, Duration.ofMinutes(1)
+        )).thenReturn(true);
+        when(deliveryStateService.tryClaim(
+                801L, 3L, Duration.ofMinutes(1)
+        )).thenReturn(true);
         doThrow(new TeamsApprovalDeliveryException(
                 "TEAMS_WEBHOOK_UNAVAILABLE", "failed"
         )).when(teamsApprovalSender).send(any(TeamsApprovalMessage.class));
@@ -111,6 +120,9 @@ class AiStrategyApprovalServiceImplTest {
         when(persistenceService.prepare(
                 123L, 3L, 1L, option, context, List.of(first, second)
         )).thenReturn(prepared);
+        when(deliveryStateService.tryClaim(
+                801L, 3L, Duration.ofMinutes(1)
+        )).thenReturn(true);
         when(deliveryStateService.markReadyIfComplete(123L, 55L, 3L))
                 .thenReturn(true);
 
@@ -122,6 +134,32 @@ class AiStrategyApprovalServiceImplTest {
                 .isEqualTo(StrategyCaseStatus.READY_TO_EXECUTE);
         assertThat(response.deliveryStatus()).isEqualTo(DeliveryStatus.SENT);
         verify(deliveryStateService).markSent(801L, 3L);
+    }
+
+    @Test
+    void skipsWebhookWhenAnotherRequestAlreadyClaimedDelivery() {
+        when(persistenceService.prepare(
+                123L, 3L, 1L, option, context, List.of(first, second)
+        )).thenReturn(prepared());
+        when(deliveryStateService.tryClaim(
+                701L, 3L, Duration.ofMinutes(1)
+        )).thenReturn(false);
+        when(deliveryStateService.tryClaim(
+                801L, 3L, Duration.ofMinutes(1)
+        )).thenReturn(false);
+        when(deliveryStateService.markReadyIfComplete(123L, 55L, 3L))
+                .thenReturn(false);
+
+        var response = service.sendToTeams(
+                123L, "CAND-1", List.of(7L, 8L), 3L, "요청자", 1L
+        );
+
+        assertThat(response.caseStatus()).isEqualTo(StrategyCaseStatus.GENERATED);
+        assertThat(response.deliveryStatus()).isEqualTo(DeliveryStatus.IN_PROGRESS);
+        assertThat(response.reviewers())
+                .allMatch(delivery -> delivery.deliveryStatus()
+                        == StrategyReviewStatus.SENDING);
+        verify(teamsApprovalSender, never()).send(any(TeamsApprovalMessage.class));
     }
 
     private PreparedStrategyApproval prepared() {

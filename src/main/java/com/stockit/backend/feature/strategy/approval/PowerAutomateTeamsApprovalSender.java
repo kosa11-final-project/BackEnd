@@ -8,6 +8,7 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 
 /** 비밀 웹후크 URL을 통해 Reviewer 개인 Teams 채팅으로 카드를 전송한다. */
@@ -31,11 +32,13 @@ public class PowerAutomateTeamsApprovalSender implements TeamsApprovalSender {
     @Override
     public void send(TeamsApprovalMessage message) {
         URI webhookUri = webhookUri();
+        TeamsApprovalCardFactory.TeamsWebhookRequest payload =
+                cardFactory.create(message);
         try {
             restClient.post()
                     .uri(webhookUri)
                     .contentType(MediaType.APPLICATION_JSON)
-                    .body(cardFactory.create(message))
+                    .body(payload)
                     .retrieve()
                     .toBodilessEntity();
         } catch (ResourceAccessException exception) {
@@ -53,10 +56,10 @@ public class PowerAutomateTeamsApprovalSender implements TeamsApprovalSender {
                     "Teams webhook returned HTTP " + exception.getStatusCode().value(),
                     exception
             );
-        } catch (RuntimeException exception) {
+        } catch (RestClientException exception) {
             throw new TeamsApprovalDeliveryException(
                     "TEAMS_WEBHOOK_REJECTED",
-                    "Teams webhook rejected the request",
+                    "Teams webhook request failed",
                     exception
             );
         }

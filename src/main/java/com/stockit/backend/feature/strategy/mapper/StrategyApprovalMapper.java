@@ -51,7 +51,13 @@ public interface StrategyApprovalMapper {
             @Param("reviewerIds") List<Long> reviewerIds
     );
 
-    int updateReviewStatus(
+    int claimReviewRequest(
+            @Param("reviewRequestId") Long reviewRequestId,
+            @Param("actorId") Long actorId,
+            @Param("claimTimeoutSeconds") long claimTimeoutSeconds
+    );
+
+    int completeReviewRequest(
             @Param("reviewRequestId") Long reviewRequestId,
             @Param("reviewStatus") StrategyReviewStatus reviewStatus,
             @Param("actorId") Long actorId

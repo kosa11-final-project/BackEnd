@@ -35,6 +35,7 @@ public final class StrategyApprovalRecords {
         private Long finalSelectionId;
         private Long strategyOptionId;
         private Integer optionRank;
+        private String constraintText;
     }
 
     @Getter

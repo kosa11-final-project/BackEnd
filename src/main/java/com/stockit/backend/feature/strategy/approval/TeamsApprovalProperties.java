@@ -12,6 +12,7 @@ public class TeamsApprovalProperties {
     private String webhookUrl = "";
     private Duration connectTimeout = Duration.ofSeconds(3);
     private Duration readTimeout = Duration.ofSeconds(15);
+    private Duration claimTimeout = Duration.ofMinutes(1);
     private int maxReviewers = 10;
 
     public boolean isEnabled() {
@@ -48,6 +49,14 @@ public class TeamsApprovalProperties {
 
     public int getMaxReviewers() {
         return maxReviewers;
+    }
+
+    public Duration getClaimTimeout() {
+        return claimTimeout;
+    }
+
+    public void setClaimTimeout(Duration claimTimeout) {
+        this.claimTimeout = positive(claimTimeout, "claimTimeout");
     }
 
     public void setMaxReviewers(int maxReviewers) {
