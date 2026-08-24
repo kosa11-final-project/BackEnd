@@ -33,6 +33,7 @@ import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculati
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculationContext.SalesPoint;
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculationException;
 import com.stockit.backend.feature.strategy.calculation.engine.CalculationPrecisionPolicy;
+import com.stockit.backend.feature.strategy.calculation.policy.DiscountDemandPolicy;
 import com.stockit.backend.feature.strategy.domain.StrategyType;
 
 /**
@@ -51,19 +52,22 @@ public class PriceDiscountCandidateCalculator implements StrategyCandidateCalcul
     private final SourceInventoryCapacityPolicy sourceCapacityPolicy;
     private final MovementLotAllocationPolicy allocationPolicy;
     private final StrategyCandidateIdGenerator idGenerator;
+    private final DiscountDemandPolicy discountDemandPolicy;
 
     public PriceDiscountCandidateCalculator(
             DiscountRateCandidatePolicy discountRatePolicy,
             StrategyPeriodCandidatePolicy periodPolicy,
             SourceInventoryCapacityPolicy sourceCapacityPolicy,
             MovementLotAllocationPolicy allocationPolicy,
-            StrategyCandidateIdGenerator idGenerator
+            StrategyCandidateIdGenerator idGenerator,
+            DiscountDemandPolicy discountDemandPolicy
     ) {
         this.discountRatePolicy = discountRatePolicy;
         this.periodPolicy = periodPolicy;
         this.sourceCapacityPolicy = sourceCapacityPolicy;
         this.allocationPolicy = allocationPolicy;
         this.idGenerator = idGenerator;
+        this.discountDemandPolicy = discountDemandPolicy;
     }
 
     @Override
@@ -106,7 +110,10 @@ public class PriceDiscountCandidateCalculator implements StrategyCandidateCalcul
                     "Minimum selling price is required for discount calculation"
             );
         }
-        List<DiscountOption> discountOptions = discountRatePolicy.generate(sourcePrice);
+        List<DiscountOption> discountOptions = discountRatePolicy.generate(
+                sourcePrice,
+                source
+        );
         if (discountOptions.isEmpty()) {
             return excluded(
                     sourceId,
@@ -146,31 +153,36 @@ public class PriceDiscountCandidateCalculator implements StrategyCandidateCalcul
             if (sourceCapacity.total().signum() == 0) {
                 continue;
             }
-            Map<LocalDate, BigDecimal> periodDemand = periodDemand(
+            Map<LocalDate, BigDecimal> baselinePeriodDemand = periodDemand(
                     source.dailyForecast(),
                     period
             );
-            BigDecimal baselineDemand = sum(periodDemand.values());
-            MovementCandidatePlan maximumPlan = allocationPolicy.plan(
-                    projectedContext.evaluationInventory(),
-                    sourceCapacity.byWarehouse(),
-                    periodDemand,
-                    sourceCapacity.total().min(baselineDemand)
-            );
-            BigDecimal maxExecutableQuantity = CalculationPrecisionPolicy
-                    .executableQuantity(maximumPlan.plannedQuantity());
-            if (maxExecutableQuantity.signum() == 0) {
-                continue;
-            }
-
-            List<QuantityTier> quantityTiers = planQuantityTiers(
-                    projectedContext,
-                    sourceCapacity,
-                    periodDemand,
-                    maximumPlan,
-                    maxExecutableQuantity
-            );
+            BigDecimal baselineDemand = sum(baselinePeriodDemand.values());
             for (DiscountOption discount : discountOptions) {
+                Map<LocalDate, BigDecimal> discountedDemand = discountedDemand(
+                        baselinePeriodDemand,
+                        source,
+                        discount.discountRate()
+                );
+                BigDecimal discountedDemandTotal = sum(discountedDemand.values());
+                MovementCandidatePlan maximumPlan = allocationPolicy.plan(
+                        projectedContext.evaluationInventory(),
+                        sourceCapacity.byWarehouse(),
+                        discountedDemand,
+                        sourceCapacity.total().min(discountedDemandTotal)
+                );
+                BigDecimal maxExecutableQuantity = CalculationPrecisionPolicy
+                        .executableQuantity(maximumPlan.plannedQuantity());
+                if (maxExecutableQuantity.signum() == 0) {
+                    continue;
+                }
+                List<QuantityTier> quantityTiers = planQuantityTiers(
+                        projectedContext,
+                        sourceCapacity,
+                        discountedDemand,
+                        maximumPlan,
+                        maxExecutableQuantity
+                );
                 addCandidates(
                         candidates,
                         strategyPriority,
@@ -193,6 +205,19 @@ public class PriceDiscountCandidateCalculator implements StrategyCandidateCalcul
             );
         }
         return new CandidateGenerationResult(candidates, List.of());
+    }
+
+    private Map<LocalDate, BigDecimal> discountedDemand(
+            Map<LocalDate, BigDecimal> baselineDemand,
+            SalesPoint salesPoint,
+            BigDecimal discountRate
+    ) {
+        Map<LocalDate, BigDecimal> result = new LinkedHashMap<>();
+        baselineDemand.forEach((date, demand) -> result.put(
+                date,
+                discountDemandPolicy.apply(demand, salesPoint, discountRate)
+        ));
+        return result;
     }
 
     private StrategyCalculationContext projectedContext(
@@ -359,8 +384,8 @@ public class PriceDiscountCandidateCalculator implements StrategyCandidateCalcul
     }
 
     private static List<CandidateAssumption> assumptions(boolean safetyDefaulted) {
-        EnumSet<CandidateAssumption> assumptions = EnumSet.of(
-                CandidateAssumption.DISCOUNT_DEMAND_UPLIFT_NOT_APPLIED
+        EnumSet<CandidateAssumption> assumptions = EnumSet.noneOf(
+                CandidateAssumption.class
         );
         if (safetyDefaulted) {
             assumptions.add(CandidateAssumption.SAFETY_STOCK_DEFAULTED_TO_ZERO);

@@ -17,6 +17,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import com.stockit.backend.feature.strategy.calculation.domain.SimulationDetailLevel;
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCandidateEvaluationResult;
+import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculationContext;
 import com.stockit.backend.feature.strategy.calculation.service.StrategyCandidateEvaluationService;
 import com.stockit.backend.feature.strategy.domain.StrategyCaseStatus;
 import com.stockit.backend.feature.strategy.domain.StrategyGenerationStage;
@@ -31,6 +32,7 @@ import com.stockit.backend.feature.strategy.result.StrategyResultLockManager;
 import com.stockit.backend.feature.strategy.result.StrategyResultProperties;
 import com.stockit.backend.feature.strategy.result.StrategyResultStore;
 import com.stockit.backend.feature.strategy.service.StrategyGenerationStageService;
+import com.stockit.backend.feature.strategy.simulation.StrategySimulationContextStore;
 import com.stockit.backend.feature.strategy.vo.StrategyCaseVO;
 
 @ExtendWith(MockitoExtension.class)
@@ -43,6 +45,7 @@ class StrategyRecommendationStageProcessorImplTest {
     @Mock private StrategyResultStore resultStore;
     @Mock private StrategyResultLockManager lockManager;
     @Mock private StrategyGenerationStageService stageService;
+    @Mock private StrategySimulationContextStore simulationContextStore;
 
     private StrategyRecommendationStageProcessorImpl processor;
 
@@ -50,7 +53,8 @@ class StrategyRecommendationStageProcessorImplTest {
     void setUp() {
         processor = new StrategyRecommendationStageProcessorImpl(
                 caseMapper, evaluationService, recommendationService, resultFactory,
-                resultStore, lockManager, stageService, new StrategyResultProperties()
+                resultStore, lockManager, stageService, new StrategyResultProperties(),
+                simulationContextStore
         );
     }
 
@@ -62,6 +66,9 @@ class StrategyRecommendationStageProcessorImplTest {
         );
         StrategyRecommendationResult recommendation = mock(
                 StrategyRecommendationResult.class
+        );
+        StrategyCalculationContext calculationContext = mock(
+                StrategyCalculationContext.class
         );
         StrategyGenerationResult result = mock(StrategyGenerationResult.class);
         StrategyResultLock lock = new StrategyResultLock("lock", "owner");
@@ -75,6 +82,7 @@ class StrategyRecommendationStageProcessorImplTest {
         when(evaluationService.evaluate(1L, SimulationDetailLevel.SUMMARY_ONLY))
                 .thenReturn(evaluation);
         when(recommendationService.recommend(1L, evaluation)).thenReturn(recommendation);
+        when(recommendation.calculationContext()).thenReturn(calculationContext);
         when(resultFactory.create(1L, recommendation)).thenReturn(result);
         when(resultStore.save(result)).thenReturn(entry);
         when(stageService.completeStrategyGeneration(
@@ -83,6 +91,7 @@ class StrategyRecommendationStageProcessorImplTest {
         processor.process(1L);
 
         verify(resultStore).save(result);
+        verify(simulationContextStore).save(calculationContext);
         verify(stageService).completeStrategyGeneration(
                 1L, entry.cacheKey(), entry.expiresAt());
         verify(lockManager).release(lock);

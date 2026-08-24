@@ -24,6 +24,9 @@ import com.stockit.backend.feature.strategy.calculation.domain.BaselineSimulatio
 import com.stockit.backend.feature.strategy.calculation.domain.SimulationDetailLevel;
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculationContext;
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCandidateSimulation;
+import com.stockit.backend.feature.strategy.calculation.policy.DiscountDemandPolicy;
+import com.stockit.backend.feature.strategy.calculation.policy.DiscountSimulationProperties;
+import com.stockit.backend.feature.strategy.calculation.policy.SalesPointDiscountPolicy;
 import com.stockit.backend.feature.strategy.domain.StrategyType;
 
 class StrategyCandidateSimulationEngineTest {
@@ -37,9 +40,17 @@ class StrategyCandidateSimulationEngineTest {
     @BeforeEach
     void setUp() {
         baselineEngine = new BaselineSimulationEngine();
+        DiscountSimulationProperties discountProperties =
+                new DiscountSimulationProperties();
+        SalesPointDiscountPolicy salesPointDiscountPolicy =
+                new SalesPointDiscountPolicy(discountProperties);
         engine = new StrategyCandidateSimulationEngine(
                 new TargetAdditionalDemandPolicy(),
-                new SourceInventoryCapacityPolicy(new SafetyStockPolicyResolver())
+                new SourceInventoryCapacityPolicy(new SafetyStockPolicyResolver()),
+                new DiscountDemandPolicy(
+                        discountProperties,
+                        salesPointDiscountPolicy
+                )
         );
     }
 
@@ -69,22 +80,22 @@ class StrategyCandidateSimulationEngineTest {
                 SimulationDetailLevel.WITH_DAILY_SERIES
         );
 
-        assertThat(result.summary().expectedSalesQty()).isEqualByComparingTo("6");
-        assertThat(result.summary().expectedRevenue()).isEqualByComparingTo("520");
+        assertThat(result.summary().expectedSalesQty()).isEqualByComparingTo("7");
+        assertThat(result.summary().expectedRevenue()).isEqualByComparingTo("600");
         assertThat(result.summary().totalContributionMargin())
-                .isEqualByComparingTo("130");
+                .isEqualByComparingTo("145");
         assertThat(result.summary().expectedRemainingQty())
-                .isEqualByComparingTo("4");
+                .isEqualByComparingTo("3");
         assertThat(result.summary().expectedSellThroughDays()).isEqualTo(3);
         assertThat(result.comparisonToBaseline().revenueDelta())
-                .isEqualByComparingTo("-80");
+                .isEqualByComparingTo("0");
         assertThat(result.comparisonToBaseline().netEffect())
-                .isEqualByComparingTo("-80");
+                .isEqualByComparingTo("-65");
         assertThat(result.dailySeries()).hasSize(3);
         assertThat(result.dailySeries().get(1).cumulativeRevenue())
-                .isEqualByComparingTo("320");
+                .isEqualByComparingTo("400");
         assertThat(result.dailySeries().get(2).cumulativeRevenue())
-                .isEqualByComparingTo("520");
+                .isEqualByComparingTo("600");
     }
 
     @Test

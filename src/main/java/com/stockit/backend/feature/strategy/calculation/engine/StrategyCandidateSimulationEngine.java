@@ -26,6 +26,7 @@ import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculati
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculationContext.SalesPoint;
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculationException;
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCandidateSimulation;
+import com.stockit.backend.feature.strategy.calculation.policy.DiscountDemandPolicy;
 import com.stockit.backend.feature.strategy.domain.StrategyType;
 
 /**
@@ -43,13 +44,16 @@ public class StrategyCandidateSimulationEngine {
 
     private final TargetAdditionalDemandPolicy targetDemandPolicy;
     private final SourceInventoryCapacityPolicy sourceCapacityPolicy;
+    private final DiscountDemandPolicy discountDemandPolicy;
 
     public StrategyCandidateSimulationEngine(
             TargetAdditionalDemandPolicy targetDemandPolicy,
-            SourceInventoryCapacityPolicy sourceCapacityPolicy
+            SourceInventoryCapacityPolicy sourceCapacityPolicy,
+            DiscountDemandPolicy discountDemandPolicy
     ) {
         this.targetDemandPolicy = targetDemandPolicy;
         this.sourceCapacityPolicy = sourceCapacityPolicy;
+        this.discountDemandPolicy = discountDemandPolicy;
     }
 
     /**
@@ -222,23 +226,60 @@ public class StrategyCandidateSimulationEngine {
 
         Map<Long, Map<LocalDate, BigDecimal>> result = new LinkedHashMap<>();
         for (Long salesPointId : salesPointIds) {
+            Map<LocalDate, BigDecimal> demand;
             if (Objects.equals(salesPointId, context.sourceSalesPointId())) {
-                result.put(salesPointId, requiredForecast(context, salesPointId));
+                demand = requiredForecast(context, salesPointId);
             } else {
-                result.put(
-                        salesPointId,
-                        completeForecastRange(
-                                context,
-                                targetDemand(
-                                        projectedContext,
-                                        salesPointId,
-                                        strategyStartDate,
-                                        strategyEndDate
-                                )
+                demand = completeForecastRange(
+                        context,
+                        targetDemand(
+                                projectedContext,
+                                salesPointId,
+                                strategyStartDate,
+                                strategyEndDate
                         )
                 );
             }
+            BigDecimal discountRate = plan.discountRate(salesPointId);
+            result.put(
+                    salesPointId,
+                    discountRate == null
+                            ? demand
+                            : applyDiscountDemand(
+                                    context,
+                                    salesPointId,
+                                    demand,
+                                    discountRate,
+                                    strategyStartDate,
+                                    strategyEndDate
+                            )
+            );
         }
+        return result;
+    }
+
+    private Map<LocalDate, BigDecimal> applyDiscountDemand(
+            StrategyCalculationContext context,
+            Long salesPointId,
+            Map<LocalDate, BigDecimal> baselineDemand,
+            BigDecimal discountRate,
+            LocalDate strategyStartDate,
+            LocalDate strategyEndDate
+    ) {
+        SalesPoint salesPoint = context.salesPoints().get(salesPointId);
+        if (salesPoint == null) {
+            throw new CandidateSimulationException(
+                    "CALCULATION_SALES_POINT_NOT_FOUND",
+                    "Sales point is missing from calculation context: " + salesPointId
+            );
+        }
+        Map<LocalDate, BigDecimal> result = new LinkedHashMap<>();
+        baselineDemand.forEach((date, demand) -> result.put(
+                date,
+                !date.isBefore(strategyStartDate) && !date.isAfter(strategyEndDate)
+                        ? discountDemandPolicy.apply(demand, salesPoint, discountRate)
+                        : demand
+        ));
         return result;
     }
 
@@ -540,23 +581,47 @@ public class StrategyCandidateSimulationEngine {
 
         private final Map<Long, AllocationPlan> allocations;
         private final ChannelTerms channelTerms;
+        private final Map<Long, BigDecimal> discountRates;
 
         private CandidatePlan(
                 Map<Long, AllocationPlan> allocations,
-                ChannelTerms channelTerms
+                ChannelTerms channelTerms,
+                Map<Long, BigDecimal> discountRates
         ) {
             this.allocations = Map.copyOf(allocations);
             this.channelTerms = channelTerms;
+            this.discountRates = Map.copyOf(discountRates);
         }
 
         private static CandidatePlan create(StrategyCandidate candidate) {
             Map<Long, AllocationPlanBuilder> builders = new LinkedHashMap<>();
+            Map<Long, BigDecimal> discountRates = new LinkedHashMap<>();
             for (StrategyCandidate.Action action : candidate.actions()) {
                 boolean movement = action.actionType() == StrategyType.REALLOCATION
                         || action.actionType() == StrategyType.RT_TRANSFER;
                 boolean discount = action.actionType() == StrategyType.PRICE_DISCOUNT;
                 if (!movement && !discount) {
                     continue;
+                }
+                if (discount) {
+                    Long salesPointId = action.target().salesPointId();
+                    if (salesPointId == null) {
+                        throw new CandidateSimulationException(
+                                "CANDIDATE_DISCOUNT_TARGET_REQUIRED",
+                                "Discount action requires a target sales point"
+                        );
+                    }
+                    BigDecimal existing = discountRates.putIfAbsent(
+                            salesPointId,
+                            action.discountRate()
+                    );
+                    if (existing != null
+                            && existing.compareTo(action.discountRate()) != 0) {
+                        throw new CandidateSimulationException(
+                                "CANDIDATE_DISCOUNT_CONFLICT",
+                                "Discount actions for one sales point must use one rate"
+                        );
+                    }
                 }
                 for (StrategyCandidate.LotAllocation allocation
                         : action.lotAllocations()) {
@@ -593,7 +658,7 @@ public class StrategyCandidateSimulationEngine {
                         evidence.logisticsCost()
                 );
             }
-            return new CandidatePlan(allocations, channelTerms);
+            return new CandidatePlan(allocations, channelTerms, discountRates);
         }
 
         private List<LotState> createLotStates(List<InventoryLot> inventory) {
@@ -628,6 +693,10 @@ public class StrategyCandidateSimulationEngine {
 
         private ChannelTerms channelTerms() {
             return channelTerms;
+        }
+
+        private BigDecimal discountRate(Long salesPointId) {
+            return discountRates.get(salesPointId);
         }
     }
 

@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 
 import com.stockit.backend.feature.strategy.domain.StrategyType;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 
 /**
  * 하나의 AI 전략 Case를 동일한 입력으로 반복 계산하기 위한 불변 스냅샷.
@@ -108,10 +109,12 @@ public record StrategyCalculationContext(
             orderedStrategyTypes = List.copyOf(orderedStrategyTypes);
         }
 
+        @JsonIgnore
         public boolean isStartDateFixed() {
             return preferredStartDate != null;
         }
 
+        @JsonIgnore
         public boolean isEndDateFixed() {
             return preferredEndDate != null;
         }
@@ -167,6 +170,7 @@ public record StrategyCalculationContext(
                     : allocatedSalesPointId;
         }
 
+        @JsonIgnore
         public boolean isPublicUnassigned() {
             return stockSalesPointId == null && allocatedSalesPointId == null;
         }
@@ -244,6 +248,7 @@ public record StrategyCalculationContext(
                     .toList();
         }
 
+        @JsonIgnore
         public boolean hasCompletePrice() {
             return price != null;
         }
