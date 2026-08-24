@@ -9,6 +9,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -33,6 +34,7 @@ import com.stockit.backend.feature.strategy.vo.StrategyExecutionQuery;
 public class StrategyExecutionServiceImpl implements StrategyExecutionService {
 
     private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Seoul");
+    private static final Set<String> INVENTORY_MOVEMENT_ACTIONS = Set.of("REALLOCATION", "RT_TRANSFER");
     private static final Map<String, String> ACTION_TITLES = Map.of(
             "REALLOCATION", "재고 재할당",
             "RT_TRANSFER", "RT 이동",
@@ -78,6 +80,7 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
                 .map(base -> response(
                         base,
                         actionsByOption.getOrDefault(base.getStrategyOptionId(), List.of()),
+                        List.of(),
                         List.of(),
                         List.of(),
                         null,
@@ -127,13 +130,14 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
         StrategyExecutionPerformanceVO performance = strategyExecutionMapper.selectPerformance(
                 strategyOptionId
         );
-        return response(base, actions, inventories, dailySales, performance, asOfDate);
+        return response(base, actions, inventories, inventoryTransfers(actions), dailySales, performance, asOfDate);
     }
 
     private static StrategyExecutionResponse response(
             StrategyExecutionBaseVO base,
             List<StrategyExecutionActionVO> actions,
             List<StrategyExecutionInventoryVO> inventories,
+            List<StrategyExecutionResponse.InventoryTransfer> inventoryTransfers,
             List<StrategyExecutionDailySalesVO> dailySales,
             StrategyExecutionPerformanceVO performance,
             LocalDate asOfDate
@@ -166,6 +170,7 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
                 actions.stream().map(action -> action(action, base.getUnitCode(), base.getCaseStatus(),
                         asOfDate)).toList(),
                 inventories.stream().map(StrategyExecutionServiceImpl::inventory).toList(),
+                inventoryTransfers,
                 channelResults(dailySales, base.getCaseStatus()),
                 salesResponses,
                 salesPointComparison(actions),
@@ -237,6 +242,91 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
                 inventory.getSafetyStockQuantity(),
                 guardrail
         );
+    }
+
+    private static List<StrategyExecutionResponse.InventoryTransfer> inventoryTransfers(
+            List<StrategyExecutionActionVO> actions
+    ) {
+        Map<InventoryTransferKey, BigDecimal> quantitiesByRoute = new LinkedHashMap<>();
+        for (StrategyExecutionActionVO action : actions) {
+            if (!INVENTORY_MOVEMENT_ACTIONS.contains(action.getActionType())
+                    || action.getActionQuantity() == null
+                    || action.getActionQuantity().signum() == 0) {
+                continue;
+            }
+            TransferLocation sourceWarehouse = transferLocation(
+                    "WAREHOUSE", action.getSourceWarehouseId(), action.getSourceWarehouseName()
+            );
+            TransferLocation sourceSalesPoint = transferLocation(
+                    "SALES_POINT", action.getSourceSalesPointId(), action.getSourceSalesPointName()
+            );
+            TransferLocation destinationWarehouse = transferLocation(
+                    "WAREHOUSE", action.getDestinationWarehouseId(), action.getDestinationWarehouseName()
+            );
+            TransferLocation targetSalesPoint = transferLocation(
+                    "SALES_POINT", action.getTargetSalesPointId(), action.getTargetSalesPointName()
+            );
+            boolean reallocation = "REALLOCATION".equals(action.getActionType());
+            TransferLocation source = reallocation && sourceSalesPoint != null ? sourceSalesPoint
+                    : sourceWarehouse != null ? sourceWarehouse : sourceSalesPoint;
+            TransferLocation target = reallocation && targetSalesPoint != null ? targetSalesPoint
+                    : destinationWarehouse != null ? destinationWarehouse : targetSalesPoint;
+            if (source == null || target == null || source.sameLocation(target)) {
+                continue;
+            }
+            InventoryTransferKey route = new InventoryTransferKey(
+                    action.getActionType(), source, target, sourceWarehouse, sourceSalesPoint,
+                    destinationWarehouse, targetSalesPoint
+            );
+            quantitiesByRoute.merge(route, action.getActionQuantity().abs(), BigDecimal::add);
+        }
+        return quantitiesByRoute.entrySet().stream()
+                .map(entry -> new StrategyExecutionResponse.InventoryTransfer(
+                        entry.getKey().actionType(),
+                        entry.getKey().source().id(),
+                        entry.getKey().source().name(),
+                        entry.getKey().target().id(),
+                        entry.getKey().target().name(),
+                        locationId(entry.getKey().sourceWarehouse()),
+                        locationName(entry.getKey().sourceWarehouse()),
+                        locationId(entry.getKey().sourceSalesPoint()),
+                        locationName(entry.getKey().sourceSalesPoint()),
+                        locationId(entry.getKey().destinationWarehouse()),
+                        locationName(entry.getKey().destinationWarehouse()),
+                        locationId(entry.getKey().targetSalesPoint()),
+                        locationName(entry.getKey().targetSalesPoint()),
+                        entry.getValue()
+                ))
+                .toList();
+    }
+
+    private static Long locationId(TransferLocation location) {
+        return location == null ? null : location.id();
+    }
+
+    private static String locationName(TransferLocation location) {
+        return location == null ? null : location.name();
+    }
+
+    private static TransferLocation transferLocation(String type, Long id, String name) {
+        return id == null || name == null || name.isBlank() ? null : new TransferLocation(type, id, name);
+    }
+
+    private record TransferLocation(String type, Long id, String name) {
+        private boolean sameLocation(TransferLocation other) {
+            return type.equals(other.type) && id.equals(other.id);
+        }
+    }
+
+    private record InventoryTransferKey(
+            String actionType,
+            TransferLocation source,
+            TransferLocation target,
+            TransferLocation sourceWarehouse,
+            TransferLocation sourceSalesPoint,
+            TransferLocation destinationWarehouse,
+            TransferLocation targetSalesPoint
+    ) {
     }
 
     private static List<StrategyExecutionResponse.ChannelResult> channelResults(

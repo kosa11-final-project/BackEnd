@@ -69,6 +69,7 @@ class StrategyExecutionServiceImplTest {
         assertThat(result.content().get(0).actions()).hasSize(2);
         assertThat(result.content().get(1).actions()).hasSize(1);
         assertThat(result.content().get(0).inventoryResults()).isEmpty();
+        assertThat(result.content().get(0).inventoryTransfers()).isEmpty();
         assertThat(result.content().get(0).salesDaily()).isEmpty();
         assertThat(result.totalElements()).isEqualTo(3);
         assertThat(result.totalPages()).isEqualTo(2);
@@ -101,14 +102,25 @@ class StrategyExecutionServiceImplTest {
     @Test
     void returnsDetailWithCalculatedProgressStatusAndActualCollectedValues() {
         StrategyExecutionBaseVO base = base(101L, 1001L);
-        StrategyExecutionActionVO action = action(11L, 1001L);
-        StrategyExecutionInventoryVO inventory = new StrategyExecutionInventoryVO();
-        inventory.setLocationType("WAREHOUSE");
-        inventory.setLocationId(501L);
-        inventory.setLocationName("성남센터");
-        inventory.setBeforeQuantity(new BigDecimal("100"));
-        inventory.setCurrentQuantity(new BigDecimal("80"));
-        inventory.setSafetyStockQuantity(new BigDecimal("30"));
+        StrategyExecutionActionVO firstAction = action(11L, 1001L);
+        StrategyExecutionActionVO sameRouteAction = action(12L, 1001L);
+        sameRouteAction.setActionQuantity(new BigDecimal("-5"));
+        StrategyExecutionActionVO anotherRouteAction = action(13L, 1001L);
+        anotherRouteAction.setActionQuantity(new BigDecimal("7"));
+        anotherRouteAction.setSourceWarehouseId(null);
+        anotherRouteAction.setSourceWarehouseName(null);
+        anotherRouteAction.setSourceSalesPointId(11L);
+        anotherRouteAction.setSourceSalesPointName("부산 매장");
+        anotherRouteAction.setTargetSalesPointId(null);
+        anotherRouteAction.setTargetSalesPointName(null);
+        anotherRouteAction.setDestinationWarehouseId(502L);
+        anotherRouteAction.setDestinationWarehouseName("부산센터");
+        StrategyExecutionInventoryVO sourceInventory = inventory(
+                "WAREHOUSE", 501L, "성남센터", "100", "75", "30"
+        );
+        StrategyExecutionInventoryVO targetInventory = inventory(
+                "SALES_POINT", 10L, "그리팅몰", "100", "125", "20"
+        );
         StrategyExecutionDailySalesVO sales = new StrategyExecutionDailySalesVO();
         sales.setSalesDate(LocalDate.of(2026, 5, 2));
         sales.setSalesPointId(10L);
@@ -122,8 +134,9 @@ class StrategyExecutionServiceImplTest {
         performance.setActualRemainingQuantity(new BigDecimal("80"));
 
         when(mapper.selectFinalStrategyExecution(101L)).thenReturn(base);
-        when(mapper.selectSupportedActions(List.of(1001L))).thenReturn(List.of(action));
-        when(mapper.selectInventoryResults(101L)).thenReturn(List.of(inventory));
+        when(mapper.selectSupportedActions(List.of(1001L)))
+                .thenReturn(List.of(firstAction, sameRouteAction, anotherRouteAction));
+        when(mapper.selectInventoryResults(101L)).thenReturn(List.of(sourceInventory, targetInventory));
         when(mapper.selectDailySales(101L, AS_OF_DATE)).thenReturn(List.of(sales));
         when(mapper.selectPerformance(1001L)).thenReturn(performance);
 
@@ -135,12 +148,51 @@ class StrategyExecutionServiceImplTest {
         assertThat(result.actions().get(0).status()).isEqualTo("COMPLETED");
         assertThat(result.actions().get(0).progress()).isEqualTo(100);
         assertThat(result.actions().get(0).relationship()).isNull();
-        assertThat(result.inventoryResults().get(0).moved()).isEqualByComparingTo("-20");
+        assertThat(result.inventoryResults().get(0).moved()).isEqualByComparingTo("-25");
+        assertThat(result.inventoryResults().get(1).moved()).isEqualByComparingTo("25");
+        assertThat(result.inventoryTransfers()).hasSize(2);
+        assertThat(result.inventoryTransfers().get(0)).satisfies(transfer -> {
+            assertThat(transfer.actionType()).isEqualTo("RT_TRANSFER");
+            assertThat(transfer.fromLocationId()).isEqualTo(501L);
+            assertThat(transfer.fromLocationName()).isEqualTo("성남센터");
+            assertThat(transfer.toLocationId()).isEqualTo(502L);
+            assertThat(transfer.toLocationName()).isEqualTo("경인1센터");
+            assertThat(transfer.sourceWarehouseId()).isEqualTo(501L);
+            assertThat(transfer.sourceWarehouseName()).isEqualTo("성남센터");
+            assertThat(transfer.destinationWarehouseId()).isEqualTo(502L);
+            assertThat(transfer.destinationWarehouseName()).isEqualTo("경인1센터");
+            assertThat(transfer.targetSalesPointId()).isEqualTo(10L);
+            assertThat(transfer.targetSalesPointName()).isEqualTo("그리팅몰");
+            assertThat(transfer.quantity()).isEqualByComparingTo("25");
+        });
+        assertThat(result.inventoryTransfers().get(1)).satisfies(transfer -> {
+            assertThat(transfer.fromLocationId()).isEqualTo(11L);
+            assertThat(transfer.toLocationId()).isEqualTo(502L);
+            assertThat(transfer.destinationWarehouseId()).isEqualTo(502L);
+            assertThat(transfer.targetSalesPointId()).isNull();
+            assertThat(transfer.quantity()).isEqualByComparingTo("7");
+        });
+        assertThat(result.inventoryTransfers())
+                .allSatisfy(transfer -> assertThat(transfer.quantity()).isPositive());
         assertThat(result.salesDaily()).hasSize(1);
         assertThat(result.channelResults().get(0).sales()).isEqualByComparingTo("7");
         assertThat(result.performance().actualRemainingQuantity()).isEqualByComparingTo("80");
         assertThat(result.lastSyncedAt()).isNotNull();
         verify(mapper).selectDailySales(101L, AS_OF_DATE);
+        verify(mapper).selectSupportedActions(List.of(1001L));
+    }
+
+    @Test
+    void returnsEmptyTransfersWhenStrategyHasNoInventoryMovementAction() {
+        StrategyExecutionBaseVO base = base(101L, 1001L);
+        StrategyExecutionActionVO discount = action(11L, 1001L);
+        discount.setActionType("PRICE_DISCOUNT");
+        when(mapper.selectFinalStrategyExecution(101L)).thenReturn(base);
+        when(mapper.selectSupportedActions(List.of(1001L))).thenReturn(List.of(discount));
+
+        StrategyExecutionResponse result = service.findByStrategyCaseId(101L);
+
+        assertThat(result.inventoryTransfers()).isEmpty();
     }
 
     @Test
@@ -189,15 +241,35 @@ class StrategyExecutionServiceImplTest {
         StrategyExecutionActionVO action = new StrategyExecutionActionVO();
         action.setStrategyActionId(actionId);
         action.setStrategyOptionId(optionId);
-        action.setActionType("REALLOCATION");
+        action.setActionType("RT_TRANSFER");
         action.setActionQuantity(new BigDecimal("20"));
         action.setSourceWarehouseId(501L);
         action.setSourceWarehouseName("성남센터");
+        action.setDestinationWarehouseId(502L);
+        action.setDestinationWarehouseName("경인1센터");
         action.setTargetSalesPointId(10L);
         action.setTargetSalesPointCode("GREETING");
         action.setTargetSalesPointName("그리팅몰");
         action.setStartDate(LocalDate.of(2026, 5, 1));
         action.setEndDate(LocalDate.of(2026, 5, 10));
         return action;
+    }
+
+    private static StrategyExecutionInventoryVO inventory(
+            String type,
+            Long id,
+            String name,
+            String before,
+            String current,
+            String safetyStock
+    ) {
+        StrategyExecutionInventoryVO inventory = new StrategyExecutionInventoryVO();
+        inventory.setLocationType(type);
+        inventory.setLocationId(id);
+        inventory.setLocationName(name);
+        inventory.setBeforeQuantity(new BigDecimal(before));
+        inventory.setCurrentQuantity(new BigDecimal(current));
+        inventory.setSafetyStockQuantity(new BigDecimal(safetyStock));
+        return inventory;
     }
 }

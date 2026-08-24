@@ -69,7 +69,7 @@ public class StrategyExecutionController {
     @GetMapping("/{strategyCaseId}")
     @Operation(
             summary = "AI 전략 실행 관제 상세 조회",
-            description = "strategyCaseId를 기준으로 최종 선택 전략, 복수 액션, 전략 당시와 현재 재고, 선택일 이후 최대 90일의 판매처별 판매량을 반환합니다."
+            description = "strategyCaseId를 기준으로 최종 선택 전략, 복수 액션, 위치별 재고 변화, 도착 센터와 대상 판매처를 포함한 재고 이동 내역, 전략 실행 기간의 판매량을 반환합니다."
     )
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "상세 조회 성공"),

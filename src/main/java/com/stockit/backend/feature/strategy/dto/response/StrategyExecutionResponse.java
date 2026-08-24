@@ -26,6 +26,8 @@ public record StrategyExecutionResponse(
         String resultSummary,
         List<Action> actions,
         List<InventoryResult> inventoryResults,
+        @Schema(description = "재고 이동 액션의 출발·도착 거점별 이동 수량")
+        List<InventoryTransfer> inventoryTransfers,
         List<ChannelResult> channelResults,
         List<DailySales> salesDaily,
         List<SalesPointComparison> salesPointComparison,
@@ -80,6 +82,44 @@ public record StrategyExecutionResponse(
             BigDecimal safetyStockQuantity,
             String guardrail
     ) {
+    }
+
+    @Schema(description = "출발·도착 거점별로 집계한 재고 이동 내역")
+    public record InventoryTransfer(
+            @Schema(description = "재고 이동 액션 유형", example = "RT_TRANSFER") String actionType,
+            @Schema(description = "출발 거점 ID", example = "501") Long fromLocationId,
+            @Schema(description = "출발 거점명", example = "성남 물류센터") String fromLocationName,
+            @Schema(description = "도착 센터가 있으면 센터, 없으면 대상 판매처의 ID", example = "502")
+            Long toLocationId,
+            @Schema(description = "도착 센터가 있으면 센터, 없으면 대상 판매처의 이름", example = "경인1센터")
+            String toLocationName,
+            @Schema(description = "출발 센터 ID", example = "501", nullable = true)
+            Long sourceWarehouseId,
+            @Schema(description = "출발 센터명", example = "성남센터", nullable = true)
+            String sourceWarehouseName,
+            @Schema(description = "출발 판매처 ID", example = "9", nullable = true)
+            Long sourceSalesPointId,
+            @Schema(description = "출발 판매처명", example = "현대백화점 무역센터점", nullable = true)
+            String sourceSalesPointName,
+            @Schema(description = "실제 재고 도착 센터 ID", example = "502", nullable = true)
+            Long destinationWarehouseId,
+            @Schema(description = "실제 재고 도착 센터명", example = "경인1센터", nullable = true)
+            String destinationWarehouseName,
+            @Schema(description = "재고 이동의 대상 판매처 ID", example = "10", nullable = true)
+            Long targetSalesPointId,
+            @Schema(description = "재고 이동의 대상 판매처명", example = "그리팅", nullable = true)
+            String targetSalesPointName,
+            @Schema(description = "이동 수량. 항상 양수", example = "121") BigDecimal quantity
+    ) {
+        public InventoryTransfer(
+                Long fromLocationId, String fromLocationName, Long toLocationId, String toLocationName,
+                Long destinationWarehouseId, String destinationWarehouseName,
+                Long targetSalesPointId, String targetSalesPointName, BigDecimal quantity
+        ) {
+            this(null, fromLocationId, fromLocationName, toLocationId, toLocationName,
+                    null, null, null, null, destinationWarehouseId, destinationWarehouseName,
+                    targetSalesPointId, targetSalesPointName, quantity);
+        }
     }
 
     public record ChannelResult(
