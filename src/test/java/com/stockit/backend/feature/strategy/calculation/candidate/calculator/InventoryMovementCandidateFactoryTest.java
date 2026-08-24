@@ -138,7 +138,37 @@ class InventoryMovementCandidateFactoryTest {
         assertThat(maximum.assumptions()).containsExactly(
                 CandidateAssumption.SAFETY_STOCK_DEFAULTED_TO_ZERO,
                 CandidateAssumption.TRANSFER_COST_EXCLUDED
+                );
+    }
+
+    @Test
+    void preservesSelectedLaterLotUntilEarlierReferenceLotIsConsumed() {
+        StrategyCalculationContext.InventoryLot earlier = lot(
+                1L, 1001L, 501L, 10L, "10", null
         );
+        StrategyCalculationContext.InventoryLot selected = lot(
+                2L, 1002L, 501L, 10L, "10", null
+        );
+        StrategyCalculationContext context = context(
+                List.of(selected),
+                List.of(earlier, selected),
+                List.of(policy(1L, 501L, 10L, "0")),
+                List.of(route(20L, 501L, 1)),
+                forecasts("10"),
+                StrategyType.REALLOCATION,
+                START.plusDays(1),
+                END
+        );
+
+        CandidateGenerationResult result = factory.generate(
+                context,
+                StrategyType.REALLOCATION,
+                1
+        );
+
+        assertThat(result.candidates()).isNotEmpty();
+        assertThat(result.candidates().get(result.candidates().size() - 1)
+                .evidence().maxExecutableQty()).isEqualByComparingTo("10");
     }
 
     @Test

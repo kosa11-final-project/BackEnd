@@ -16,6 +16,7 @@ import java.util.Set;
 import org.springframework.stereotype.Component;
 
 import com.stockit.backend.feature.strategy.calculation.candidate.domain.StrategyCandidate;
+import com.stockit.backend.feature.strategy.calculation.candidate.policy.SourceInventoryCapacityPolicy;
 import com.stockit.backend.feature.strategy.calculation.candidate.policy.TargetAdditionalDemandPolicy;
 import com.stockit.backend.feature.strategy.calculation.domain.BaselineSimulation;
 import com.stockit.backend.feature.strategy.calculation.domain.SimulationDetailLevel;
@@ -41,11 +42,14 @@ public class StrategyCandidateSimulationEngine {
     );
 
     private final TargetAdditionalDemandPolicy targetDemandPolicy;
+    private final SourceInventoryCapacityPolicy sourceCapacityPolicy;
 
     public StrategyCandidateSimulationEngine(
-            TargetAdditionalDemandPolicy targetDemandPolicy
+            TargetAdditionalDemandPolicy targetDemandPolicy,
+            SourceInventoryCapacityPolicy sourceCapacityPolicy
     ) {
         this.targetDemandPolicy = targetDemandPolicy;
+        this.sourceCapacityPolicy = sourceCapacityPolicy;
     }
 
     /**
@@ -65,7 +69,11 @@ public class StrategyCandidateSimulationEngine {
         List<LotState> lots = plan.createLotStates(context.evaluationInventory());
         Map<Long, Map<LocalDate, BigDecimal>> demandBySalesPoint = demandBySalesPoint(
                 context,
-                plan
+                plan,
+                candidate.startDate(),
+                candidate.endDate() == null
+                        ? context.strategyEndDate()
+                        : candidate.endDate()
         );
 
         BigDecimal cumulativeSales = ZERO_QUANTITY;
@@ -186,7 +194,9 @@ public class StrategyCandidateSimulationEngine {
 
     private Map<Long, Map<LocalDate, BigDecimal>> demandBySalesPoint(
             StrategyCalculationContext context,
-            CandidatePlan plan
+            CandidatePlan plan,
+            LocalDate strategyStartDate,
+            LocalDate strategyEndDate
     ) {
         Set<Long> salesPointIds = new LinkedHashSet<>();
         if (context.sourceSalesPointId() != null) {
@@ -197,6 +207,19 @@ public class StrategyCandidateSimulationEngine {
                 .filter(Objects::nonNull)
                 .forEach(salesPointIds::add);
 
+        StrategyCalculationContext projectedContext = context;
+        boolean hasMovementTarget = salesPointIds.stream().anyMatch(salesPointId ->
+                !Objects.equals(salesPointId, context.sourceSalesPointId()));
+        if (hasMovementTarget) {
+            // 대상 판매처도 전략 시작 전 정상 판매를 반영한 동일 시점의 재고로 추가 수요 계산
+            SourceInventoryCapacityPolicy.Projection projection =
+                    sourceCapacityPolicy.projectAt(context, strategyStartDate);
+            projectedContext = context.withInventory(
+                    projection.evaluationInventory(),
+                    projection.referenceInventory()
+            );
+        }
+
         Map<Long, Map<LocalDate, BigDecimal>> result = new LinkedHashMap<>();
         for (Long salesPointId : salesPointIds) {
             if (Objects.equals(salesPointId, context.sourceSalesPointId())) {
@@ -206,7 +229,12 @@ public class StrategyCandidateSimulationEngine {
                         salesPointId,
                         completeForecastRange(
                                 context,
-                                targetDemand(context, salesPointId)
+                                targetDemand(
+                                        projectedContext,
+                                        salesPointId,
+                                        strategyStartDate,
+                                        strategyEndDate
+                                )
                         )
                 );
             }
@@ -216,10 +244,17 @@ public class StrategyCandidateSimulationEngine {
 
     private Map<LocalDate, BigDecimal> targetDemand(
             StrategyCalculationContext context,
-            Long salesPointId
+            Long salesPointId,
+            LocalDate strategyStartDate,
+            LocalDate strategyEndDate
     ) {
         try {
-            return targetDemandPolicy.calculate(context, salesPointId);
+            return targetDemandPolicy.calculate(
+                    context,
+                    salesPointId,
+                    strategyStartDate,
+                    strategyEndDate
+            );
         } catch (StrategyCalculationException exception) {
             throw new CandidateSimulationException(
                     exception.getCode(),

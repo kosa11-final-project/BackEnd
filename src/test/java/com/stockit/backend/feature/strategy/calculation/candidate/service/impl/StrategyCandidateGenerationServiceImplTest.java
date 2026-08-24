@@ -1,6 +1,8 @@
 package com.stockit.backend.feature.strategy.calculation.candidate.service.impl;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -94,7 +96,7 @@ class StrategyCandidateGenerationServiceImplTest {
         verify(transferCalculator).generate(context, 2);
         verify(discountCalculator).generate(context, 3);
         verify(expansionCalculator).generate(context, 4);
-        verify(concentrationCalculator, never()).generate(context, 5);
+        verify(concentrationCalculator, never()).generate(eq(context), anyInt());
     }
 
     @Test

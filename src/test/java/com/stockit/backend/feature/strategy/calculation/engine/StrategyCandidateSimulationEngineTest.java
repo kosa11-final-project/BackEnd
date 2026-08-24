@@ -17,6 +17,8 @@ import org.junit.jupiter.api.Test;
 
 import com.stockit.backend.feature.strategy.calculation.candidate.domain.CandidateAssumption;
 import com.stockit.backend.feature.strategy.calculation.candidate.domain.StrategyCandidate;
+import com.stockit.backend.feature.strategy.calculation.candidate.policy.SafetyStockPolicyResolver;
+import com.stockit.backend.feature.strategy.calculation.candidate.policy.SourceInventoryCapacityPolicy;
 import com.stockit.backend.feature.strategy.calculation.candidate.policy.TargetAdditionalDemandPolicy;
 import com.stockit.backend.feature.strategy.calculation.domain.BaselineSimulation;
 import com.stockit.backend.feature.strategy.calculation.domain.SimulationDetailLevel;
@@ -36,7 +38,8 @@ class StrategyCandidateSimulationEngineTest {
     void setUp() {
         baselineEngine = new BaselineSimulationEngine();
         engine = new StrategyCandidateSimulationEngine(
-                new TargetAdditionalDemandPolicy()
+                new TargetAdditionalDemandPolicy(),
+                new SourceInventoryCapacityPolicy(new SafetyStockPolicyResolver())
         );
     }
 
@@ -233,6 +236,40 @@ class StrategyCandidateSimulationEngineTest {
         StrategyCandidateSimulation result = engine.simulate(
                 context,
                 movementCandidate("10", START, null, StrategyType.REALLOCATION),
+                baselineEngine.simulate(context),
+                SimulationDetailLevel.WITH_DAILY_SERIES
+        );
+
+        assertThat(result.dailySeries())
+                .extracting(StrategyCandidateSimulation.DailyPoint::expectedSalesQty)
+                .containsExactly(decimal("0.000"), decimal("4.000"), decimal("5.000"));
+        assertThat(result.summary().expectedSalesQty()).isEqualByComparingTo("9");
+        assertThat(result.summary().expectedRemainingQty()).isEqualByComparingTo("1");
+    }
+
+    @Test
+    void consumesTargetInventoryBeforeFutureStrategyStart() {
+        StrategyCalculationContext original = context(
+                lot("10", null),
+                forecasts("0", "0", "0"),
+                forecasts("5", "5", "5"),
+                price(10L, "100", "70"),
+                price(20L, "110", "70"),
+                true
+        );
+        StrategyCalculationContext context = withTargetExistingInventory(
+                original,
+                targetLot("6")
+        );
+
+        StrategyCandidateSimulation result = engine.simulate(
+                context,
+                movementCandidate(
+                        "10",
+                        START.plusDays(1),
+                        null,
+                        StrategyType.REALLOCATION
+                ),
                 baselineEngine.simulate(context),
                 SimulationDetailLevel.WITH_DAILY_SERIES
         );

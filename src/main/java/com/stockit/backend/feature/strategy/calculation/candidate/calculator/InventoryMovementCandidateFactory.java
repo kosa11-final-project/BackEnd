@@ -103,11 +103,21 @@ public class InventoryMovementCandidateFactory {
         }
         List<StrategyCandidate> candidates = new ArrayList<>();
         List<CandidateExclusion> exclusions = new ArrayList<>();
+        if (orderedTargetIds.isEmpty()) {
+            return new CandidateGenerationResult(candidates, exclusions);
+        }
+        // 모든 판매처 후보가 같은 전략 시작일을 사용하므로 재고 투영은 한 번만 수행
+        SourceInventoryCapacityPolicy.Projection projection =
+                sourceCapacityPolicy.projectAt(context, context.strategyStartDate());
+        StrategyCalculationContext projectedContext = context.withInventory(
+                projection.evaluationInventory(),
+                projection.referenceInventory()
+        );
 
         for (int index = 0; index < orderedTargetIds.size(); index++) {
             Long targetId = orderedTargetIds.get(index);
             TargetResult targetResult = generateForTarget(
-                    context,
+                    projectedContext,
                     strategyType,
                     strategyPriority,
                     index + 1,
@@ -143,16 +153,8 @@ public class InventoryMovementCandidateFactory {
             );
         }
 
-        // 미래 시작일까지 정상 판매한 뒤 실제로 남을 재고만 이동 대상으로 사용
-        SourceInventoryCapacityPolicy.Projection projection =
-                sourceCapacityPolicy.projectAt(context, context.strategyStartDate());
-        StrategyCalculationContext projectedContext = context.withInventory(
-                projection.evaluationInventory(),
-                projection.referenceInventory()
-        );
-
         WarehouseSelection selection = selectEligibleLots(
-                projectedContext.evaluationInventory(),
+                context.evaluationInventory(),
                 target,
                 strategyType
         );
@@ -166,7 +168,7 @@ public class InventoryMovementCandidateFactory {
         }
 
         SourceInventoryCapacityPolicy.Capacity sourceCapacity = sourceCapacityPolicy.resolve(
-                projectedContext,
+                context,
                 selection.eligibleLots()
         );
         if (sourceCapacity.total().signum() == 0) {
@@ -182,7 +184,7 @@ public class InventoryMovementCandidateFactory {
         }
 
         Map<LocalDate, BigDecimal> unmetDemand = targetDemandPolicy.calculate(
-                projectedContext,
+                context,
                 targetId
         );
         BigDecimal targetDemandTotal = sum(unmetDemand.values());

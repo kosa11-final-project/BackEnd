@@ -76,6 +76,70 @@ class GeminiRecommendationProviderTest {
     }
 
     @Test
+    void classifiesAuthenticationFailureAsPermanentAndPreservesSafeDetail() {
+        status.set(403);
+        responseBody.set("""
+                {"error":{"code":403,"status":"PERMISSION_DENIED",
+                "message":"API key is not authorized"}}
+                """);
+
+        assertThatThrownBy(() -> provider("test-key").recommend(request()))
+                .isInstanceOfSatisfying(
+                        PermanentStrategyGenerationException.class,
+                        exception -> {
+                            assertThat(exception.getFailureCode())
+                                    .isEqualTo("LLM_API_AUTH_FAILED");
+                            assertThat(exception.getMessage())
+                                    .contains("PERMISSION_DENIED")
+                                    .doesNotContain("test-key");
+                        }
+                );
+    }
+
+    @Test
+    void classifiesServerFailureAsRetryable() {
+        status.set(503);
+        responseBody.set("{\"error\":{\"status\":\"UNAVAILABLE\"}}");
+
+        assertThatThrownBy(() -> provider("test-key").recommend(request()))
+                .isInstanceOfSatisfying(
+                        RetryableStrategyGenerationException.class,
+                        exception -> assertThat(exception.getFailureCode())
+                                .isEqualTo("LLM_API_UNAVAILABLE")
+                );
+    }
+
+    @Test
+    void rejectsIncompleteSuccessfulInteractionAsPermanent() {
+        responseBody.set("""
+                {"id":"interaction-1","model":"gemini-3.7-flash",
+                "status":"in_progress","steps":[]}
+                """);
+
+        assertThatThrownBy(() -> provider("test-key").recommend(request()))
+                .isInstanceOfSatisfying(
+                        PermanentStrategyGenerationException.class,
+                        exception -> assertThat(exception.getFailureCode())
+                                .isEqualTo("LLM_INTERACTION_INCOMPLETE")
+                );
+    }
+
+    @Test
+    void rejectsSuccessfulInteractionWithoutModelOutputAsPermanent() {
+        responseBody.set("""
+                {"id":"interaction-1","model":"gemini-3.7-flash",
+                "status":"completed","steps":[]}
+                """);
+
+        assertThatThrownBy(() -> provider("test-key").recommend(request()))
+                .isInstanceOfSatisfying(
+                        PermanentStrategyGenerationException.class,
+                        exception -> assertThat(exception.getFailureCode())
+                                .isEqualTo("LLM_RESPONSE_INVALID")
+                );
+    }
+
+    @Test
     void rejectsBlankApiKeyWithoutSendingRequest() {
         assertThatThrownBy(() -> provider("").recommend(request()))
                 .isInstanceOfSatisfying(

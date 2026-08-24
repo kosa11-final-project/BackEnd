@@ -41,7 +41,7 @@ public class RedisStrategyResultStore implements StrategyResultStore {
             StrategyGenerationResult result = objectMapper.readValue(
                     json, StrategyGenerationResult.class
             );
-            if (!strategyCaseId.equals(result.strategyCaseId())) {
+            if (result == null || !strategyCaseId.equals(result.strategyCaseId())) {
                 throw new InvalidStrategyResultException(
                         "AI strategy result cache integrity validation failed", null
                 );

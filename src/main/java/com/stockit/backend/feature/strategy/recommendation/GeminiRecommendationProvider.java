@@ -16,6 +16,7 @@ import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.stockit.backend.feature.strategy.domain.StrategyGenerationStage;
 import com.stockit.backend.feature.strategy.messaging.PermanentStrategyGenerationException;
@@ -26,6 +27,7 @@ import com.stockit.backend.feature.strategy.messaging.RetryableStrategyGeneratio
 public class GeminiRecommendationProvider implements AiRecommendationProvider {
 
     private static final String API_KEY_HEADER = "x-goog-api-key";
+    private static final int MAX_ERROR_DETAIL_LENGTH = 300;
     private static final StrategyGenerationStage STAGE =
             StrategyGenerationStage.STRATEGY_GENERATING;
 
@@ -165,30 +167,86 @@ public class GeminiRecommendationProvider implements AiRecommendationProvider {
         if (status.value() == 408) {
             throw retryable(
                     "LLM_API_TIMEOUT",
-                    "Gemini recommendation API timed out (HTTP 408)",
+                    failureMessage("Gemini recommendation API timed out (HTTP 408)", body),
                     null
             );
         }
         if (status.value() == 429) {
             throw retryable(
                     "LLM_API_RATE_LIMITED",
-                    "Gemini recommendation API rate limit exceeded (HTTP 429)",
+                    failureMessage(
+                            "Gemini recommendation API rate limit exceeded (HTTP 429)",
+                            body
+                    ),
                     null
             );
         }
         if (status.is5xxServerError()) {
             throw retryable(
                     "LLM_API_UNAVAILABLE",
-                    "Gemini recommendation API failed (HTTP " + status.value() + ")",
+                    failureMessage(
+                            "Gemini recommendation API failed (HTTP "
+                                    + status.value() + ")",
+                            body
+                    ),
                     null
             );
         }
         if (status.value() == 401 || status.value() == 403) {
             throw permanent("LLM_API_AUTH_FAILED",
-                    "Gemini recommendation API authentication failed", null);
+                    failureMessage(
+                            "Gemini recommendation API authentication failed",
+                            body
+                    ), null);
         }
         throw permanent("LLM_API_REQUEST_REJECTED",
-                "Gemini recommendation API rejected the request", null);
+                failureMessage(
+                        "Gemini recommendation API rejected the request",
+                        body
+                ), null);
+    }
+
+    /** 민감한 요청 본문 없이 공급자 오류 코드와 메시지만 제한된 길이로 보존한다 */
+    private String failureMessage(String baseMessage, byte[] body) {
+        try {
+            JsonNode root = objectMapper.readTree(body);
+            if (root == null) {
+                return baseMessage;
+            }
+            JsonNode error = root.path("error");
+            if (error.isMissingNode() || error.isNull()) {
+                return baseMessage;
+            }
+            String code = firstText(error, "status", "code");
+            String message = firstText(error, "message");
+            String detail = ((code == null ? "" : code + ": ")
+                    + (message == null ? "" : message))
+                    .replaceAll("\\s+", " ")
+                    .trim();
+            if (detail.isEmpty()) {
+                return baseMessage;
+            }
+            String apiKey = properties.getApiKey();
+            if (apiKey != null && !apiKey.isBlank()) {
+                detail = detail.replace(apiKey, "[REDACTED]");
+            }
+            if (detail.length() > MAX_ERROR_DETAIL_LENGTH) {
+                detail = detail.substring(0, MAX_ERROR_DETAIL_LENGTH) + "...";
+            }
+            return baseMessage + " - " + detail;
+        } catch (IOException exception) {
+            return baseMessage;
+        }
+    }
+
+    private static String firstText(JsonNode node, String... fields) {
+        for (String field : fields) {
+            JsonNode value = node.path(field);
+            if (value.isValueNode() && !value.asText().isBlank()) {
+                return value.asText();
+            }
+        }
+        return null;
     }
 
     private void validateConfiguration() {

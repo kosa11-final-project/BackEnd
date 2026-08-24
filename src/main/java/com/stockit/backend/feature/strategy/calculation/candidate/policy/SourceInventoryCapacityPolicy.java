@@ -91,8 +91,8 @@ public class SourceInventoryCapacityPolicy {
     /**
      * 전략 시작일 직전까지 기본 수요와 LOT 만료를 반영한 예상 재고 스냅샷을 생성한다
      *
-     * <p>후보 계산용 재고와 안전재고 판단용 전체 재고를 각각 투영해
-     * 선택 범위와 기준 범위가 섞이지 않도록 유지한다</p>
+     * <p>전체 기준 재고를 실제 출고 순서로 한 번 투영한 뒤 평가 대상 LOT만 추출한다.
+     * 선택하지 않은 선행 LOT이 먼저 수요를 충족하는 흐름을 보존하기 위함이다.</p>
      */
     public Projection projectAt(
             StrategyCalculationContext context,
@@ -110,18 +110,38 @@ public class SourceInventoryCapacityPolicy {
                     "Source sales point is missing from calculation context"
             );
         }
-        return new Projection(
-                projectInventory(
-                        context,
-                        context.evaluationInventory(),
-                        strategyStartDate
-                ),
-                projectInventory(
-                        context,
-                        context.referenceInventory(),
-                        strategyStartDate
-                )
+        List<InventoryLot> projectedReference = projectInventory(
+                context,
+                context.referenceInventory(),
+                strategyStartDate
         );
+        Map<Long, InventoryLot> referenceByBalanceId = projectedReference.stream()
+                .collect(Collectors.toMap(
+                        InventoryLot::inventoryBalanceId,
+                        lot -> lot,
+                        (first, second) -> first,
+                        LinkedHashMap::new
+                ));
+        List<InventoryLot> projectedEvaluation = context.evaluationInventory().stream()
+                .map(lot -> projectedEvaluationLot(lot, referenceByBalanceId))
+                .toList();
+        return new Projection(projectedEvaluation, projectedReference);
+    }
+
+    private static InventoryLot projectedEvaluationLot(
+            InventoryLot evaluationLot,
+            Map<Long, InventoryLot> referenceByBalanceId
+    ) {
+        InventoryLot projected = referenceByBalanceId.get(
+                evaluationLot.inventoryBalanceId()
+        );
+        if (projected == null) {
+            throw new StrategyCalculationException(
+                    "CALCULATION_INVENTORY_SCOPE_INVALID",
+                    "Evaluation inventory is missing from reference inventory"
+            );
+        }
+        return projected;
     }
 
     private static List<InventoryLot> projectInventory(

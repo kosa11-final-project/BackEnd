@@ -129,13 +129,13 @@ public class PriceDiscountCandidateCalculator implements StrategyCandidateCalcul
         }
 
         List<StrategyCandidate> candidates = new ArrayList<>();
+        Map<LocalDate, StrategyCalculationContext> projectedContexts =
+                new LinkedHashMap<>();
         for (StrategyPeriodCandidate period : periodPolicy.generate(context, sourceId)) {
-            // 후보 기간마다 시작일이 달라지므로 기간별 예상 잔여 재고를 개별 계산
-            SourceInventoryCapacityPolicy.Projection projection =
-                    sourceCapacityPolicy.projectAt(context, period.startDate());
-            StrategyCalculationContext projectedContext = context.withInventory(
-                    projection.evaluationInventory(),
-                    projection.referenceInventory()
+            // 같은 시작일의 기간 후보는 동일한 미래 재고 스냅샷을 재사용
+            StrategyCalculationContext projectedContext = projectedContexts.computeIfAbsent(
+                    period.startDate(),
+                    startDate -> projectedContext(context, startDate)
             );
             SourceInventoryCapacityPolicy.Capacity sourceCapacity =
                     sourceCapacityPolicy.resolve(
@@ -193,6 +193,18 @@ public class PriceDiscountCandidateCalculator implements StrategyCandidateCalcul
             );
         }
         return new CandidateGenerationResult(candidates, List.of());
+    }
+
+    private StrategyCalculationContext projectedContext(
+            StrategyCalculationContext context,
+            LocalDate startDate
+    ) {
+        SourceInventoryCapacityPolicy.Projection projection =
+                sourceCapacityPolicy.projectAt(context, startDate);
+        return context.withInventory(
+                projection.evaluationInventory(),
+                projection.referenceInventory()
+        );
     }
 
     private List<QuantityTier> planQuantityTiers(

@@ -6,6 +6,8 @@ import static org.mockito.Mockito.mock;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
@@ -68,6 +70,45 @@ class DeterministicRecommendationCandidatePreselectorTest {
                 .hasMessage("no evaluated candidate is available");
     }
 
+    @Test
+    void capsAtTwentyWhilePreservingDiversityAndInputOrderIndependence() {
+        List<StrategyCandidateEvaluationResult.EvaluatedCandidate> candidates =
+                new ArrayList<>();
+        for (int index = 0; index < 24; index++) {
+            StrategyType type = index % 2 == 0
+                    ? StrategyType.REALLOCATION
+                    : StrategyType.RT_TRANSFER;
+            Long targetSalesPointId = 20L + index % 3;
+            candidates.add(evaluatedForDiversity(
+                    "CAND-" + index,
+                    type,
+                    targetSalesPointId,
+                    index + 1
+            ));
+        }
+
+        List<String> selected = preselector.select(evaluation(candidates)).candidates()
+                .stream().map(value -> value.candidate().candidateId()).toList();
+        Collections.reverse(candidates);
+        List<String> selectedFromReversed = preselector.select(evaluation(candidates))
+                .candidates().stream()
+                .map(value -> value.candidate().candidateId()).toList();
+
+        assertThat(selected).hasSize(
+                DeterministicRecommendationCandidatePreselector.MAX_CANDIDATES
+        ).containsExactlyElementsOf(selectedFromReversed);
+        RecommendationCandidateSelection selection = preselector.select(
+                evaluation(candidates)
+        );
+        assertThat(selection.candidates())
+                .extracting(value -> value.candidate().strategyTypes().get(0))
+                .contains(StrategyType.REALLOCATION, StrategyType.RT_TRANSFER);
+        assertThat(selection.candidates())
+                .extracting(value -> value.candidate().actions().get(0)
+                        .target().salesPointId())
+                .contains(20L, 21L, 22L);
+    }
+
     private static StrategyCandidateEvaluationResult evaluation(
             List<StrategyCandidateEvaluationResult.EvaluatedCandidate> candidates
     ) {
@@ -114,6 +155,77 @@ class DeterministicRecommendationCandidatePreselectorTest {
                 ), List.of(), List.of()
         );
         return new StrategyCandidateEvaluationResult.EvaluatedCandidate(candidate, simulation);
+    }
+
+    private static StrategyCandidateEvaluationResult.EvaluatedCandidate
+            evaluatedForDiversity(
+            String id,
+            StrategyType type,
+            Long targetSalesPointId,
+            int quantity
+    ) {
+        StrategyCandidate.Location source = new StrategyCandidate.Location(1L, 10L);
+        StrategyCandidate.Location target = new StrategyCandidate.Location(
+                1L, targetSalesPointId
+        );
+        BigDecimal actionQuantity = BigDecimal.valueOf(quantity);
+        StrategyCandidate.Action action = new StrategyCandidate.Action(
+                type,
+                source,
+                target,
+                actionQuantity,
+                BigDecimal.ZERO,
+                List.of(new StrategyCandidate.LotAllocation(
+                        (long) quantity,
+                        (long) quantity,
+                        actionQuantity,
+                        1
+                ))
+        );
+        StrategyCandidate candidate = new StrategyCandidate(
+                id,
+                List.of(type),
+                LocalDate.of(2026, 8, 24),
+                null,
+                List.of(action),
+                List.of(),
+                new StrategyCandidate.Preference(type == StrategyType.REALLOCATION ? 1 : 2,
+                        Math.toIntExact(targetSalesPointId - 19), 100),
+                new StrategyCandidate.MovementEvidence(
+                        actionQuantity,
+                        actionQuantity,
+                        actionQuantity,
+                        actionQuantity
+                )
+        );
+        StrategyCandidateSimulation simulation = new StrategyCandidateSimulation(
+                id,
+                new StrategyCandidateSimulation.Summary(
+                        BigDecimal.TEN,
+                        BigDecimal.ZERO,
+                        BigDecimal.TEN,
+                        BigDecimal.ZERO,
+                        5,
+                        BigDecimal.ZERO,
+                        BigDecimal.ZERO,
+                        BigDecimal.ZERO,
+                        BigDecimal.ZERO
+                ),
+                new StrategyCandidateSimulation.ComparisonToBaseline(
+                        BigDecimal.ZERO,
+                        BigDecimal.ZERO,
+                        BigDecimal.ZERO,
+                        BigDecimal.ZERO,
+                        BigDecimal.ZERO,
+                        BigDecimal.ZERO
+                ),
+                List.of(),
+                List.of()
+        );
+        return new StrategyCandidateEvaluationResult.EvaluatedCandidate(
+                candidate,
+                simulation
+        );
     }
 
     private static StrategyCandidateEvaluationResult.EvaluatedCandidate evaluatedMovement(
