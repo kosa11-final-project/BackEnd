@@ -7,13 +7,14 @@ import com.stockit.backend.feature.strategy.calculation.candidate.domain.Strateg
 
 /** 무전략 기준과 후보 생성·시뮬레이션 결과를 LLM 전처리 단계에 전달한다. */
 public record StrategyCandidateEvaluationResult(
+        StrategyCalculationContext calculationContext,
         BaselineSimulation baselineSimulation,
         List<EvaluatedCandidate> evaluatedCandidates,
         List<CandidateExclusion> generationExclusions,
         List<CandidateSimulationFailure> simulationFailures
 ) {
     public StrategyCandidateEvaluationResult {
-        if (baselineSimulation == null
+        if (calculationContext == null || baselineSimulation == null
                 || evaluatedCandidates == null
                 || generationExclusions == null
                 || simulationFailures == null) {

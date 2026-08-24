@@ -77,6 +77,7 @@ public class StrategyCandidateEvaluationServiceImpl
             }
         }
         return new StrategyCandidateEvaluationResult(
+                context,
                 baseline,
                 evaluated,
                 generated.exclusions(),
