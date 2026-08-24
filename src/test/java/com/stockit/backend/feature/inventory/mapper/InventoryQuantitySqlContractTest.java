@@ -91,7 +91,9 @@ class InventoryQuantitySqlContractTest {
                 .contains("WHEN 'CRITICAL' THEN 1")
                 .contains("WHEN 'WARNING' THEN 2")
                 .contains("WHEN 'NORMAL' THEN 3")
-                .contains("WHEN 'GOOD' THEN 4");
+                .contains("WHEN 'GOOD' THEN 4")
+                .contains("reason_message AS risk_reason")
+                .contains("risk.risk_reason");
     }
 
     @Test

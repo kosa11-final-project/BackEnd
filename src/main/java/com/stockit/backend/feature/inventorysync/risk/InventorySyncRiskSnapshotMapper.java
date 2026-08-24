@@ -13,6 +13,8 @@ public interface InventorySyncRiskSnapshotMapper {
 
     class RiskScopeRow {
         private Long inventoryBalanceId;
+        private Long skuId;
+        private Long salesPointId;
         private Long forecastId;
         private String skuCode;
         private String salesPointCode;
@@ -30,6 +32,10 @@ public interface InventorySyncRiskSnapshotMapper {
         private String lotStatus;
         public Long getInventoryBalanceId() { return inventoryBalanceId; }
         public void setInventoryBalanceId(Long v) { inventoryBalanceId = v; }
+        public Long getSkuId() { return skuId; }
+        public void setSkuId(Long v) { skuId = v; }
+        public Long getSalesPointId() { return salesPointId; }
+        public void setSalesPointId(Long v) { salesPointId = v; }
         public Long getForecastId() { return forecastId; }
         public void setForecastId(Long v) { forecastId = v; }
         public String getSkuCode() { return skuCode; }

@@ -34,7 +34,7 @@
         SELECT * FROM inventory_sync_run WHERE inventory_sync_run_id = #{runId}
     </select>
     <select id="selectByIdForUpdate" resultMap="runMap">
-        SELECT * FROM inventory_sync_run WHERE inventory_sync_run_id = #{runId} FOR UPDATE
+        SELECT * FROM inventory_sync_run WHERE inventory_sync_run_id = #{runId} FOR UPDATE WAIT 5
     </select>
     <select id="selectActiveRun" resultMap="runMap">
         SELECT * FROM inventory_sync_run
@@ -47,7 +47,7 @@
     </select>
     <select id="lockSubmissionGuard" resultType="int">
         SELECT 1 FROM inventory_sync_mutex
-         FOR UPDATE
+         FOR UPDATE WAIT 5
     </select>
     <select id="countRecentRequests" resultType="int">
         SELECT COUNT(*) FROM inventory_sync_run

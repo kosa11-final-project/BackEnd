@@ -25,7 +25,7 @@ class InventorySyncRiskScopeSnapshotLoaderTest {
                 row(10L, "SKU-1", "DEPT-1", "LOT-1", new BigDecimal("3"))
         ));
 
-        var snapshots = new InventorySyncRiskScopeSnapshotLoader(mapper).load(Set.of("SKU-1:DEPT-1"));
+        var snapshots = new InventorySyncRiskScopeSnapshotLoader(mapper).load(Set.of("1:10"));
 
         assertThat(snapshots).hasSize(1);
         var snapshot = snapshots.get(0);
@@ -39,9 +39,11 @@ class InventorySyncRiskScopeSnapshotLoaderTest {
     void keepsUnassignedScopeForWarehouseCommonStock() {
         InventorySyncRiskSnapshotMapper mapper = org.mockito.Mockito.mock(InventorySyncRiskSnapshotMapper.class);
         var common = row(30L, "SKU-1", "UNASSIGNED", "LOT-COMMON", new BigDecimal("12"));
+        common.setSkuId(1L);
+        common.setSalesPointId(null);
         when(mapper.selectAffectedScopeSnapshot(anySet(), any(LocalDate.class))).thenReturn(List.of(common));
 
-        var snapshots = new InventorySyncRiskScopeSnapshotLoader(mapper).load(Set.of("SKU-1:UNASSIGNED"));
+        var snapshots = new InventorySyncRiskScopeSnapshotLoader(mapper).load(Set.of("1:UNASSIGNED"));
 
         assertThat(snapshots).singleElement().extracting(snapshot -> snapshot.input().salesPointCode())
                 .isEqualTo("UNASSIGNED");
@@ -51,6 +53,8 @@ class InventorySyncRiskScopeSnapshotLoaderTest {
             Long balanceId, String skuCode, String salesPointCode, String lotNumber, BigDecimal onHandQty) {
         var row = new InventorySyncRiskSnapshotMapper.RiskScopeRow();
         row.setInventoryBalanceId(balanceId);
+        row.setSkuId(1L);
+        row.setSalesPointId("UNASSIGNED".equals(salesPointCode) ? null : 10L);
         row.setSkuCode(skuCode);
         row.setSalesPointCode(salesPointCode);
         row.setLotId(String.valueOf(balanceId));

@@ -21,6 +21,7 @@
                        CAST(#{record.forecastId,jdbcType=NUMERIC} AS NUMBER) AS forecast_id,
                        #{record.riskGrade} AS risk_grade,
                        #{record.shortageYn} AS shortage_yn,
+                       CAST(#{record.stockDays,jdbcType=NUMERIC} AS NUMBER) AS stock_days,
                        CAST(#{record.expiryDaysLeft,jdbcType=NUMERIC} AS NUMBER) AS expiry_days_left,
                        CAST(#{record.holdingDays,jdbcType=NUMERIC} AS NUMBER) AS holding_days,
                        #{record.ruleVersion} AS rule_version,
@@ -35,6 +36,7 @@
              target.forecast_id = source.forecast_id,
              target.risk_grade = source.risk_grade,
              target.shortage_yn = source.shortage_yn,
+             target.stock_days = source.stock_days,
              target.expiry_days_left = source.expiry_days_left,
              target.holding_days = source.holding_days,
              target.rule_version = source.rule_version,
@@ -45,12 +47,12 @@
              target.updated_by = source.actor_id
         WHEN NOT MATCHED THEN INSERT (
              inventory_balance_id, forecast_id, risk_grade, shortage_yn,
-             expiry_days_left, holding_days, rule_version, reason_message,
+             stock_days, expiry_days_left, holding_days, rule_version, reason_message,
              risk_score, inventory_sync_run_id, created_at, updated_at,
              created_by, updated_by, is_deleted
         ) VALUES (
              source.inventory_balance_id, source.forecast_id, source.risk_grade, source.shortage_yn,
-             source.expiry_days_left, source.holding_days, source.rule_version, source.reason_message,
+             source.stock_days, source.expiry_days_left, source.holding_days, source.rule_version, source.reason_message,
              source.risk_score, source.inventory_sync_run_id, SYSTIMESTAMP, SYSTIMESTAMP,
              source.actor_id, source.actor_id, 0
         )

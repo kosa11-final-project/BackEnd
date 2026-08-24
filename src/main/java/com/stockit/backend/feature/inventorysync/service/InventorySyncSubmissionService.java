@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.dao.DataAccessException;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.stockit.backend.feature.inventorysync.dto.InventorySyncStartRequest;
@@ -14,6 +15,7 @@ import com.stockit.backend.feature.inventorysync.dto.InventorySyncRunResponse;
 import com.stockit.backend.common.exception.AppException;
 import com.stockit.backend.common.exception.ErrorCode;
 import com.stockit.backend.feature.inventorysync.InventorySyncHash;
+import com.stockit.backend.feature.inventorysync.InventorySyncLockSupport;
 import com.stockit.backend.feature.inventorysync.mapper.InventorySyncRunMapper;
 import com.stockit.backend.feature.inventorysync.mapper.InventorySyncStateQueryMapper;
 import com.stockit.backend.feature.inventorysync.vo.InventorySyncRunVO;
@@ -66,8 +68,15 @@ public class InventorySyncSubmissionService {
         }
         // active scope 조회와 run 삽입 사이의 경쟁 구간을 source state의 고정 행으로 직렬화합니다.
         // active_scope_key UNIQUE 제약은 최종 방어선으로 유지합니다.
-        if (runMapper.lockSubmissionGuard() != 1) {
-            throw new IllegalStateException("inventory source state is not initialized");
+        try {
+            if (runMapper.lockSubmissionGuard() != 1) {
+                throw new IllegalStateException("inventory source state is not initialized");
+            }
+        } catch (DataAccessException exception) {
+            if (InventorySyncLockSupport.isLockWaitFailure(exception)) {
+                throw InventorySyncLockSupport.conflict();
+            }
+            throw exception;
         }
         String hash = requestHash(request);
         InventorySyncRunVO existing = runMapper.selectByClientRequestId(request.clientRequestId());

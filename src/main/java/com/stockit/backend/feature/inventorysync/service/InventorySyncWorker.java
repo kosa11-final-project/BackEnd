@@ -86,9 +86,11 @@ public class InventorySyncWorker {
             }
             for (String sourceType : InventorySyncSourceOrder.TYPES) {
                 currentSourceType = sourceType;
+                updatePhaseOrThrow(runId, attemptNo, fencingToken, "VALIDATING", read, buffer.size());
                 if (sourceMapper.countInvalidOrUnmapped(sourceType) > 0) {
                     throw new IllegalStateException("SOURCE_MAPPING_INVALID:" + sourceType);
                 }
+                updatePhaseOrThrow(runId, attemptNo, fencingToken, "READING", read, buffer.size());
                 long sourceVersion = runMapper.selectSourceVersion(sourceType);
                 buffer.recordSourceVersion(sourceType, sourceVersion);
                 runSourceMapper.insertRunSource(runId, sourceType, sourceVersion);
@@ -104,7 +106,7 @@ public class InventorySyncWorker {
                     read += page.size();
                     sourceRead += page.size();
                     lastSourceRecordKey = page.get(page.size() - 1).sourceRecordKey();
-                    runMapper.updatePhase(runId, attemptNo, fencingToken, "NORMALIZING", read, buffer.size());
+                    updatePhaseOrThrow(runId, attemptNo, fencingToken, "NORMALIZING", read, buffer.size());
                     if (runMapper.heartbeat(runId, attemptNo, fencingToken, instanceId(), Instant.now().plusSeconds(300)) != 1) {
                         throw new IllegalStateException("STALE_FENCING");
                     }
@@ -115,7 +117,7 @@ public class InventorySyncWorker {
                     throw new IllegalStateException("SOURCE_CHANGED:" + sourceType);
                 }
             }
-            runMapper.updatePhase(runId, attemptNo, fencingToken, "PUBLISHING", read, buffer.size());
+            updatePhaseOrThrow(runId, attemptNo, fencingToken, "PUBLISHING", read, buffer.size());
             if (runMapper.heartbeat(runId, attemptNo, fencingToken, instanceId(), Instant.now().plusSeconds(300)) != 1) {
                 throw new IllegalStateException("STALE_FENCING");
             }
@@ -155,6 +157,12 @@ public class InventorySyncWorker {
     }
 
     private String instanceId() { return workerInstanceId; }
+    private void updatePhaseOrThrow(Long runId, int attemptNo, long fencingToken, String phase,
+                                    long readCount, long mappedCount) {
+        if (runMapper.updatePhase(runId, attemptNo, fencingToken, phase, readCount, mappedCount) != 1) {
+            throw new IllegalStateException("STALE_FENCING");
+        }
+    }
     private static String safeMessage(Exception exception) {
         String message = exception.getMessage();
         return message == null ? exception.getClass().getSimpleName() : message.substring(0, Math.min(2000, message.length()));

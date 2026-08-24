@@ -50,6 +50,9 @@ class InventoryQueryServiceImplTest {
     void detailReturnsHeaderWithoutAssemblingLots() {
         InventoryItemVO item = createItemVO("SKU-1", "GREETING");
         item.setSupplierName("테스트 공급사");
+        item.setAssessmentStatus("ASSESSED");
+        item.setRiskGrade("CAUTION");
+        item.setRiskReason("[ASSESSED/v1.1.0/SHORTAGE_D30] D+30 부족 예상 | 산식: 가용재고=100");
         given(inventoryMapper.selectInventoryDetail(eq("SKU-1"), eq("GREETING"), any(LocalDate.class)))
                 .willReturn(item);
 
@@ -62,6 +65,7 @@ class InventoryQueryServiceImplTest {
         assertThat(response.category()).isNotNull();
         assertThat(response.category().path()).extracting(path -> path.name())
                 .containsExactly("식품", "베이커리/간식", "베이커리");
+        assertThat(response.risk().reason()).contains("SHORTAGE_D30", "산식: 가용재고=100");
         assertThat(response.lots()).isEmpty();
     }
 
