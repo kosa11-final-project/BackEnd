@@ -53,18 +53,18 @@ public class AiStrategyCaseListServiceImpl implements AiStrategyCaseListService 
     public AiStrategyCaseListPageResponse findAll(AiStrategyCaseListQuery query) {
         Objects.requireNonNull(query, "query must not be null");
         LocalDateTime visibleAt = LocalDateTime.now(clock.withZone(BUSINESS_ZONE));
-        LocalDateTime failureVisibleFrom = visibleAt.minus(resultProperties.getTtl());
+        LocalDateTime visibleFrom = visibleAt.minus(resultProperties.getTtl());
 
-        long totalElements = mapper.countCases(query, visibleAt, failureVisibleFrom);
+        long totalElements = mapper.countCases(query, visibleAt, visibleFrom);
         List<AiStrategyCaseListItemResponse> content = totalElements == 0
                 ? List.of()
-                : safe(mapper.selectCases(query, visibleAt, failureVisibleFrom)).stream()
+                : safe(mapper.selectCases(query, visibleAt, visibleFrom)).stream()
                         .map(AiStrategyCaseListItemResponse::from)
                         .toList();
 
         Map<StrategyCaseStatus, Long> counts = new EnumMap<>(StrategyCaseStatus.class);
         for (AiStrategyCaseStatusCountVO row : safe(
-                mapper.countCasesByStatus(query, visibleAt, failureVisibleFrom)
+                mapper.countCasesByStatus(query, visibleAt, visibleFrom)
         )) {
             if (row.getCaseStatus() != null) {
                 counts.put(row.getCaseStatus(), row.getStatusCount());

@@ -30,7 +30,7 @@ import com.stockit.backend.feature.strategy.vo.AiStrategyCaseStatusCountVO;
 class AiStrategyCaseListServiceImplTest {
 
     private static final LocalDateTime VISIBLE_AT = LocalDateTime.of(2026, 8, 24, 10, 0);
-    private static final LocalDateTime FAILURE_VISIBLE_FROM = LocalDateTime.of(2026, 8, 21, 10, 0);
+    private static final LocalDateTime VISIBLE_FROM = LocalDateTime.of(2026, 8, 21, 10, 0);
 
     @Mock
     private AiStrategyCaseListMapper mapper;
@@ -48,9 +48,9 @@ class AiStrategyCaseListServiceImplTest {
     void returnsPageAndStatusCountsUsingSameThreeDayVisibilityWindow() {
         AiStrategyCaseListQuery query = query(0, 2, "GENERATED");
         AiStrategyCaseListVO item = item(102L, StrategyCaseStatus.GENERATED);
-        when(mapper.countCases(query, VISIBLE_AT, FAILURE_VISIBLE_FROM)).thenReturn(3L);
-        when(mapper.selectCases(query, VISIBLE_AT, FAILURE_VISIBLE_FROM)).thenReturn(List.of(item));
-        when(mapper.countCasesByStatus(query, VISIBLE_AT, FAILURE_VISIBLE_FROM)).thenReturn(List.of(
+        when(mapper.countCases(query, VISIBLE_AT, VISIBLE_FROM)).thenReturn(3L);
+        when(mapper.selectCases(query, VISIBLE_AT, VISIBLE_FROM)).thenReturn(List.of(item));
+        when(mapper.countCasesByStatus(query, VISIBLE_AT, VISIBLE_FROM)).thenReturn(List.of(
                 count(StrategyCaseStatus.GENERATING, 2),
                 count(StrategyCaseStatus.GENERATED, 3),
                 count(StrategyCaseStatus.GENERATION_FAILED, 1)
@@ -74,8 +74,8 @@ class AiStrategyCaseListServiceImplTest {
     @Test
     void returnsEmptyPageButStillLoadsUnfilteredStatusCounts() {
         AiStrategyCaseListQuery query = query(3, 10, "GENERATED");
-        when(mapper.countCases(query, VISIBLE_AT, FAILURE_VISIBLE_FROM)).thenReturn(0L);
-        when(mapper.countCasesByStatus(query, VISIBLE_AT, FAILURE_VISIBLE_FROM)).thenReturn(List.of(
+        when(mapper.countCases(query, VISIBLE_AT, VISIBLE_FROM)).thenReturn(0L);
+        when(mapper.countCasesByStatus(query, VISIBLE_AT, VISIBLE_FROM)).thenReturn(List.of(
                 count(StrategyCaseStatus.GENERATING, 1)
         ));
 
@@ -86,7 +86,7 @@ class AiStrategyCaseListServiceImplTest {
         assertThat(result.first()).isTrue();
         assertThat(result.last()).isTrue();
         assertThat(result.statusCounts().all()).isOne();
-        verify(mapper, never()).selectCases(query, VISIBLE_AT, FAILURE_VISIBLE_FROM);
+        verify(mapper, never()).selectCases(query, VISIBLE_AT, VISIBLE_FROM);
     }
 
     private static AiStrategyCaseListQuery query(int page, int size, String status) {

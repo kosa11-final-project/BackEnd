@@ -26,7 +26,7 @@ import com.stockit.backend.feature.strategy.vo.AiStrategyCaseStatusCountVO;
 class AiStrategyCaseListMapperTest {
 
     private static final LocalDateTime VISIBLE_AT = LocalDateTime.of(2026, 8, 24, 10, 0);
-    private static final LocalDateTime FAILURE_VISIBLE_FROM = LocalDateTime.of(2026, 8, 21, 10, 0);
+    private static final LocalDateTime VISIBLE_FROM = LocalDateTime.of(2026, 8, 21, 10, 0);
 
     @DynamicPropertySource
     static void useIsolatedDatabase(DynamicPropertyRegistry registry) {
@@ -44,10 +44,10 @@ class AiStrategyCaseListMapperTest {
         AiStrategyCaseListQuery query = query(0, 10, null, null, null, null, null, "DESC");
 
         List<AiStrategyCaseListVO> cases = mapper.selectCases(
-                query, VISIBLE_AT, FAILURE_VISIBLE_FROM
+                query, VISIBLE_AT, VISIBLE_FROM
         );
 
-        assertThat(mapper.countCases(query, VISIBLE_AT, FAILURE_VISIBLE_FROM)).isEqualTo(3);
+        assertThat(mapper.countCases(query, VISIBLE_AT, VISIBLE_FROM)).isEqualTo(3);
         assertThat(cases).extracting(AiStrategyCaseListVO::getStrategyCaseId)
                 .containsExactly(102L, 101L, 104L);
         assertThat(cases.get(0)).satisfies(value -> {
@@ -59,6 +59,16 @@ class AiStrategyCaseListMapperTest {
     }
 
     @Test
+    void excludesGeneratingAndFailedCasesAtExactThreeDayBoundary() {
+        AiStrategyCaseListQuery query = query(
+                0, 10, "정확히 3일", null, null, null, null, "DESC"
+        );
+
+        assertThat(mapper.countCases(query, VISIBLE_AT, VISIBLE_FROM)).isZero();
+        assertThat(mapper.selectCases(query, VISIBLE_AT, VISIBLE_FROM)).isEmpty();
+    }
+
+    @Test
     void appliesStatusOnlyToPageWhileCountsUseSearchAndDateConditions() {
         AiStrategyCaseListQuery query = query(
                 0, 10, null, null, "GENERATED",
@@ -67,10 +77,10 @@ class AiStrategyCaseListMapperTest {
                 "DESC"
         );
 
-        assertThat(mapper.selectCases(query, VISIBLE_AT, FAILURE_VISIBLE_FROM))
+        assertThat(mapper.selectCases(query, VISIBLE_AT, VISIBLE_FROM))
                 .extracting(AiStrategyCaseListVO::getStrategyCaseId)
                 .containsExactly(102L);
-        assertThat(mapper.countCasesByStatus(query, VISIBLE_AT, FAILURE_VISIBLE_FROM))
+        assertThat(mapper.countCasesByStatus(query, VISIBLE_AT, VISIBLE_FROM))
                 .extracting(AiStrategyCaseStatusCountVO::getCaseStatus)
                 .containsExactlyInAnyOrder(
                         com.stockit.backend.feature.strategy.domain.StrategyCaseStatus.GENERATING,
@@ -82,19 +92,19 @@ class AiStrategyCaseListMapperTest {
     @Test
     void searchesNumericCaseIdExactlyAndTextFieldsLiterally() {
         AiStrategyCaseListQuery byId = query(0, 10, "102", 102L, null, null, null, "DESC");
-        assertThat(mapper.selectCases(byId, VISIBLE_AT, FAILURE_VISIBLE_FROM))
+        assertThat(mapper.selectCases(byId, VISIBLE_AT, VISIBLE_FROM))
                 .extracting(AiStrategyCaseListVO::getStrategyCaseId)
                 .containsExactly(102L);
 
         AiStrategyCaseListQuery byProduct = query(0, 10, "국산콩", null, null, null, null, "DESC");
-        assertThat(mapper.selectCases(byProduct, VISIBLE_AT, FAILURE_VISIBLE_FROM))
+        assertThat(mapper.selectCases(byProduct, VISIBLE_AT, VISIBLE_FROM))
                 .extracting(AiStrategyCaseListVO::getStrategyCaseId)
                 .containsExactly(102L, 101L);
 
         AiStrategyCaseListQuery literalWildcard = query(
                 0, 10, "SKU\\_TOFU", null, null, null, null, "DESC"
         );
-        assertThat(mapper.selectCases(literalWildcard, VISIBLE_AT, FAILURE_VISIBLE_FROM))
+        assertThat(mapper.selectCases(literalWildcard, VISIBLE_AT, VISIBLE_FROM))
                 .extracting(AiStrategyCaseListVO::getStrategyCaseId)
                 .containsExactly(102L, 101L);
     }
@@ -104,10 +114,10 @@ class AiStrategyCaseListMapperTest {
         AiStrategyCaseListQuery first = query(0, 1, null, null, null, null, null, "ASC");
         AiStrategyCaseListQuery second = query(1, 1, null, null, null, null, null, "ASC");
 
-        assertThat(mapper.selectCases(first, VISIBLE_AT, FAILURE_VISIBLE_FROM))
+        assertThat(mapper.selectCases(first, VISIBLE_AT, VISIBLE_FROM))
                 .extracting(AiStrategyCaseListVO::getStrategyCaseId)
                 .containsExactly(104L);
-        assertThat(mapper.selectCases(second, VISIBLE_AT, FAILURE_VISIBLE_FROM))
+        assertThat(mapper.selectCases(second, VISIBLE_AT, VISIBLE_FROM))
                 .extracting(AiStrategyCaseListVO::getStrategyCaseId)
                 .containsExactly(101L);
     }

@@ -16,18 +16,18 @@ public interface AiStrategyCaseListMapper {
     long countCases(
             @Param("query") AiStrategyCaseListQuery query,
             @Param("visibleAt") LocalDateTime visibleAt,
-            @Param("failureVisibleFrom") LocalDateTime failureVisibleFrom
+            @Param("visibleFrom") LocalDateTime visibleFrom
     );
 
     List<AiStrategyCaseListVO> selectCases(
             @Param("query") AiStrategyCaseListQuery query,
             @Param("visibleAt") LocalDateTime visibleAt,
-            @Param("failureVisibleFrom") LocalDateTime failureVisibleFrom
+            @Param("visibleFrom") LocalDateTime visibleFrom
     );
 
     List<AiStrategyCaseStatusCountVO> countCasesByStatus(
             @Param("query") AiStrategyCaseListQuery query,
             @Param("visibleAt") LocalDateTime visibleAt,
-            @Param("failureVisibleFrom") LocalDateTime failureVisibleFrom
+            @Param("visibleFrom") LocalDateTime visibleFrom
     );
 }
