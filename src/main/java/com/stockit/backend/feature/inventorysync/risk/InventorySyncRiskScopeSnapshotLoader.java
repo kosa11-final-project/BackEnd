@@ -1,16 +1,17 @@
 package com.stockit.backend.feature.inventorysync.risk;
 
+import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
-import java.math.BigDecimal;
 import java.util.Objects;
+import java.util.Set;
 
 import org.springframework.stereotype.Component;
 
@@ -23,6 +24,13 @@ public class InventorySyncRiskScopeSnapshotLoader implements InventorySyncRiskWr
     private final Clock clock = Clock.system(ZoneId.of("Asia/Seoul"));
 
     public InventorySyncRiskScopeSnapshotLoader(InventorySyncRiskSnapshotMapper mapper) { this.mapper = mapper; }
+
+    public Set<String> findScopesRequiringRuleVersion(String ruleVersion) {
+        if (ruleVersion == null || ruleVersion.isBlank()) {
+            throw new IllegalArgumentException("risk rule version is required");
+        }
+        return new LinkedHashSet<>(mapper.selectScopesRequiringRuleVersion(ruleVersion));
+    }
 
     @Override
     public List<InventorySyncRiskWriter.RiskScopeSnapshot> load(Set<String> affectedScopes) {

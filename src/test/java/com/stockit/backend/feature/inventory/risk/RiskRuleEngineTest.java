@@ -50,15 +50,30 @@ class RiskRuleEngineTest {
     }
 
     @Test
-    @DisplayName("D+30 예측수요가 가용수량을 초과하면 주의 등급을 반환한다")
-    void forecastShortage_isCaution() {
+    @DisplayName("D+30 재고일수가 14일 미만이면 주의 등급을 반환한다")
+    void severeForecastShortage_isCaution() {
         RiskAssessmentResult result = engine.evaluate(input(BigDecimal.valueOf(100),
-                BigDecimal.valueOf(20), BigDecimal.valueOf(150), BigDecimal.valueOf(30), List.of(), true, false));
+                BigDecimal.valueOf(20), BigDecimal.valueOf(300), BigDecimal.valueOf(30), List.of(), true, false));
 
         assertThat(result.dbRiskGrade()).isEqualTo("WARNING");
         assertThat(result.apiRiskGrade()).isEqualTo("CAUTION");
-        assertThat(result.shortageQty30()).isEqualByComparingTo("50");
+        assertThat(result.shortageQty30()).isEqualByComparingTo("200");
         assertThat(result.reasons()).extracting(RiskReason::code).contains("PREDICTED_SHORTAGE");
+    }
+
+    @Test
+    @DisplayName("D+7은 안전하고 D+30 재고일수가 14일 이상이면 보통 등급으로 관리한다")
+    void mildForecastShortage_isNormal() {
+        RiskAssessmentResult result = engine.evaluate(input(BigDecimal.valueOf(48),
+                BigDecimal.valueOf(15), BigDecimal.valueOf(59), BigDecimal.valueOf(10), List.of(), true, false));
+
+        assertThat(result.dbRiskGrade()).isEqualTo("NORMAL");
+        assertThat(result.apiRiskGrade()).isEqualTo("NORMAL");
+        assertThat(result.ruleVersion()).isEqualTo("v1.3.0");
+        assertThat(result.shortageQty30()).isEqualByComparingTo("11");
+        assertThat(result.reasons()).extracting(RiskReason::code)
+                .contains("PREDICTED_SHORTAGE_MONITORING")
+                .doesNotContain("PREDICTED_SHORTAGE");
     }
 
     @Test
@@ -151,16 +166,31 @@ class RiskRuleEngineTest {
     }
 
     @Test
-    @DisplayName("예측이 없으면 재고·안전재고·LOT 규칙으로 판정한다")
+    @DisplayName("예측이 없고 서버 룰상 위험이 없으면 보통으로 판정한다")
     void missingForecast_usesAvailableRules() {
         RiskAssessmentResult result = engine.evaluate(input(BigDecimal.valueOf(100),
                 null, null, BigDecimal.valueOf(30), List.of(), false, false));
 
         assertThat(result.assessmentStatus()).isEqualTo("ASSESSED");
-        assertThat(result.dbRiskGrade()).isEqualTo("GOOD");
+        assertThat(result.dbRiskGrade()).isEqualTo("NORMAL");
+        assertThat(result.apiRiskGrade()).isEqualTo("NORMAL");
         assertThat(result.shortageQty30()).isNull();
         assertThat(result.projectedD7()).isNull();
+        assertThat(result.reasons()).extracting(RiskReason::code).contains("FORECAST_UNAVAILABLE");
         assertThat(result.primaryReason()).contains("수요예측이 없어");
+    }
+
+    @Test
+    @DisplayName("예측이 없어도 현재 재고가 안전재고 미만이면 서버 룰로 주의 판정한다")
+    void missingForecast_currentUnderSafety_isCaution() {
+        RiskAssessmentResult result = engine.evaluate(input(BigDecimal.valueOf(20),
+                null, null, BigDecimal.valueOf(30), List.of(), false, false));
+
+        assertThat(result.assessmentStatus()).isEqualTo("ASSESSED");
+        assertThat(result.dbRiskGrade()).isEqualTo("WARNING");
+        assertThat(result.apiRiskGrade()).isEqualTo("CAUTION");
+        assertThat(result.reasons()).extracting(RiskReason::code)
+                .contains("FORECAST_UNAVAILABLE", "CURRENT_UNDER_SAFETY");
     }
 
     @Test
@@ -170,8 +200,10 @@ class RiskRuleEngineTest {
                 BigDecimal.valueOf(80), BigDecimal.valueOf(70), BigDecimal.valueOf(30), List.of(), true, false));
 
         assertThat(result.assessmentStatus()).isEqualTo("ASSESSED");
-        assertThat(result.dbRiskGrade()).isEqualTo("GOOD");
+        assertThat(result.dbRiskGrade()).isEqualTo("NORMAL");
+        assertThat(result.apiRiskGrade()).isEqualTo("NORMAL");
         assertThat(result.shortageQty30()).isNull();
+        assertThat(result.reasons()).extracting(RiskReason::code).contains("FORECAST_INVALID");
         assertThat(result.primaryReason()).contains("유효하지 않아");
     }
 

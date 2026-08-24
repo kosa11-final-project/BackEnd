@@ -94,7 +94,7 @@ class InventorySyncRiskWriterTest {
                 new InventorySyncRiskWriter.RiskScopeSnapshot(100L, null, input)
         ));
 
-        assertEquals("GOOD", records.get(0).riskGrade());
+        assertEquals("NORMAL", records.get(0).riskGrade());
         assertEquals("N", records.get(0).shortageYn());
         org.junit.jupiter.api.Assertions.assertNull(records.get(0).stockDays());
         org.junit.jupiter.api.Assertions.assertTrue(records.get(0).reasonMessage().contains("수요예측이 없어"));
@@ -115,7 +115,7 @@ class InventorySyncRiskWriterTest {
         ));
 
         assertEquals("N", records.get(0).shortageYn());
-        assertEquals("WARNING", records.get(0).riskGrade());
+        assertEquals("NORMAL", records.get(0).riskGrade());
     }
 
     @Test

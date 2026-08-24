@@ -88,6 +88,27 @@ class InventoryQueryRequestTest {
     }
 
     @Test
+    void rejectsAssessmentStatusesThatInventoryRowsCannotProduce() {
+        InventoryQueryRequest request = new InventoryQueryRequest();
+        request.setAssessmentStatus(List.of("STALE"));
+
+        assertThatThrownBy(() -> request.toQuery(LocalDate.of(2026, 8, 14)))
+                .isInstanceOf(AppException.class);
+    }
+
+    @Test
+    void mapsEverySupportedSortToAWhitelistedSqlColumn() {
+        assertSort("updatedAt,desc", "updated_at", "DESC");
+        assertSort("productName,asc", "product_name", "ASC");
+        assertSort("skuCode,desc", "sku_code", "DESC");
+        assertSort("currentQuantity,asc", "current_qty", "ASC");
+        assertSort("availableQuantity,desc", "available_qty", "DESC");
+        assertSort("reservedQuantity,asc", "reserved_qty", "ASC");
+        assertSort("riskGrade,desc", "risk_grade", "DESC");
+        assertSort("nearestExpiryDays,asc", "nearest_expiry_days", "ASC");
+    }
+
+    @Test
     void calculatesLongOffsetWithoutIntegerOverflow() {
         InventoryQuery query = new InventoryQuery(
                 null, List.of(), List.of(), List.of(), List.of(),
@@ -98,5 +119,15 @@ class InventoryQueryRequestTest {
         long expectedOffset = (100_000_000L - 1) * 50L;
         assertThat(query.offset()).isEqualTo(expectedOffset);
         assertThat(query.getOffset()).isEqualTo(expectedOffset);
+    }
+
+    private static void assertSort(String sort, String expectedColumn, String expectedDirection) {
+        InventoryQueryRequest request = new InventoryQueryRequest();
+        request.setSort(sort);
+
+        InventoryQuery query = request.toQuery(LocalDate.of(2026, 8, 14));
+
+        assertThat(query.sortColumn()).isEqualTo(expectedColumn);
+        assertThat(query.sortDirection()).isEqualTo(expectedDirection);
     }
 }

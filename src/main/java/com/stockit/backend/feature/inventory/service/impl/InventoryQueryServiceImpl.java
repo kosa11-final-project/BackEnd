@@ -32,9 +32,7 @@ public class InventoryQueryServiceImpl implements InventoryQueryService {
 
     private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Seoul");
     private static final List<String> RISK_GRADES = List.of("SAFE", "NORMAL", "CAUTION", "DANGER");
-    private static final List<String> ASSESSMENT_STATUSES = List.of(
-            "ASSESSED", "UNASSESSED", "STALE", "FAILED", "REASSESSING"
-    );
+    private static final List<String> ASSESSMENT_STATUSES = List.of("ASSESSED", "UNASSESSED");
 
     private static final Map<String, String> RISK_GRADE_NAMES = Map.of(
             "SAFE", "양호",
@@ -44,10 +42,7 @@ public class InventoryQueryServiceImpl implements InventoryQueryService {
     );
     private static final Map<String, String> ASSESSMENT_STATUS_NAMES = Map.of(
             "ASSESSED", "판정 완료",
-            "UNASSESSED", "미판정",
-            "STALE", "판정 만료",
-            "FAILED", "판정 실패",
-            "REASSESSING", "재판정 중"
+            "UNASSESSED", "미판정"
     );
 
     private final InventoryMapper inventoryMapper;

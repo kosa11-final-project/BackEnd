@@ -18,6 +18,25 @@ import com.stockit.backend.feature.inventorysync.risk.InventorySyncRiskSnapshotM
 class InventorySyncRiskScopeSnapshotLoaderTest {
 
     @Test
+    void findsDistinctScopesThatNeedTheRequestedRuleVersion() throws Exception {
+        InventorySyncRiskSnapshotMapper mapper = org.mockito.Mockito.mock(InventorySyncRiskSnapshotMapper.class);
+        when(mapper.selectScopesRequiringRuleVersion("v1.2.0"))
+                .thenReturn(List.of("1:10", "1:10", "2:UNASSIGNED"));
+        var loader = new InventorySyncRiskScopeSnapshotLoader(mapper);
+
+        java.lang.reflect.Method method;
+        try {
+            method = InventorySyncRiskScopeSnapshotLoader.class
+                    .getMethod("findScopesRequiringRuleVersion", String.class);
+        } catch (NoSuchMethodException exception) {
+            throw new AssertionError("규칙 버전이 바뀐 scope를 찾는 loader 메서드가 필요합니다.", exception);
+        }
+
+        assertThat(method.invoke(loader, "v1.2.0"))
+                .isEqualTo(Set.of("1:10", "2:UNASSIGNED"));
+    }
+
+    @Test
     void aggregatesAllLotsInSkuSalesPointScopeAndSelectsStableAnchor() {
         InventorySyncRiskSnapshotMapper mapper = org.mockito.Mockito.mock(InventorySyncRiskSnapshotMapper.class);
         when(mapper.selectAffectedScopeSnapshot(anySet(), any(LocalDate.class))).thenReturn(List.of(

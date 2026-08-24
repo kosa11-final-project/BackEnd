@@ -148,6 +148,18 @@ class InventoryQuantitySqlContractTest {
                 .doesNotContain("COALESCE(TO_CHAR(COALESCE(ib.allocated_sales_point_id, ib.stock_sales_point_id))");
     }
 
+    @Test
+    void syncRiskSnapshotFindsScopesThatNeedTheCurrentRuleVersion() throws IOException {
+        String syncRiskSql = read("inventorysync/InventorySyncRiskSnapshotMapper.xml");
+
+        assertThat(syncRiskSql)
+                .contains("selectScopesRequiringRuleVersion")
+                .contains("LEFT JOIN risk_assessment ra")
+                .contains("GROUP BY ib.sku_id, ib.allocated_sales_point_id")
+                .contains("HAVING MAX(CASE WHEN ra.rule_version = #{ruleVersion} THEN 1 ELSE 0 END) = 0")
+                .contains("COALESCE(TO_CHAR(ib.allocated_sales_point_id), 'UNASSIGNED') AS scope_key");
+    }
+
     private static String read(String relativePath) throws IOException {
         return Files.readString(MAPPER_ROOT.resolve(relativePath));
     }
