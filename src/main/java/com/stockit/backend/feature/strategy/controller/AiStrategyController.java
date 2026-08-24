@@ -2,9 +2,11 @@ package com.stockit.backend.feature.strategy.controller;
 
 import java.net.URI;
 
+import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -16,8 +18,12 @@ import com.stockit.backend.common.api.ApiErrorResponse;
 import com.stockit.backend.common.api.ApiResponse;
 import com.stockit.backend.feature.auth.security.AuthPrincipal;
 import com.stockit.backend.feature.strategy.domain.StrategyCaseCreated;
+import com.stockit.backend.feature.strategy.dto.request.AiStrategyCaseListRequest;
+import com.stockit.backend.feature.strategy.dto.request.AiStrategyCaseListQueryParameterValidator;
 import com.stockit.backend.feature.strategy.dto.request.CreateAiStrategyRequest;
+import com.stockit.backend.feature.strategy.dto.response.AiStrategyCaseListPageResponse;
 import com.stockit.backend.feature.strategy.dto.response.AiStrategyCaseResponse;
+import com.stockit.backend.feature.strategy.service.AiStrategyCaseListService;
 import com.stockit.backend.feature.strategy.service.AiStrategyCaseQueryService;
 import com.stockit.backend.feature.strategy.service.StrategyCaseService;
 
@@ -27,6 +33,7 @@ import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 
 @RestController
@@ -36,13 +43,34 @@ public class AiStrategyController {
 
     private final StrategyCaseService caseService;
     private final AiStrategyCaseQueryService queryService;
+    private final AiStrategyCaseListService listService;
 
     public AiStrategyController(
             StrategyCaseService caseService,
-            AiStrategyCaseQueryService queryService
+            AiStrategyCaseQueryService queryService,
+            AiStrategyCaseListService listService
     ) {
         this.caseService = caseService;
         this.queryService = queryService;
+        this.listService = listService;
+    }
+
+    @GetMapping
+    @Operation(
+            summary = "AI 전략 생성 Case 목록 조회",
+            description = "최종 선택 전 생성 Case를 조회합니다. 생성 상태별 건수는 현재 상태 필터를 제외한 동일 검색·기간 조건으로 집계합니다."
+    )
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "목록 조회 성공"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "목록 조회 조건 오류", content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "인증 필요", content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
+    })
+    public ApiResponse<AiStrategyCaseListPageResponse> list(
+            HttpServletRequest httpRequest,
+            @Valid @ParameterObject @ModelAttribute AiStrategyCaseListRequest request
+    ) {
+        AiStrategyCaseListQueryParameterValidator.validate(httpRequest);
+        return ApiResponse.of(listService.findAll(request.toQuery()));
     }
 
     @PostMapping
