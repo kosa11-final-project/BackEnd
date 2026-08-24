@@ -104,6 +104,7 @@ class InventoryOracleMapperTest {
         );
         assertThat(detail).isNotNull();
         assertThat(detail.getSkuCode()).isEqualTo(skuCode);
+        assertThat(inventoryMapper.countInventoryScope(skuCode, salesPointCode)).isEqualTo(1);
 
         var lots = inventoryMapper.selectInventoryLots(
                 skuCode, salesPointCode, query.asOfDate()

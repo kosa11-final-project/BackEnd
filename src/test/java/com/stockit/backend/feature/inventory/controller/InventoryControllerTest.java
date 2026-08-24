@@ -1,7 +1,9 @@
 package com.stockit.backend.feature.inventory.controller;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -10,6 +12,7 @@ import java.math.BigDecimal;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -83,6 +86,7 @@ class InventoryControllerTest {
 
         mockMvc.perform(get("/api/v1/inventories")
                         .param("channelType", "GREETING")
+                        .param("filterOperator", "or")
                         .param("page", "1")
                         .param("size", "20"))
                 .andExpect(status().isOk())
@@ -95,10 +99,18 @@ class InventoryControllerTest {
                 .andExpect(jsonPath("$.data.totalCount").value(1));
 
         mockMvc.perform(get("/api/v1/inventories/summary")
-                        .param("channelType", "GREETING"))
+                        .param("channelType", "GREETING")
+                        .param("filterOperator", "or"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.totalCurrentQuantity").value(10))
                 .andExpect(jsonPath("$.data.totalAvailableQuantity").value(8));
+
+        ArgumentCaptor<InventoryQuery> listQuery = ArgumentCaptor.forClass(InventoryQuery.class);
+        ArgumentCaptor<InventoryQuery> summaryQuery = ArgumentCaptor.forClass(InventoryQuery.class);
+        verify(inventoryQueryService).find(listQuery.capture());
+        verify(inventoryQueryService).summary(summaryQuery.capture());
+        assertThat(listQuery.getValue().filterOperator()).isEqualTo("OR");
+        assertThat(summaryQuery.getValue().filterOperator()).isEqualTo("OR");
     }
 
     @Test
@@ -120,6 +132,14 @@ class InventoryControllerTest {
     void rejectsMalformedNumericQueryParametersAsBadRequest() throws Exception {
         mockMvc.perform(get("/api/v1/inventories")
                         .param("page", "not-a-number"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON-002"));
+    }
+
+    @Test
+    void rejectsUnsupportedFilterOperator() throws Exception {
+        mockMvc.perform(get("/api/v1/inventories")
+                        .param("filterOperator", "XOR"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("COMMON-002"));
     }

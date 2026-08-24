@@ -3,6 +3,7 @@ package com.stockit.backend.feature.inventory.dto.request;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 import org.springframework.util.StringUtils;
 
@@ -27,6 +28,7 @@ public class InventoryQueryRequest {
     private static final List<String> ASSESSMENT_STATUSES = List.of(
             "ASSESSED", "UNASSESSED", "STALE", "FAILED", "REASSESSING"
     );
+    private static final List<String> FILTER_OPERATORS = List.of("AND", "OR");
 
     @Schema(description = "상품·SKU·판매처 검색어", example = "만두")
     @Size(max = 100, message = "검색어는 100자 이내여야 합니다.")
@@ -48,6 +50,12 @@ public class InventoryQueryRequest {
     private List<String> riskGrade = new ArrayList<>();
     @Schema(description = "위험 판정 상태", allowableValues = {"ASSESSED", "UNASSESSED", "STALE", "FAILED", "REASSESSING"})
     private List<String> assessmentStatus = new ArrayList<>();
+    @Schema(
+            description = "활성 필터 그룹 결합 방식. 같은 그룹의 다중 값은 항상 OR",
+            allowableValues = {"AND", "OR"},
+            defaultValue = "AND"
+    )
+    private String filterOperator = "AND";
 
     @Schema(description = "1부터 시작하는 페이지 번호", example = "1", defaultValue = "1", minimum = "1")
     @Min(value = 1, message = "page는 1 이상이어야 합니다.")
@@ -77,6 +85,7 @@ public class InventoryQueryRequest {
                 normalize(storageType, STORAGE_TYPES, "storageType"),
                 normalize(riskGrade, RISK_GRADES, "riskGrade"),
                 normalize(assessmentStatus, ASSESSMENT_STATUSES, "assessmentStatus"),
+                normalizeFilterOperator(),
                 page == null ? 1 : page,
                 size == null ? 20 : size,
                 sortColumn(sort),
@@ -146,7 +155,7 @@ public class InventoryQueryRequest {
     }
 
     private static String sortDirection(String sort) {
-        String direction = sortPart(sort, 1, "desc").toLowerCase();
+        String direction = sortPart(sort, 1, "desc").toLowerCase(Locale.ROOT);
         return switch (direction) {
             case "asc" -> "ASC";
             case "desc" -> "DESC";
@@ -176,6 +185,18 @@ public class InventoryQueryRequest {
             return null;
         }
         return value.trim();
+    }
+
+    private String normalizeFilterOperator() {
+        String normalized = trimToNull(filterOperator);
+        if (normalized == null) {
+            return "AND";
+        }
+        normalized = normalized.toUpperCase(Locale.ROOT);
+        if (!FILTER_OPERATORS.contains(normalized)) {
+            throw new AppException(ErrorCode.INVALID_PARAMETER);
+        }
+        return normalized;
     }
 
     public String getQ() {
@@ -248,6 +269,14 @@ public class InventoryQueryRequest {
 
     public void setAssessmentStatus(List<String> assessmentStatus) {
         this.assessmentStatus = assessmentStatus;
+    }
+
+    public String getFilterOperator() {
+        return filterOperator;
+    }
+
+    public void setFilterOperator(String filterOperator) {
+        this.filterOperator = filterOperator;
     }
 
     public Integer getPage() {

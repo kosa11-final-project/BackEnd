@@ -195,6 +195,7 @@ class InventoryQueryServiceImplTest {
         lot.setLotNumber("LOT-NULL");
         given(inventoryMapper.selectInventoryLots(eq("SKU-1"), eq("GREETING"), any(LocalDate.class)))
                 .willReturn(List.of(lot));
+        given(inventoryMapper.countInventoryScope("SKU-1", "GREETING")).willReturn(1);
 
         InventoryDetailResponse detail = inventoryQueryService.detail("SKU-1", "GREETING");
         InventoryLotsResponse lots = inventoryQueryService.lots("SKU-1", "GREETING");
@@ -219,9 +220,7 @@ class InventoryQueryServiceImplTest {
 
     @Test
     void lotsReturnsEmptyListWhenItemExistsButHasNoLots() {
-        InventoryItemVO item = createItemVO("SKU-1", "GREETING");
-        given(inventoryMapper.selectInventoryDetail(eq("SKU-1"), eq("GREETING"), any(LocalDate.class)))
-                .willReturn(item);
+        given(inventoryMapper.countInventoryScope("SKU-1", "GREETING")).willReturn(1);
         given(inventoryMapper.selectInventoryLots(eq("SKU-1"), eq("GREETING"), any(LocalDate.class)))
                 .willReturn(List.of());
 
@@ -229,11 +228,11 @@ class InventoryQueryServiceImplTest {
 
         assertThat(response.totalCount()).isZero();
         assertThat(response.items()).isEmpty();
+        verify(inventoryMapper, never()).selectInventoryDetail(eq("SKU-1"), eq("GREETING"), any(LocalDate.class));
     }
 
     @Test
     void lotsReturnsLotItemsWhenItemExistsAndHasLots() {
-        InventoryItemVO item = createItemVO("SKU-1", "GREETING");
         InventoryLotVO lot = new InventoryLotVO();
         lot.setLotId(10L);
         lot.setLotNumber("LOT-2026-001");
@@ -245,8 +244,7 @@ class InventoryQueryServiceImplTest {
         lot.setWarehouseCode("GYEONGIN_1");
         lot.setWarehouseName("경인 1센터");
 
-        given(inventoryMapper.selectInventoryDetail(eq("SKU-1"), eq("GREETING"), any(LocalDate.class)))
-                .willReturn(item);
+        given(inventoryMapper.countInventoryScope("SKU-1", "GREETING")).willReturn(1);
         given(inventoryMapper.selectInventoryLots(eq("SKU-1"), eq("GREETING"), any(LocalDate.class)))
                 .willReturn(List.of(lot));
 
@@ -260,12 +258,12 @@ class InventoryQueryServiceImplTest {
 
     @Test
     void lotsThrowsNotFoundWhenItemDoesNotExist() {
-        given(inventoryMapper.selectInventoryDetail(eq("SKU-999"), eq("GREETING"), any(LocalDate.class)))
-                .willReturn(null);
+        given(inventoryMapper.countInventoryScope("SKU-999", "GREETING")).willReturn(0);
 
         assertThatThrownBy(() -> inventoryQueryService.lots("SKU-999", "GREETING"))
                 .isInstanceOf(AppException.class)
                 .hasFieldOrPropertyWithValue("errorCode", ErrorCode.NOT_FOUND);
+        verify(inventoryMapper, never()).selectInventoryLots(eq("SKU-999"), eq("GREETING"), any(LocalDate.class));
     }
 
     private InventoryItemVO createItemVO(String skuCode, String salesPointCode) {

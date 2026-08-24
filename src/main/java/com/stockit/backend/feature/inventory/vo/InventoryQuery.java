@@ -14,6 +14,7 @@ public final class InventoryQuery {
     private final List<String> storageTypes;
     private final List<String> riskGrades;
     private final List<String> assessmentStatuses;
+    private final String filterOperator;
     private final int page;
     private final int size;
     private final String sortColumn;
@@ -30,6 +31,7 @@ public final class InventoryQuery {
             List<String> storageTypes,
             List<String> riskGrades,
             List<String> assessmentStatuses,
+            String filterOperator,
             int page,
             int size,
             String sortColumn,
@@ -45,6 +47,10 @@ public final class InventoryQuery {
         this.storageTypes = List.copyOf(storageTypes == null ? List.of() : storageTypes);
         this.riskGrades = List.copyOf(riskGrades == null ? List.of() : riskGrades);
         this.assessmentStatuses = List.copyOf(assessmentStatuses == null ? List.of() : assessmentStatuses);
+        if (!"AND".equals(filterOperator) && !"OR".equals(filterOperator)) {
+            throw new IllegalArgumentException("filterOperator must be AND or OR");
+        }
+        this.filterOperator = filterOperator;
         this.page = page;
         this.size = size;
         this.sortColumn = sortColumn;
@@ -61,6 +67,7 @@ public final class InventoryQuery {
     public List<String> storageTypes() { return storageTypes; }
     public List<String> riskGrades() { return riskGrades; }
     public List<String> assessmentStatuses() { return assessmentStatuses; }
+    public String filterOperator() { return filterOperator; }
     public int page() { return page; }
     public int size() { return size; }
     public String sortColumn() { return sortColumn; }
@@ -76,6 +83,7 @@ public final class InventoryQuery {
     public List<String> getStorageTypes() { return storageTypes; }
     public List<String> getRiskGrades() { return riskGrades; }
     public List<String> getAssessmentStatuses() { return assessmentStatuses; }
+    public String getFilterOperator() { return filterOperator; }
     public int getPage() { return page; }
     public int getSize() { return size; }
     public String getSortColumn() { return sortColumn; }

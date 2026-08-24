@@ -23,6 +23,7 @@ public final class InventoryQueryParameterValidator {
             "storageType",
             "riskGrade",
             "assessmentStatus",
+            "filterOperator",
             "page",
             "size",
             "sort"
