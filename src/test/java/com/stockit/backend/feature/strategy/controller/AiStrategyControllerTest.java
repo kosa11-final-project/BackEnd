@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,6 +29,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.stockit.backend.feature.strategy.domain.StrategyCaseCreated;
 import com.stockit.backend.feature.strategy.domain.StrategyCaseStatus;
 import com.stockit.backend.feature.strategy.dto.response.AiStrategyCaseResponse;
+import com.stockit.backend.feature.strategy.dto.response.AiStrategyCaseListPageResponse;
+import com.stockit.backend.feature.strategy.service.AiStrategyCaseListService;
 import com.stockit.backend.feature.strategy.service.AiStrategyCaseQueryService;
 import com.stockit.backend.feature.strategy.service.StrategyCaseService;
 
@@ -42,6 +45,7 @@ class AiStrategyControllerTest {
     @Autowired private ObjectMapper objectMapper;
     @MockitoBean private StrategyCaseService caseService;
     @MockitoBean private AiStrategyCaseQueryService queryService;
+    @MockitoBean private AiStrategyCaseListService listService;
 
     @Test
     @WithMockUser(roles = "GREENFOOD_ADMIN")
@@ -90,6 +94,38 @@ class AiStrategyControllerTest {
 
     @Test
     @WithMockUser(roles = "GREENFOOD_ADMIN")
+    void returnsGenerationCaseListWithStatusCounts() throws Exception {
+        when(listService.findAll(any())).thenReturn(new AiStrategyCaseListPageResponse(
+                List.of(),
+                new AiStrategyCaseListPageResponse.StatusCounts(3, 1, 1, 1),
+                0, 10, 0, 0, true, true
+        ));
+
+        mockMvc.perform(get("/api/v1/ai-strategies")
+                        .queryParam("status", "GENERATED")
+                        .queryParam("from", "2026-08-01")
+                        .queryParam("to", "2026-08-24"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.statusCounts.all").value(3))
+                .andExpect(jsonPath("$.data.statusCounts.generated").value(1))
+                .andExpect(jsonPath("$.data.content").isArray());
+    }
+
+    @Test
+    @WithMockUser(roles = "GREENFOOD_ADMIN")
+    void rejectsUnknownOrDuplicateListParameters() throws Exception {
+        mockMvc.perform(get("/api/v1/ai-strategies").queryParam("unknown", "value"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON-002"));
+
+        mockMvc.perform(get("/api/v1/ai-strategies")
+                        .queryParam("status", "GENERATED", "GENERATING"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON-002"));
+    }
+
+    @Test
+    @WithMockUser(roles = "GREENFOOD_ADMIN")
     void rejectsInvalidRequestBeforeServiceCall() throws Exception {
         mockMvc.perform(createRequest(requestCsrf(), "{\"skuId\":0}"))
                 .andExpect(status().isBadRequest())
@@ -97,12 +133,16 @@ class AiStrategyControllerTest {
     }
 
     @Test
-    void rejectsAnonymousCreateAndDetailRequests() throws Exception {
+    void rejectsAnonymousCreateDetailAndListRequests() throws Exception {
         mockMvc.perform(createRequest(requestCsrf(), "{\"skuId\":1001}"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("AUTH-001"));
 
         mockMvc.perform(get("/api/v1/ai-strategies/123"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("AUTH-001"));
+
+        mockMvc.perform(get("/api/v1/ai-strategies"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("AUTH-001"));
     }
@@ -126,6 +166,8 @@ class AiStrategyControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.paths['/api/v1/ai-strategies'].post.summary")
                         .value("AI 전략 생성 요청"))
+                .andExpect(jsonPath("$.paths['/api/v1/ai-strategies'].get.summary")
+                        .value("AI 전략 생성 Case 목록 조회"))
                 .andExpect(jsonPath("$.paths['/api/v1/ai-strategies/{strategyCaseId}'].get.summary")
                         .value("AI 전략 생성 상태·결과 조회"));
     }
