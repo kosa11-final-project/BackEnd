@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 
 import com.stockit.backend.feature.strategy.calculation.domain.SimulationDetailLevel;
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculationException;
+import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculationContext;
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCandidateEvaluationResult;
 import com.stockit.backend.feature.strategy.calculation.service.StrategyCandidateEvaluationService;
 import com.stockit.backend.feature.strategy.domain.StrategyCaseStatus;
@@ -29,6 +30,7 @@ import com.stockit.backend.feature.strategy.result.StrategyResultStore;
 import com.stockit.backend.feature.strategy.result.StrategyResultStoreException;
 import com.stockit.backend.feature.strategy.service.StrategyGenerationStageService;
 import com.stockit.backend.feature.strategy.service.StrategyRecommendationStageProcessor;
+import com.stockit.backend.feature.strategy.simulation.StrategySimulationContextStore;
 import com.stockit.backend.feature.strategy.vo.StrategyCaseVO;
 
 /** STRATEGY_GENERATING 단계의 계산·LLM·최종 캐시·DB 완료 전환을 복구 가능하게 처리한다. */
@@ -50,6 +52,7 @@ public class StrategyRecommendationStageProcessorImpl
     private final StrategyResultLockManager lockManager;
     private final StrategyGenerationStageService stageService;
     private final StrategyResultProperties resultProperties;
+    private final StrategySimulationContextStore simulationContextStore;
 
     public StrategyRecommendationStageProcessorImpl(
             StrategyCaseMapper caseMapper,
@@ -59,7 +62,8 @@ public class StrategyRecommendationStageProcessorImpl
             StrategyResultStore resultStore,
             StrategyResultLockManager lockManager,
             StrategyGenerationStageService stageService,
-            StrategyResultProperties resultProperties
+            StrategyResultProperties resultProperties,
+            StrategySimulationContextStore simulationContextStore
     ) {
         this.caseMapper = caseMapper;
         this.evaluationService = evaluationService;
@@ -69,6 +73,7 @@ public class StrategyRecommendationStageProcessorImpl
         this.lockManager = lockManager;
         this.stageService = stageService;
         this.resultProperties = resultProperties;
+        this.simulationContextStore = simulationContextStore;
     }
 
     @Override
@@ -110,6 +115,7 @@ public class StrategyRecommendationStageProcessorImpl
             StrategyGenerationResult result = resultFactory.create(
                     strategyCaseId, recommendation
             );
+            saveSimulationContext(recommendation.calculationContext());
             StrategyResultCacheEntry entry = save(result);
             complete(strategyCaseId, entry);
         } catch (PermanentStrategyGenerationException
@@ -172,6 +178,26 @@ public class StrategyRecommendationStageProcessorImpl
             throw new RetryableStrategyGenerationException(
                     "STRATEGY_RESULT_CACHE_UNAVAILABLE", STAGE,
                     exception.getMessage(), exception
+            );
+        }
+    }
+
+    private void saveSimulationContext(StrategyCalculationContext context) {
+        try {
+            simulationContextStore.save(context);
+        } catch (InvalidStrategyResultException exception) {
+            throw new PermanentStrategyGenerationException(
+                    "STRATEGY_SIMULATION_CONTEXT_INVALID",
+                    STAGE,
+                    exception.getMessage(),
+                    exception
+            );
+        } catch (StrategyResultStoreException exception) {
+            throw new RetryableStrategyGenerationException(
+                    "STRATEGY_RESULT_CACHE_UNAVAILABLE",
+                    STAGE,
+                    exception.getMessage(),
+                    exception
             );
         }
     }
