@@ -39,6 +39,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 
+/** AI 전략 생성 요청·목록·상세·조정 시뮬레이션 API */
 @RestController
 @RequestMapping("/api/v1/ai-strategies")
 @Tag(name = "AI 전략 생성", description = "비동기 AI 전략 생성을 요청하고 진행 상태와 결과를 조회합니다.")
@@ -99,8 +100,14 @@ public class AiStrategyController {
         return ResponseEntity.accepted().location(location).body(ApiResponse.of(created));
     }
 
+    /** Case 정보와 생성 당시 조건, 만료되지 않은 추천 결과의 상세 조회 */
     @GetMapping("/{strategyCaseId}")
-    @Operation(summary = "AI 전략 생성 상태·결과 조회", description = "생성 중에는 상태만, 완료 후에는 기준 시뮬레이션과 추천 전략을 반환합니다.")
+    @Operation(summary = "AI 전략 생성 상태·결과 조회", description = "Case·상품·요청 조건을 반환하고, 생성 완료 후에는 표시명이 보강된 기준 시뮬레이션과 추천 전략을 반환합니다.")
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "상세 조회 성공"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "Case 없음", content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "410", description = "생성 결과 보관 기간 만료", content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
+    })
     public ApiResponse<AiStrategyCaseResponse> detail(@PathVariable Long strategyCaseId) {
         return ApiResponse.of(queryService.find(strategyCaseId));
     }
