@@ -16,17 +16,24 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.stockit.backend.common.api.ApiErrorResponse;
 import com.stockit.backend.common.api.ApiResponse;
+import com.stockit.backend.common.exception.AppException;
+import com.stockit.backend.common.exception.ErrorCode;
 import com.stockit.backend.feature.auth.security.AuthPrincipal;
 import com.stockit.backend.feature.strategy.domain.StrategyCaseCreated;
 import com.stockit.backend.feature.strategy.dto.request.AiStrategyCaseListRequest;
 import com.stockit.backend.feature.strategy.dto.request.AdjustAiStrategySimulationRequest;
 import com.stockit.backend.feature.strategy.dto.request.AiStrategyCaseListQueryParameterValidator;
 import com.stockit.backend.feature.strategy.dto.request.CreateAiStrategyRequest;
+import com.stockit.backend.feature.strategy.dto.request.SendAiStrategyTeamsRequest;
 import com.stockit.backend.feature.strategy.dto.response.AiStrategyCaseListPageResponse;
 import com.stockit.backend.feature.strategy.dto.response.AiStrategyCaseResponse;
 import com.stockit.backend.feature.strategy.dto.response.AdjustedAiStrategySimulationResponse;
+import com.stockit.backend.feature.strategy.dto.response.AiStrategyReviewerListResponse;
+import com.stockit.backend.feature.strategy.dto.response.AiStrategyTeamsRequestResponse;
+import com.stockit.backend.feature.strategy.service.AiStrategyApprovalService;
 import com.stockit.backend.feature.strategy.service.AiStrategyCaseListService;
 import com.stockit.backend.feature.strategy.service.AiStrategyCaseQueryService;
+import com.stockit.backend.feature.strategy.service.AiStrategyReviewerService;
 import com.stockit.backend.feature.strategy.service.StrategyCaseService;
 import com.stockit.backend.feature.strategy.simulation.StrategyAdjustmentSimulationService;
 
@@ -49,17 +56,23 @@ public class AiStrategyController {
     private final AiStrategyCaseQueryService queryService;
     private final AiStrategyCaseListService listService;
     private final StrategyAdjustmentSimulationService adjustmentSimulationService;
+    private final AiStrategyReviewerService reviewerService;
+    private final AiStrategyApprovalService approvalService;
 
     public AiStrategyController(
             StrategyCaseService caseService,
             AiStrategyCaseQueryService queryService,
             AiStrategyCaseListService listService,
-            StrategyAdjustmentSimulationService adjustmentSimulationService
+            StrategyAdjustmentSimulationService adjustmentSimulationService,
+            AiStrategyReviewerService reviewerService,
+            AiStrategyApprovalService approvalService
     ) {
         this.caseService = caseService;
         this.queryService = queryService;
         this.listService = listService;
         this.adjustmentSimulationService = adjustmentSimulationService;
+        this.reviewerService = reviewerService;
+        this.approvalService = approvalService;
     }
 
     @GetMapping
@@ -135,5 +148,49 @@ public class AiStrategyController {
                 candidateId,
                 request.toCommand()
         ));
+    }
+
+    @GetMapping("/reviewers")
+    @Operation(
+            summary = "AI 전략 Teams 검토자 목록 조회",
+            description = "현재 사용자와 동일한 조직의 활성 이메일 보유 사용자를 조회합니다."
+    )
+    public ApiResponse<AiStrategyReviewerListResponse> reviewers(
+            @AuthenticationPrincipal AuthPrincipal principal
+    ) {
+        AuthPrincipal authenticated = requirePrincipal(principal);
+        return ApiResponse.of(reviewerService.findAll(
+                authenticated.getOrganizationId()
+        ));
+    }
+
+    @PostMapping("/{strategyCaseId}/teams-requests")
+    @Operation(
+            summary = "최종 AI 전략 선택 및 Teams 검토 요청",
+            description = "선택 후보와 계산 스냅샷을 DB에 확정하고 Reviewer별 Teams 개인 채팅을 전송합니다."
+    )
+    public ApiResponse<AiStrategyTeamsRequestResponse> sendToTeams(
+            @PathVariable Long strategyCaseId,
+            @Valid @RequestBody SendAiStrategyTeamsRequest request,
+            @Parameter(description = "GET /api/v1/auth/csrf에서 발급받은 CSRF 토큰")
+            @RequestHeader(name = "X-XSRF-TOKEN") String csrfToken,
+            @AuthenticationPrincipal AuthPrincipal principal
+    ) {
+        AuthPrincipal authenticated = requirePrincipal(principal);
+        return ApiResponse.of(approvalService.sendToTeams(
+                strategyCaseId,
+                request.optionId(),
+                request.reviewerIds(),
+                authenticated.getUserId(),
+                authenticated.getUserName(),
+                authenticated.getOrganizationId()
+        ));
+    }
+
+    private static AuthPrincipal requirePrincipal(AuthPrincipal principal) {
+        if (principal == null) {
+            throw new AppException(ErrorCode.AUTHENTICATION_FAILED);
+        }
+        return principal;
     }
 }

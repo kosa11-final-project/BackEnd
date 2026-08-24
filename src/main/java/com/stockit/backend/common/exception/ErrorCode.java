@@ -25,6 +25,7 @@ public enum ErrorCode {
     AI_STRATEGY_DATE_OUT_OF_RANGE(HttpStatus.BAD_REQUEST, "AI 전략 희망 기간이 허용 범위를 벗어났습니다.", "AI_STRATEGY-005"),
     AI_STRATEGY_START_AFTER_END(HttpStatus.BAD_REQUEST, "AI 전략 희망 시작일은 종료일보다 늦을 수 없습니다.", "AI_STRATEGY-006"),
     AI_STRATEGY_SIMULATION_INVALID(HttpStatus.BAD_REQUEST, "AI 전략 조정 조건이 실행 가능 범위를 벗어났습니다.", "AI_STRATEGY-012"),
+    AI_STRATEGY_INVALID_REVIEWERS(HttpStatus.BAD_REQUEST, "AI 전략 검토자 선택이 올바르지 않습니다.", "AI_STRATEGY-015"),
 
     // ==============================
     // 401 UNAUTHORIZED
@@ -67,6 +68,7 @@ public enum ErrorCode {
     AI_STRATEGY_EXECUTION_NOT_FOUND(HttpStatus.NOT_FOUND, "AI 전략 실행 정보를 찾을 수 없습니다.", "AI_STRATEGY-010"),
     AI_STRATEGY_CASE_NOT_FOUND(HttpStatus.NOT_FOUND, "AI 전략 생성 요청을 찾을 수 없습니다.", "AI_STRATEGY-011"),
     AI_STRATEGY_CANDIDATE_NOT_FOUND(HttpStatus.NOT_FOUND, "AI 전략 후보를 찾을 수 없습니다.", "AI_STRATEGY-013"),
+    AI_STRATEGY_REVIEWER_NOT_FOUND(HttpStatus.NOT_FOUND, "선택한 AI 전략 검토자를 찾을 수 없습니다.", "AI_STRATEGY-016"),
 
     // ==============================
     // 410 GONE
@@ -95,6 +97,7 @@ public enum ErrorCode {
 
     // AI STRATEGY
     AI_STRATEGY_DUPLICATE_INPUT(HttpStatus.CONFLICT, "AI 전략 생성 요청에 중복된 값이 포함되어 있습니다.", "AI_STRATEGY-002"),
+    AI_STRATEGY_SELECTION_CONFLICT(HttpStatus.CONFLICT, "이미 확정된 AI 전략과 요청이 충돌합니다.", "AI_STRATEGY-017"),
 
     // TMP - 구조 확인 후 실제 기능과 함께 제거
     TMP_CONFLICT(HttpStatus.CONFLICT, "테스트 요청이 충돌했습니다.", "TMP-001"),
