@@ -1,0 +1,22 @@
+groups:
+  - name: stockit-backend
+    rules:
+      - alert: StockitBackendDown
+        expr: up{job="stockit-backend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: StockIt backend is down
+          description: Prometheus has not been able to scrape the backend for more than one minute.
+
+      - alert: StockitJvmHeapHigh
+        expr: |
+          100 * sum(jvm_memory_used_bytes{job="stockit-backend",area="heap"})
+            / sum(jvm_memory_max_bytes{job="stockit-backend",area="heap"}) > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: StockIt JVM heap usage is high
+          description: JVM heap usage has remained above 85% for five minutes.
