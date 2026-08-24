@@ -158,6 +158,23 @@
           AND is_deleted = 0
     </update>
 
+    <update id="markGeneratedIfStrategyGenerating">
+        UPDATE strategy_case
+        SET case_status = 'GENERATED',
+            generation_stage = 'COMPARISON_READY',
+            result_cache_key = #{resultCacheKey},
+            result_expires_at = #{resultExpiresAt},
+            completed_at = SYSTIMESTAMP,
+            failure_code = NULL,
+            failure_message = NULL,
+            updated_at = SYSTIMESTAMP,
+            updated_by = created_by
+        WHERE strategy_case_id = #{strategyCaseId}
+          AND case_status = 'GENERATING'
+          AND generation_stage = 'STRATEGY_GENERATING'
+          AND is_deleted = 0
+    </update>
+
     <update id="markGenerationFailedIfGenerating">
         UPDATE strategy_case
         SET case_status = 'GENERATION_FAILED',

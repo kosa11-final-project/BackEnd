@@ -47,6 +47,7 @@ import com.stockit.backend.feature.strategy.messaging.StrategyGenerationJobMessa
 import com.stockit.backend.feature.strategy.service.StrategyCasePayloadException;
 import com.stockit.backend.feature.strategy.service.StrategyCaseRequestPayloadSerializer;
 import com.stockit.backend.feature.strategy.service.StrategyGenerationStageService;
+import com.stockit.backend.feature.strategy.service.StrategyRecommendationStageProcessor;
 import com.stockit.backend.feature.strategy.vo.StrategyCaseVO;
 
 @ExtendWith(MockitoExtension.class)
@@ -68,6 +69,8 @@ class StrategyGenerationJobHandlerImplTest {
     private StrategyForecastResponseValidator responseValidator;
     @Mock
     private StrategyGenerationStageService stageService;
+    @Mock
+    private StrategyRecommendationStageProcessor recommendationStageProcessor;
 
     private StrategyGenerationJobHandlerImpl handler;
 
@@ -81,7 +84,8 @@ class StrategyGenerationJobHandlerImplTest {
                 lockManager,
                 forecastProvider,
                 responseValidator,
-                stageService
+                stageService,
+                recommendationStageProcessor
         );
     }
 
@@ -369,7 +373,7 @@ class StrategyGenerationJobHandlerImplTest {
     }
 
     @Test
-    void treatsStrategyGeneratingCaseAsIdempotentNoOp() {
+    void delegatesStrategyGeneratingCaseToRecommendationProcessor() {
         when(strategyCaseMapper.selectStrategyCaseById(12345L))
                 .thenReturn(generatingCase(StrategyGenerationStage.STRATEGY_GENERATING));
 
@@ -377,6 +381,7 @@ class StrategyGenerationJobHandlerImplTest {
 
         verify(payloadSerializer, never()).deserialize(any());
         verify(checkpointStore, never()).find(any(), any(), any());
+        verify(recommendationStageProcessor).process(12345L);
     }
 
     @Test

@@ -60,6 +60,13 @@ public interface StrategyCaseMapper {
             @Param("strategyCaseId") Long strategyCaseId
     );
 
+    /** 최종 Redis 결과를 가리키며 생성 완료 상태로 조건부 전환 */
+    int markGeneratedIfStrategyGenerating(
+            @Param("strategyCaseId") Long strategyCaseId,
+            @Param("resultCacheKey") String resultCacheKey,
+            @Param("resultExpiresAt") LocalDateTime resultExpiresAt
+    );
+
     /**
      * 생성 중인 Case에 한해 최종 실패 상태와 원인을 기록
      */
