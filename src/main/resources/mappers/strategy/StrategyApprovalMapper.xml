@@ -1,0 +1,217 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.stockit.backend.feature.strategy.mapper.StrategyApprovalMapper">
+
+    <select id="selectCaseForUpdate" resultType="com.stockit.backend.feature.strategy.approval.StrategyApprovalRecords$CaseRecord">
+        SELECT strategy_case.strategy_case_id,
+               strategy_case.sku_id,
+               strategy_case.case_name,
+               strategy_case.case_status,
+               requester.user_id AS requester_id,
+               requester.user_name AS requester_name,
+               requester.organization_id AS requester_organization_id
+        FROM strategy_case
+        JOIN app_user requester
+          ON requester.user_id = strategy_case.created_by
+        WHERE strategy_case.strategy_case_id = #{strategyCaseId}
+          AND strategy_case.is_deleted = 0
+        FOR UPDATE OF strategy_case.case_status
+    </select>
+
+    <select id="selectExistingSelection" resultType="com.stockit.backend.feature.strategy.approval.StrategyApprovalRecords$ExistingSelectionRecord">
+        SELECT final_selection.final_selection_id,
+               final_selection.strategy_option_id,
+               strategy_option.option_rank
+        FROM final_strategy_selection final_selection
+        JOIN strategy_option
+          ON strategy_option.strategy_option_id = final_selection.strategy_option_id
+         AND strategy_option.is_deleted = 0
+        WHERE final_selection.strategy_case_id = #{strategyCaseId}
+          AND final_selection.is_deleted = 0
+        ORDER BY final_selection.created_at DESC,
+                 final_selection.final_selection_id DESC
+        FETCH FIRST 1 ROW ONLY
+    </select>
+
+    <insert id="insertOption" useGeneratedKeys="true"
+            keyProperty="strategyOptionId" keyColumn="strategy_option_id">
+        INSERT INTO strategy_option (
+            strategy_case_id, option_rank, option_name, recommendation_reason,
+            advantage_text, caution_text, constraint_text,
+            created_at, updated_at, created_by, updated_by, is_deleted
+        ) VALUES (
+            #{strategyCaseId}, #{optionRank}, #{optionName}, #{recommendationReason},
+            #{advantageText}, #{cautionText}, #{constraintText},
+            SYSTIMESTAMP, SYSTIMESTAMP, #{createdBy}, #{updatedBy}, 0
+        )
+    </insert>
+
+    <insert id="insertSimulation" useGeneratedKeys="true"
+            keyProperty="simulationId" keyColumn="simulation_id">
+        INSERT INTO strategy_simulation (
+            strategy_option_id, input_source_type, target_quantity,
+            strategy_price, movement_cost, expected_sales_qty,
+            expected_revenue, unit_contribution_margin,
+            contribution_margin_rate, total_contribution_margin,
+            expected_remaining_qty, expected_sell_through_days,
+            created_at, updated_at, created_by, updated_by, is_deleted
+        ) VALUES (
+            #{strategyOptionId}, #{inputSourceType}, #{targetQuantity},
+            #{strategyPrice}, #{movementCost}, #{expectedSalesQty},
+            #{expectedRevenue}, #{unitContributionMargin},
+            #{contributionMarginRate}, #{totalContributionMargin},
+            #{expectedRemainingQty}, #{expectedSellThroughDays},
+            SYSTIMESTAMP, SYSTIMESTAMP, #{createdBy}, #{updatedBy}, 0
+        )
+    </insert>
+
+    <insert id="insertAction" useGeneratedKeys="true"
+            keyProperty="strategyActionId" keyColumn="strategy_action_id">
+        INSERT INTO strategy_action (
+            strategy_option_id, source_sales_point_id, target_sales_point_id,
+            source_warehouse_id, destination_warehouse_id, action_type,
+            action_quantity, strategy_price, discount_rate,
+            start_date, end_date, estimated_action_cost, action_order,
+            created_at, updated_at, created_by, updated_by, is_deleted
+        ) VALUES (
+            #{strategyOptionId}, #{sourceSalesPointId}, #{targetSalesPointId},
+            #{sourceWarehouseId}, #{destinationWarehouseId}, #{actionType},
+            #{actionQuantity}, #{strategyPrice}, #{discountRate},
+            #{startDate}, #{endDate}, #{estimatedActionCost}, #{actionOrder},
+            SYSTIMESTAMP, SYSTIMESTAMP, #{createdBy}, #{updatedBy}, 0
+        )
+    </insert>
+
+    <insert id="insertLotAllocation">
+        INSERT INTO strategy_lot_allocation (
+            lot_id, allocated_quantity, priority_no,
+            source_warehouse_id, source_sales_point_id, strategy_action_id,
+            created_at, updated_at, created_by, updated_by, is_deleted
+        ) VALUES (
+            #{lotId}, #{allocatedQuantity}, #{priorityNo},
+            #{sourceWarehouseId}, #{sourceSalesPointId}, #{strategyActionId},
+            SYSTIMESTAMP, SYSTIMESTAMP, #{createdBy}, #{updatedBy}, 0
+        )
+    </insert>
+
+    <insert id="insertInventorySnapshot">
+        INSERT INTO strategy_inventory_snapshot (
+            strategy_case_id, sku_id, lot_id, sales_point_id,
+            inventory_balance_id, on_total_qty, on_hand_qty,
+            safety_stock_qty, daily_sales_velocity, forecast_qty,
+            expiry_date, warehouse_id,
+            created_at, updated_at, created_by, updated_by, is_deleted
+        ) VALUES (
+            #{strategyCaseId}, #{skuId}, #{lotId}, #{salesPointId},
+            #{inventoryBalanceId}, #{onTotalQty}, #{onHandQty},
+            #{safetyStockQty}, #{dailySalesVelocity}, #{forecastQty},
+            #{expiryDate}, #{warehouseId},
+            SYSTIMESTAMP, SYSTIMESTAMP, #{createdBy}, #{updatedBy}, 0
+        )
+    </insert>
+
+    <insert id="insertPriceSnapshot">
+        INSERT INTO strategy_price_snapshot (
+            strategy_case_id, sku_id, sales_point_id, current_price,
+            product_cost, payment_fee, logistics_cost,
+            unit_variable_cost, baseline_unit_contribution_margin,
+            created_at, updated_at, created_by, updated_by, is_deleted
+        ) VALUES (
+            #{strategyCaseId}, #{skuId}, #{salesPointId}, #{currentPrice},
+            #{productCost}, #{paymentFee}, #{logisticsCost},
+            #{unitVariableCost}, #{baselineUnitContributionMargin},
+            SYSTIMESTAMP, SYSTIMESTAMP, #{createdBy}, #{updatedBy}, 0
+        )
+    </insert>
+
+    <insert id="insertFinalSelection" useGeneratedKeys="true"
+            keyProperty="finalSelectionId" keyColumn="final_selection_id">
+        INSERT INTO final_strategy_selection (
+            strategy_case_id, strategy_option_id,
+            created_at, updated_at, created_by, updated_by, is_deleted
+        ) VALUES (
+            #{strategyCaseId}, #{strategyOptionId},
+            SYSTIMESTAMP, SYSTIMESTAMP, #{createdBy}, #{updatedBy}, 0
+        )
+    </insert>
+
+    <insert id="insertForecastSnapshot">
+        INSERT INTO strategy_forecast_snapshot (
+            final_selection_id, sales_point_id, model_version_id,
+            forecast_role, forecast_run_id, strategy_period_predicted_qty,
+            forecast_30d_qty, forecast_60d_qty, forecast_90d_qty,
+            forecast_180d_qty, daily_forecast_json, input_data_hash,
+            forecast_generated_at,
+            created_at, updated_at, created_by, updated_by, is_deleted
+        ) VALUES (
+            #{finalSelectionId}, #{salesPointId}, #{modelVersionId},
+            #{forecastRole}, #{forecastRunId}, #{strategyPeriodPredictedQty},
+            #{forecast30dQty}, #{forecast60dQty}, #{forecast90dQty},
+            #{forecast180dQty}, #{dailyForecastJson}, #{inputDataHash},
+            #{forecastGeneratedAt},
+            SYSTIMESTAMP, SYSTIMESTAMP, #{createdBy}, #{updatedBy}, 0
+        )
+    </insert>
+
+    <insert id="insertReviewRequest" useGeneratedKeys="true"
+            keyProperty="reviewRequestId" keyColumn="review_request_id">
+        INSERT INTO strategy_review_request (
+            strategy_option_id, requester_id, reviewer_id, review_status,
+            teams_message_id, strategy_url,
+            created_at, updated_at, created_by, updated_by, is_deleted
+        ) VALUES (
+            #{strategyOptionId}, #{requesterId}, #{reviewerId}, #{reviewStatus},
+            #{teamsMessageId}, #{strategyUrl},
+            SYSTIMESTAMP, SYSTIMESTAMP, #{createdBy}, #{updatedBy}, 0
+        )
+    </insert>
+
+    <select id="selectReviewRequests" resultType="com.stockit.backend.feature.strategy.approval.StrategyApprovalRecords$ReviewRequestRecord">
+        SELECT review_request_id,
+               reviewer_id,
+               review_status
+        FROM strategy_review_request
+        WHERE strategy_option_id = #{strategyOptionId}
+          AND is_deleted = 0
+          AND reviewer_id IN
+        <foreach collection="reviewerIds" item="reviewerId" open="(" separator="," close=")">
+            #{reviewerId}
+        </foreach>
+        ORDER BY reviewer_id
+    </select>
+
+    <update id="updateReviewStatus">
+        UPDATE strategy_review_request
+        SET review_status = #{reviewStatus},
+            updated_at = SYSTIMESTAMP,
+            updated_by = #{actorId}
+        WHERE review_request_id = #{reviewRequestId}
+          AND review_status != 'SENT'
+          AND is_deleted = 0
+    </update>
+
+    <update id="markReadyToExecuteIfAllSent">
+        UPDATE strategy_case
+        SET case_status = 'READY_TO_EXECUTE',
+            updated_at = SYSTIMESTAMP,
+            updated_by = #{actorId}
+        WHERE strategy_case_id = #{strategyCaseId}
+          AND case_status = 'GENERATED'
+          AND is_deleted = 0
+          AND EXISTS (
+              SELECT 1
+              FROM strategy_review_request request
+              WHERE request.strategy_option_id = #{strategyOptionId}
+                AND request.is_deleted = 0
+          )
+          AND NOT EXISTS (
+              SELECT 1
+              FROM strategy_review_request request
+              WHERE request.strategy_option_id = #{strategyOptionId}
+                AND request.review_status != 'SENT'
+                AND request.is_deleted = 0
+          )
+    </update>
+
+</mapper>
