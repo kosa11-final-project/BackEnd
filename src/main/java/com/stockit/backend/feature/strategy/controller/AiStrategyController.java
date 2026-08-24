@@ -19,13 +19,16 @@ import com.stockit.backend.common.api.ApiResponse;
 import com.stockit.backend.feature.auth.security.AuthPrincipal;
 import com.stockit.backend.feature.strategy.domain.StrategyCaseCreated;
 import com.stockit.backend.feature.strategy.dto.request.AiStrategyCaseListRequest;
+import com.stockit.backend.feature.strategy.dto.request.AdjustAiStrategySimulationRequest;
 import com.stockit.backend.feature.strategy.dto.request.AiStrategyCaseListQueryParameterValidator;
 import com.stockit.backend.feature.strategy.dto.request.CreateAiStrategyRequest;
 import com.stockit.backend.feature.strategy.dto.response.AiStrategyCaseListPageResponse;
 import com.stockit.backend.feature.strategy.dto.response.AiStrategyCaseResponse;
+import com.stockit.backend.feature.strategy.dto.response.AdjustedAiStrategySimulationResponse;
 import com.stockit.backend.feature.strategy.service.AiStrategyCaseListService;
 import com.stockit.backend.feature.strategy.service.AiStrategyCaseQueryService;
 import com.stockit.backend.feature.strategy.service.StrategyCaseService;
+import com.stockit.backend.feature.strategy.simulation.StrategyAdjustmentSimulationService;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -44,15 +47,18 @@ public class AiStrategyController {
     private final StrategyCaseService caseService;
     private final AiStrategyCaseQueryService queryService;
     private final AiStrategyCaseListService listService;
+    private final StrategyAdjustmentSimulationService adjustmentSimulationService;
 
     public AiStrategyController(
             StrategyCaseService caseService,
             AiStrategyCaseQueryService queryService,
-            AiStrategyCaseListService listService
+            AiStrategyCaseListService listService,
+            StrategyAdjustmentSimulationService adjustmentSimulationService
     ) {
         this.caseService = caseService;
         this.queryService = queryService;
         this.listService = listService;
+        this.adjustmentSimulationService = adjustmentSimulationService;
     }
 
     @GetMapping
@@ -97,5 +103,30 @@ public class AiStrategyController {
     @Operation(summary = "AI 전략 생성 상태·결과 조회", description = "생성 중에는 상태만, 완료 후에는 기준 시뮬레이션과 추천 전략을 반환합니다.")
     public ApiResponse<AiStrategyCaseResponse> detail(@PathVariable Long strategyCaseId) {
         return ApiResponse.of(queryService.find(strategyCaseId));
+    }
+
+    @PostMapping("/{strategyCaseId}/candidates/{candidateId}/simulations")
+    @Operation(
+            summary = "AI 전략 조건 조정 시뮬레이션",
+            description = "생성 당시 계산 스냅샷에서 적용 수량·할인율·기간을 변경하고 서버 계산을 동기 재실행합니다. 원본 추천 결과는 변경하지 않습니다."
+    )
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "조정 시뮬레이션 성공"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "실행 불가능한 조정 조건", content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "Case 또는 후보 없음", content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "410", description = "Redis 계산 스냅샷 만료", content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
+    })
+    public ApiResponse<AdjustedAiStrategySimulationResponse> adjustSimulation(
+            @PathVariable Long strategyCaseId,
+            @PathVariable String candidateId,
+            @Valid @RequestBody AdjustAiStrategySimulationRequest request,
+            @Parameter(description = "GET /api/v1/auth/csrf에서 발급받은 CSRF 토큰")
+            @RequestHeader(name = "X-XSRF-TOKEN") String csrfToken
+    ) {
+        return ApiResponse.of(adjustmentSimulationService.simulate(
+                strategyCaseId,
+                candidateId,
+                request.toCommand()
+        ));
     }
 }

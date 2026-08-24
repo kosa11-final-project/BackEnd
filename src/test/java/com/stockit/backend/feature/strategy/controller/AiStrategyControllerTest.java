@@ -11,6 +11,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.time.LocalDateTime;
+import java.time.LocalDate;
+import java.math.BigDecimal;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
@@ -30,9 +32,13 @@ import com.stockit.backend.feature.strategy.domain.StrategyCaseCreated;
 import com.stockit.backend.feature.strategy.domain.StrategyCaseStatus;
 import com.stockit.backend.feature.strategy.dto.response.AiStrategyCaseResponse;
 import com.stockit.backend.feature.strategy.dto.response.AiStrategyCaseListPageResponse;
+import com.stockit.backend.feature.strategy.dto.response.AdjustedAiStrategySimulationResponse;
+import com.stockit.backend.feature.strategy.calculation.domain.StrategyCandidateSimulation;
+import com.stockit.backend.feature.strategy.calculation.policy.SalesPointDiscountPolicy;
 import com.stockit.backend.feature.strategy.service.AiStrategyCaseListService;
 import com.stockit.backend.feature.strategy.service.AiStrategyCaseQueryService;
 import com.stockit.backend.feature.strategy.service.StrategyCaseService;
+import com.stockit.backend.feature.strategy.simulation.StrategyAdjustmentSimulationService;
 
 import jakarta.servlet.http.Cookie;
 
@@ -46,6 +52,7 @@ class AiStrategyControllerTest {
     @MockitoBean private StrategyCaseService caseService;
     @MockitoBean private AiStrategyCaseQueryService queryService;
     @MockitoBean private AiStrategyCaseListService listService;
+    @MockitoBean private StrategyAdjustmentSimulationService adjustmentSimulationService;
 
     @Test
     @WithMockUser(roles = "GREENFOOD_ADMIN")
@@ -90,6 +97,66 @@ class AiStrategyControllerTest {
                 .andExpect(jsonPath("$.data.strategyCaseId").value(123))
                 .andExpect(jsonPath("$.data.caseStatus").value("GENERATING"))
                 .andExpect(jsonPath("$.data.result").doesNotExist());
+    }
+
+    @Test
+    @WithMockUser(roles = "GREENFOOD_ADMIN")
+    void recalculatesAdjustedStrategyConditions() throws Exception {
+        LocalDate start = LocalDate.of(2026, 8, 20);
+        LocalDate end = LocalDate.of(2026, 8, 27);
+        StrategyCandidateSimulation simulation = new StrategyCandidateSimulation(
+                "CAND-1",
+                new StrategyCandidateSimulation.Summary(
+                        decimal("8"), decimal("680"), decimal("120"),
+                        decimal("0.1765"), 8, decimal("2"), decimal("0"),
+                        decimal("0"), decimal("20")
+                ),
+                new StrategyCandidateSimulation.ComparisonToBaseline(
+                        decimal("2"), decimal("80"), decimal("10"),
+                        decimal("2"), decimal("0"), decimal("20")
+                ),
+                List.of(new StrategyCandidateSimulation.DailyPoint(
+                        start, decimal("1"), decimal("9"), decimal("85"),
+                        decimal("15")
+                )),
+                List.of()
+        );
+        when(adjustmentSimulationService.simulate(any(), any(), any()))
+                .thenReturn(new AdjustedAiStrategySimulationResponse(
+                        123L,
+                        "CAND-1",
+                        new AdjustedAiStrategySimulationResponse.AdjustedConditions(
+                                decimal("10"), decimal("0.15"), decimal("85"),
+                                start, end, decimal("20"),
+                                SalesPointDiscountPolicy.SalesPointGroup.DEPARTMENT_STORE,
+                                decimal("0.20")
+                        ),
+                        simulation
+                ));
+
+        CsrfCredentials csrf = requestCsrf();
+        mockMvc.perform(post(
+                        "/api/v1/ai-strategies/123/candidates/CAND-1/simulations"
+                )
+                        .cookie(csrf.cookie())
+                        .header(csrf.headerName(), csrf.token())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "actionQuantity": 10,
+                                  "discountRate": 0.15,
+                                  "startDate": "2026-08-20",
+                                  "endDate": "2026-08-27"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.candidateId").value("CAND-1"))
+                .andExpect(jsonPath("$.data.adjustedConditions.strategyPrice")
+                        .value(85))
+                .andExpect(jsonPath("$.data.adjustedConditions.salesPointGroup")
+                        .value("DEPARTMENT_STORE"))
+                .andExpect(jsonPath("$.data.simulation.dailySeries[0].date")
+                        .value("2026-08-20"));
     }
 
     @Test
@@ -169,7 +236,9 @@ class AiStrategyControllerTest {
                 .andExpect(jsonPath("$.paths['/api/v1/ai-strategies'].get.summary")
                         .value("AI 전략 생성 Case 목록 조회"))
                 .andExpect(jsonPath("$.paths['/api/v1/ai-strategies/{strategyCaseId}'].get.summary")
-                        .value("AI 전략 생성 상태·결과 조회"));
+                        .value("AI 전략 생성 상태·결과 조회"))
+                .andExpect(jsonPath("$.paths['/api/v1/ai-strategies/{strategyCaseId}/candidates/{candidateId}/simulations'].post.summary")
+                        .value("AI 전략 조건 조정 시뮬레이션"));
     }
 
     private MockHttpServletRequestBuilder createRequest(
@@ -200,5 +269,9 @@ class AiStrategyControllerTest {
     }
 
     private record CsrfCredentials(Cookie cookie, String token, String headerName) {
+    }
+
+    private static BigDecimal decimal(String value) {
+        return new BigDecimal(value);
     }
 }
