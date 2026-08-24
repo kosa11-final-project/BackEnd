@@ -7,6 +7,7 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
 import com.stockit.backend.feature.inventorysync.vo.InventorySyncRunVO;
+import com.stockit.backend.feature.inventorysync.vo.InventorySyncSnapshotStateVO;
 
 @Mapper
 public interface InventorySyncRunMapper {
@@ -18,6 +19,7 @@ public interface InventorySyncRunMapper {
 
     InventorySyncRunVO selectActiveRun();
     InventorySyncRunVO selectLatestRun();
+    InventorySyncSnapshotStateVO selectSnapshotState(@Param("runId") Long runId);
 
     /** 동시 제출을 직렬화하는 고정 가드 행입니다. */
     int lockSubmissionGuard();

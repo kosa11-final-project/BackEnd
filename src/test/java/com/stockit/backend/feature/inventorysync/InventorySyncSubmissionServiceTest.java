@@ -4,11 +4,13 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.ArgumentCaptor.forClass;
 
 import java.time.Instant;
+import java.util.List;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -17,9 +19,13 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.CannotAcquireLockException;
 
+import com.stockit.backend.feature.inventorysync.dto.InventorySyncRunResponse;
 import com.stockit.backend.feature.inventorysync.dto.InventorySyncStartRequest;
 import com.stockit.backend.feature.inventorysync.mapper.InventorySyncRunMapper;
+import com.stockit.backend.feature.inventorysync.mapper.InventorySyncStateQueryMapper;
 import com.stockit.backend.feature.inventorysync.service.InventorySyncBatchLauncher;
+import com.stockit.backend.feature.inventorysync.service.InventorySyncRunControlService;
+import com.stockit.backend.feature.inventorysync.service.InventorySyncSnapshotStatusService;
 import com.stockit.backend.feature.inventorysync.service.InventorySyncSubmissionService;
 import com.stockit.backend.feature.inventorysync.vo.InventorySyncRunVO;
 
@@ -27,12 +33,26 @@ import com.stockit.backend.feature.inventorysync.vo.InventorySyncRunVO;
 class InventorySyncSubmissionServiceTest {
     @Mock InventorySyncRunMapper runMapper;
     @Mock InventorySyncBatchLauncher launcher;
+    @Mock InventorySyncStateQueryMapper stateQueryMapper;
+    @Mock InventorySyncRunControlService runControl;
+    @Mock InventorySyncSnapshotStatusService snapshotStatusService;
     private InventorySyncSubmissionService service;
 
     @BeforeEach
     void setUp() {
         when(runMapper.lockSubmissionGuard()).thenReturn(1);
-        service = new InventorySyncSubmissionService(runMapper, launcher);
+        lenient().when(launcher.launch(anyLong())).thenReturn(true);
+        lenient().when(stateQueryMapper.selectSourceStates()).thenReturn(List.of());
+        lenient().when(stateQueryMapper.selectRunSources(anyLong())).thenReturn(List.of());
+        lenient().when(snapshotStatusService.resolve(any(InventorySyncRunVO.class)))
+                .thenReturn(InventorySyncRunResponse.SnapshotRefresh.notRequired());
+        service = new InventorySyncSubmissionService(
+                runMapper,
+                launcher,
+                stateQueryMapper,
+                runControl,
+                snapshotStatusService
+        );
     }
 
     @Test

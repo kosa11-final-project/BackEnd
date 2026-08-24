@@ -2,23 +2,26 @@ package com.stockit.backend.feature.inventorysync.service;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 
-import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataAccessException;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
-import org.springframework.dao.DataAccessException;
-import org.springframework.transaction.annotation.Transactional;
 
-import com.stockit.backend.feature.inventorysync.dto.InventorySyncStartRequest;
-import com.stockit.backend.feature.inventorysync.dto.InventorySyncRunResponse;
 import com.stockit.backend.common.exception.AppException;
 import com.stockit.backend.common.exception.ErrorCode;
 import com.stockit.backend.feature.inventorysync.InventorySyncHash;
 import com.stockit.backend.feature.inventorysync.InventorySyncLockSupport;
+import com.stockit.backend.feature.inventorysync.dto.InventorySyncRunResponse;
+import com.stockit.backend.feature.inventorysync.dto.InventorySyncStartRequest;
 import com.stockit.backend.feature.inventorysync.mapper.InventorySyncRunMapper;
 import com.stockit.backend.feature.inventorysync.mapper.InventorySyncStateQueryMapper;
+import com.stockit.backend.feature.inventorysync.vo.InventorySyncRunSourceVO;
 import com.stockit.backend.feature.inventorysync.vo.InventorySyncRunVO;
+import com.stockit.backend.feature.inventorysync.vo.InventorySyncSourceStateVO;
 
 /** 버튼 요청을 durable run으로 먼저 기록하는 서비스입니다. */
 @Service
@@ -32,18 +35,21 @@ public class InventorySyncSubmissionService {
     private final InventorySyncBatchLauncher launcher;
     private final InventorySyncStateQueryMapper stateQueryMapper;
     private final InventorySyncRunControlService runControl;
+    private final InventorySyncSnapshotStatusService snapshotStatusService;
 
     @Autowired
-    public InventorySyncSubmissionService(InventorySyncRunMapper runMapper, InventorySyncBatchLauncher launcher,
-                                         InventorySyncStateQueryMapper stateQueryMapper, InventorySyncRunControlService runControl) {
+    public InventorySyncSubmissionService(
+            InventorySyncRunMapper runMapper,
+            InventorySyncBatchLauncher launcher,
+            InventorySyncStateQueryMapper stateQueryMapper,
+            InventorySyncRunControlService runControl,
+            InventorySyncSnapshotStatusService snapshotStatusService
+    ) {
         this.runMapper = runMapper;
         this.launcher = launcher;
         this.stateQueryMapper = stateQueryMapper;
         this.runControl = runControl;
-    }
-
-    public InventorySyncSubmissionService(InventorySyncRunMapper runMapper, InventorySyncBatchLauncher launcher) {
-        this(runMapper, launcher, null, null);
+        this.snapshotStatusService = snapshotStatusService;
     }
 
     @Transactional
@@ -82,9 +88,9 @@ public class InventorySyncSubmissionService {
         InventorySyncRunVO existing = runMapper.selectByClientRequestId(request.clientRequestId());
         if (existing != null) {
             if (!hash.equals(existing.getRequestHash())) {
-                return new SubmissionResult(409, InventorySyncRunResponse.from(existing));
+                return new SubmissionResult(409, withState(existing));
             }
-            return new SubmissionResult(200, InventorySyncRunResponse.from(existing));
+            return new SubmissionResult(200, withState(existing));
         }
         if (enforceRateLimit) {
             Instant now = Instant.now();
@@ -99,7 +105,7 @@ public class InventorySyncSubmissionService {
         }
         InventorySyncRunVO active = runMapper.selectActiveRun();
         if (active != null) {
-            return new SubmissionResult(409, InventorySyncRunResponse.from(active));
+            return new SubmissionResult(409, withState(active));
         }
         InventorySyncRunVO run = new InventorySyncRunVO();
         run.setClientRequestId(request.clientRequestId());
@@ -143,8 +149,10 @@ public class InventorySyncSubmissionService {
     }
 
     private InventorySyncRunResponse withState(InventorySyncRunVO run) {
-        if (stateQueryMapper == null) return InventorySyncRunResponse.from(run);
-        return InventorySyncRunResponse.from(run, stateQueryMapper.selectSourceStates(), stateQueryMapper.selectRunSources(run.getInventorySyncRunId()));
+        List<InventorySyncSourceStateVO> states = stateQueryMapper.selectSourceStates();
+        List<InventorySyncRunSourceVO> sources = stateQueryMapper.selectRunSources(run.getInventorySyncRunId());
+        var snapshotRefresh = snapshotStatusService.resolve(run);
+        return InventorySyncRunResponse.from(run, states, sources, snapshotRefresh);
     }
 
     public static String requestHash(InventorySyncStartRequest request) {
@@ -152,10 +160,6 @@ public class InventorySyncSubmissionService {
     }
 
     private void markLaunchFailed(Long runId, int attemptNo, long fencingToken, String message) {
-        if (runControl == null) {
-            runMapper.markLaunchFailed(runId, message);
-            return;
-        }
         runControl.markLaunchFailed(runId, attemptNo, fencingToken, message);
     }
 

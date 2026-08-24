@@ -90,6 +90,10 @@ app:
       enabled: ${INVENTORY_SYNC_SCHEDULE_ENABLED:true}
       cron: ${INVENTORY_SYNC_SCHEDULE_CRON:0 30 0 * * *}
       zone: ${INVENTORY_SYNC_SCHEDULE_ZONE:Asia/Seoul}
+    snapshot-recovery:
+      enabled: ${INVENTORY_SYNC_SNAPSHOT_RECOVERY_ENABLED:true}
+      initial-delay: ${INVENTORY_SYNC_SNAPSHOT_RECOVERY_INITIAL_DELAY:30s}
+      fixed-delay: ${INVENTORY_SYNC_SNAPSHOT_RECOVERY_FIXED_DELAY:60s}
   strategy-statistics:
     schedule:
       # 재고 동기화(기본 00:30)와 위험등급 재산정이 끝난 뒤 성과를 확정합니다.
@@ -151,8 +155,11 @@ mybatis:
 
 springdoc:
   api-docs:
+    # 운영 기본값은 비공개이며, local/test처럼 필요한 환경에서만 명시적으로 엽니다.
+    enabled: ${SPRINGDOC_API_DOCS_ENABLED:false}
     path: /v3/api-docs
   swagger-ui:
+    enabled: ${SPRINGDOC_SWAGGER_UI_ENABLED:false}
     path: /swagger-ui.html
 
 ---

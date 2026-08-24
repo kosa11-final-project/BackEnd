@@ -176,12 +176,12 @@ class InventorySourceSyncOraclePreflightTest {
         assertThat(validation.validationSuccessful)
                 .as("existing Flyway checksums and migration resolution must validate")
                 .isTrue();
-        assertThat(currentVersion).isIn("20", "24");
-        if (currentVersion.equals("20")) {
-            assertThat(pendingVersions).containsExactly("21", "22", "23", "24");
-        } else {
-            assertThat(pendingVersions).isEmpty();
-        }
+        int current = Integer.parseInt(currentVersion);
+        assertThat(current).isBetween(20, 27);
+        List<String> expectedPending = java.util.stream.IntStream.rangeClosed(current + 1, 27)
+                .mapToObj(String::valueOf)
+                .toList();
+        assertThat(pendingVersions).containsExactlyElementsOf(expectedPending);
     }
 
     private long objectCount(String dictionaryView, String nameColumn, List<String> names) {

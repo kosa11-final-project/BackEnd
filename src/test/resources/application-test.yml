@@ -20,6 +20,14 @@ app:
     batch-enabled: false
     schedule:
       enabled: false
+    snapshot-recovery:
+      enabled: false
   ai-strategy:
     messaging:
       enabled: false
+
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: false

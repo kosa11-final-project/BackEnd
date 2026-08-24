@@ -124,7 +124,8 @@ public class InventorySyncCanonicalBatchWriter implements InventorySyncPublisher
     }
 
     @Override
-    public void finish(String runId, Map<String, Long> sourceVersions, Set<String> riskScopes, Long actorId) {
+    public void finish(String runId, Map<String, Long> sourceVersions, Set<String> riskScopes, Long actorId,
+                       int changedCount) {
         Set<String> sourceTypes = sourceVersions.keySet();
         sourceWriteMapper.refreshState(sourceTypes, Long.valueOf(runId));
         sourceVersions.forEach((sourceType, version) -> runSourceMapper.completeSource(Long.valueOf(runId), sourceType, version, "SUCCESS"));
@@ -135,7 +136,7 @@ public class InventorySyncCanonicalBatchWriter implements InventorySyncPublisher
             throw new IllegalStateException("STALE_FENCING");
         }
         riskWriter.evaluateAndPersist(Long.valueOf(runId), actorId, riskScopes, riskSnapshotLoader);
-        if (snapshotCoordinator != null) {
+        if (snapshotCoordinator != null && changedCount > 0) {
             snapshotCoordinator.scheduleAfterCommit(
                     Long.valueOf(runId),
                     LocalDate.now(ZoneId.of("Asia/Seoul"))

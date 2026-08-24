@@ -45,6 +45,40 @@
         SELECT * FROM inventory_sync_run
          ORDER BY inventory_sync_run_id DESC FETCH FIRST 1 ROW ONLY
     </select>
+    <select id="selectSnapshotState"
+            resultType="com.stockit.backend.feature.inventorysync.vo.InventorySyncSnapshotStateVO">
+        SELECT snapshot_state.inventory_sync_run_id,
+               snapshot_state.dashboard_ready,
+               snapshot_state.inventory_statistics_ready,
+               CASE WHEN snapshot_state.dashboard_ready = 1 THEN 'SUCCEEDED' ELSE (
+                   SELECT task.task_status
+                   FROM inventory_sync_snapshot_task task
+                   WHERE task.inventory_sync_run_id = #{runId}
+                     AND task.task_type = 'DASHBOARD'
+               ) END AS dashboard_status,
+               CASE WHEN snapshot_state.inventory_statistics_ready = 1 THEN 'SUCCEEDED' ELSE (
+                   SELECT task.task_status
+                   FROM inventory_sync_snapshot_task task
+                   WHERE task.inventory_sync_run_id = #{runId}
+                     AND task.task_type = 'INVENTORY_STATISTICS'
+               ) END AS inventory_statistics_status
+        FROM (
+            SELECT #{runId} AS inventory_sync_run_id,
+                   CASE WHEN EXISTS (
+                       SELECT 1
+                       FROM dashboard_snapshot dashboard
+                       WHERE dashboard.sync_job_id = #{runId}
+                         AND dashboard.is_deleted = 0
+                   ) THEN 1 ELSE 0 END AS dashboard_ready,
+                   CASE WHEN EXISTS (
+                       SELECT 1
+                       FROM statistics_snapshot statistics
+                       WHERE statistics.sync_job_id = #{runId}
+                         AND statistics.is_deleted = 0
+                   ) THEN 1 ELSE 0 END AS inventory_statistics_ready
+            FROM dual
+        ) snapshot_state
+    </select>
     <select id="lockSubmissionGuard" resultType="int">
         SELECT 1 FROM inventory_sync_mutex
          FOR UPDATE WAIT 5

@@ -31,7 +31,7 @@ class InventorySourceSyncOracleMigrationTest {
 
         assertThat(result.success).isTrue();
         assertThat(current).isNotNull();
-        assertThat(String.valueOf(current.getVersion())).isEqualTo("24");
-        assertThat(result.migrationsExecuted).isBetween(0, 4);
+        assertThat(String.valueOf(current.getVersion())).isEqualTo("27");
+        assertThat(result.migrationsExecuted).isBetween(0, 7);
     }
 }
