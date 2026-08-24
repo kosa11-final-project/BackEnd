@@ -138,6 +138,12 @@ app:
       max-attempts: ${AI_STRATEGY_MAX_ATTEMPTS:3}
       retry-delay: ${AI_STRATEGY_RETRY_DELAY:30s}
       confirm-timeout: ${AI_STRATEGY_CONFIRM_TIMEOUT:5s}
+    teams:
+      enabled: ${AI_STRATEGY_TEAMS_ENABLED:false}
+      webhook-url: ${TEAMS_APPROVAL_WEBHOOK_URL:}
+      connect-timeout: ${TEAMS_APPROVAL_CONNECT_TIMEOUT:3s}
+      read-timeout: ${TEAMS_APPROVAL_READ_TIMEOUT:15s}
+      max-reviewers: ${AI_STRATEGY_TEAMS_MAX_REVIEWERS:10}
     forecast:
       base-url: ${ML_FORECAST_BASE_URL:}
       path: ${ML_FORECAST_PATH:/api/v1/demand-forecasts/daily}
