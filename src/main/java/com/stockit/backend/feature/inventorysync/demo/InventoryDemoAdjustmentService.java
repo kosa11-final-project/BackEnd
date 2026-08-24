@@ -92,6 +92,106 @@ public class InventoryDemoAdjustmentService {
         return new InventoryDemoAdjustmentResponse(request.clientRequestId(), "APPLIED", results.size(), Instant.now(), results);
     }
 
+    @Transactional
+    public InventoryDemoBulkAdjustmentResponse applyAll(
+            InventoryDemoBulkAdjustmentRequest request,
+            Long requestedBy
+    ) {
+        if (!enabled) throw new IllegalStateException("demo adjustment is disabled");
+        if (requestedBy == null || requestedBy <= 0) throw new AppException(ErrorCode.AUTHENTICATION_FAILED);
+
+        BigDecimal decreaseQty = request.decreaseQty().stripTrailingZeros();
+        String hash = InventorySyncHash.sha256Hex(
+                request.clientRequestId() + "|ALL|" + decreaseQty.toPlainString()
+        );
+        InventoryDemoAdjustmentMapper.DemoAuditRow existing = mapper.selectByRequestId(request.clientRequestId());
+        if (existing != null) {
+            if (!hash.equals(existing.requestHash())) {
+                throw new AppException(
+                        ErrorCode.INVENTORY_SYNC_CONFLICT,
+                        "같은 clientRequestId에 다른 payload가 사용되었습니다."
+                );
+            }
+            return new InventoryDemoBulkAdjustmentResponse(
+                    existing.requestId(), existing.status(), existing.appliedCount(),
+                    0, existing.appliedAt(), List.of()
+            );
+        }
+
+        Instant lastAppliedAt = mapper.selectLastAppliedAt(requestedBy);
+        if (lastAppliedAt != null && lastAppliedAt.plusSeconds(10).isAfter(Instant.now())) {
+            throw new DemoRateLimitException((int) Math.max(
+                    1,
+                    lastAppliedAt.plusSeconds(10).getEpochSecond() - Instant.now().getEpochSecond()
+            ));
+        }
+        if (mapper.countRecentApplied(requestedBy, Instant.now().minus(Duration.ofHours(1))) >= MAX_PER_HOUR) {
+            throw new DemoRateLimitException(10);
+        }
+
+        List<InventoryDemoBulkAdjustmentResponse.SourceResult> results = new ArrayList<>();
+        int totalAdjusted = 0;
+        int totalAlreadyPending = 0;
+        for (String sourceType : InventorySyncSourceOrder.TYPES) {
+            try {
+                InventoryDemoAdjustmentMapper.BulkSourceStateRow state = mapper.lockBulkSourceState(sourceType);
+                if (state == null) {
+                    throw new AppException(
+                            ErrorCode.INVENTORY_SYNC_CONFLICT,
+                            "원천 상태가 초기화되지 않았습니다: " + sourceType
+                    );
+                }
+
+                long expectedNewAdjustments = state.currentRecordCount() - state.pendingRecordCount();
+                int eligibleCount = mapper.countEligibleSyncedRows(sourceType, decreaseQty);
+                if (expectedNewAdjustments < 0 || eligibleCount != expectedNewAdjustments) {
+                    throw new AppException(
+                            ErrorCode.INVALID_PARAMETER,
+                            "모든 원천 행을 동일하게 차감할 수 없습니다: " + sourceType
+                                    + " (신규 차감 예상=" + expectedNewAdjustments
+                                    + ", 차감 가능=" + eligibleCount + ")"
+                    );
+                }
+
+                int auditedCount = mapper.insertBulkAudit(
+                        request.clientRequestId(), hash, sourceType, decreaseQty, requestedBy
+                );
+                int adjustedCount = mapper.updateAllSyncedSources(sourceType, decreaseQty);
+                if (auditedCount != eligibleCount || adjustedCount != eligibleCount) {
+                    throw new AppException(
+                            ErrorCode.INVENTORY_SYNC_CONFLICT,
+                            "원천 일괄 차감 중 행 수가 변경되었습니다: " + sourceType
+                    );
+                }
+                if (mapper.updatePendingCountBulk(sourceType, adjustedCount) != 1) {
+                    throw new AppException(
+                            ErrorCode.INVENTORY_SYNC_CONFLICT,
+                            "원천 상태 갱신에 실패했습니다: " + sourceType
+                    );
+                }
+
+                results.add(new InventoryDemoBulkAdjustmentResponse.SourceResult(
+                        sourceType,
+                        state.currentRecordCount(),
+                        state.pendingRecordCount(),
+                        adjustedCount
+                ));
+                totalAdjusted += adjustedCount;
+                totalAlreadyPending += Math.toIntExact(state.pendingRecordCount());
+            } catch (DataAccessException exception) {
+                if (InventorySyncLockSupport.isLockWaitFailure(exception)) {
+                    throw InventorySyncLockSupport.conflict();
+                }
+                throw exception;
+            }
+        }
+
+        return new InventoryDemoBulkAdjustmentResponse(
+                request.clientRequestId(), "APPLIED", totalAdjusted,
+                totalAlreadyPending, Instant.now(), results
+        );
+    }
+
     private void validateUnique(List<InventoryDemoAdjustmentRequest.Item> items) {
         Set<String> keys = new HashSet<>();
         for (var item : items) {

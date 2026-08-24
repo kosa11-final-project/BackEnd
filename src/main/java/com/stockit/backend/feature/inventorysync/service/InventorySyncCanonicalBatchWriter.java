@@ -3,6 +3,7 @@ package com.stockit.backend.feature.inventorysync.service;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.Collection;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -12,12 +13,13 @@ import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
-import com.stockit.backend.feature.inventorysync.adapter.CanonicalInventoryRecord;
+import com.stockit.backend.feature.inventory.risk.RiskRuleEngine;
 import com.stockit.backend.feature.inventorysync.InventorySyncSourceOrder;
+import com.stockit.backend.feature.inventorysync.adapter.CanonicalInventoryRecord;
 import com.stockit.backend.feature.inventorysync.mapper.InventorySyncCanonicalMapper;
 import com.stockit.backend.feature.inventorysync.mapper.InventorySyncRunMapper;
-import com.stockit.backend.feature.inventorysync.mapper.InventorySyncSourceWriteMapper;
 import com.stockit.backend.feature.inventorysync.mapper.InventorySyncRunSourceMapper;
+import com.stockit.backend.feature.inventorysync.mapper.InventorySyncSourceWriteMapper;
 import com.stockit.backend.feature.inventorysync.risk.InventorySyncRiskScopeSnapshotLoader;
 import com.stockit.backend.feature.inventorysync.risk.InventorySyncRiskWriter;
 
@@ -124,8 +126,8 @@ public class InventorySyncCanonicalBatchWriter implements InventorySyncPublisher
     }
 
     @Override
-    public void finish(String runId, Map<String, Long> sourceVersions, Set<String> riskScopes, Long actorId,
-                       int changedCount) {
+    public int finish(String runId, Map<String, Long> sourceVersions, Set<String> riskScopes, Long actorId,
+                      int changedCount) {
         Set<String> sourceTypes = sourceVersions.keySet();
         sourceWriteMapper.refreshState(sourceTypes, Long.valueOf(runId));
         sourceVersions.forEach((sourceType, version) -> runSourceMapper.completeSource(Long.valueOf(runId), sourceType, version, "SUCCESS"));
@@ -135,12 +137,24 @@ public class InventorySyncCanonicalBatchWriter implements InventorySyncPublisher
                         "ASSESSING_RISK", run.getReadCount(), run.getMappedCount()) != 1) {
             throw new IllegalStateException("STALE_FENCING");
         }
-        riskWriter.evaluateAndPersist(Long.valueOf(runId), actorId, riskScopes, riskSnapshotLoader);
-        if (snapshotCoordinator != null && changedCount > 0) {
+        Set<String> scopesToEvaluate = new LinkedHashSet<>();
+        if (riskScopes != null) {
+            scopesToEvaluate.addAll(riskScopes);
+        }
+        Set<String> outdatedRuleScopes = riskSnapshotLoader.findScopesRequiringRuleVersion(
+                RiskRuleEngine.RULE_VERSION
+        );
+        int riskOnlyChangedCount = (int) outdatedRuleScopes.stream()
+                .filter(scope -> !scopesToEvaluate.contains(scope))
+                .count();
+        scopesToEvaluate.addAll(outdatedRuleScopes);
+        riskWriter.evaluateAndPersist(Long.valueOf(runId), actorId, scopesToEvaluate, riskSnapshotLoader);
+        if (snapshotCoordinator != null && changedCount + riskOnlyChangedCount > 0) {
             snapshotCoordinator.scheduleAfterCommit(
                     Long.valueOf(runId),
                     LocalDate.now(ZoneId.of("Asia/Seoul"))
             );
         }
+        return riskOnlyChangedCount;
     }
 }

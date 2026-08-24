@@ -49,7 +49,9 @@ public class InventorySyncPublisher {
         if (!batch.isEmpty()) {
             changed += writer.writeBatch(buffer.runId(), List.copyOf(batch), buffer.requestedBy());
         }
-        writer.finish(buffer.runId(), buffer.sourceVersions(), buffer.riskScopes(), buffer.requestedBy(), changed);
+        changed += writer.finish(
+                buffer.runId(), buffer.sourceVersions(), buffer.riskScopes(), buffer.requestedBy(), changed
+        );
         fencingGuard.assertWritable(buffer.runId(), buffer.attemptNo(), buffer.fencingToken());
         PublishResult result = new PublishResult(buffer.size(), changed, buffer.riskScopes().size());
         completion.complete(buffer, result);
@@ -67,8 +69,8 @@ public class InventorySyncPublisher {
 
         default void beforeWrite(String runId, java.util.Map<String, Long> sourceVersions) { }
 
-        default void finish(String runId, java.util.Map<String, Long> sourceVersions,
-                            java.util.Set<String> riskScopes, Long actorId, int changedCount) { }
+        default int finish(String runId, java.util.Map<String, Long> sourceVersions,
+                           java.util.Set<String> riskScopes, Long actorId, int changedCount) { return 0; }
     }
 
     @FunctionalInterface
