@@ -53,6 +53,7 @@ public class InventoryResponseMapper {
 
         return new InventoryItemResponse(
                 rowId,
+                item.getSkuId(),
                 item.getProductCode(),
                 item.getProductName(),
                 item.getSupplierName(),
@@ -106,6 +107,7 @@ public class InventoryResponseMapper {
 
         return new InventoryDetailResponse(
                 rowId,
+                item.getSkuId(),
                 item.getProductCode(),
                 item.getProductName(),
                 item.getSupplierName(),
@@ -273,6 +275,7 @@ public class InventoryResponseMapper {
 
     private SalesPointResponse withoutWarehouse(SalesPointResponse point) {
         return new SalesPointResponse(
+                point.salesPointId(),
                 point.salesPointCode(),
                 point.salesPointName(),
                 point.channelType(),

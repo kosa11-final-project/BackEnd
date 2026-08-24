@@ -346,6 +346,7 @@
         seller_agg AS (
             SELECT sf.sku_id,
                    JSON_ARRAYAGG(JSON_OBJECT(
+                       'salesPointId' VALUE NULLIF(sf.sales_point_id, -1),
                        'salesPointCode' VALUE NVL(sp.sales_point_code, 'UNASSIGNED'),
                        'salesPointName' VALUE NVL(sp.sales_point_name, '판매처 미할당'),
                        'channelType' VALUE CASE
@@ -401,7 +402,8 @@
         )
         SELECT q.*
         FROM (
-            SELECT p.product_code,
+            SELECT sa.sku_id,
+                   p.product_code,
                    p.product_name,
                    sup.supplier_name AS supplier_name,
                    p.image_url,
@@ -963,7 +965,8 @@
             FROM risk_rows
             WHERE rn = 1
         )
-        SELECT p.product_code,
+        SELECT ra.sku_id,
+               p.product_code,
                p.product_name,
                sup.supplier_name AS supplier_name,
                p.image_url,
@@ -1003,6 +1006,7 @@
                uaw.location_count,
                uaw.location_count AS unassigned_location_count,
                JSON_ARRAY(JSON_OBJECT(
+                   'salesPointId' VALUE NULLIF(ra.sales_point_id, -1),
                    'salesPointCode' VALUE NVL(sp.sales_point_code, 'UNASSIGNED'),
                    'salesPointName' VALUE NVL(sp.sales_point_name, '판매처 미할당'),
                    'channelType' VALUE CASE

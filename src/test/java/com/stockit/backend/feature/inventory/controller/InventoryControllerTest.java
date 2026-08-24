@@ -46,6 +46,7 @@ class InventoryControllerTest {
     void returnsListAndSummaryInFrontendResponseShape() throws Exception {
         InventoryItemResponse item = new InventoryItemResponse(
                 "SKU-1",
+                1001L,
                 "P-1",
                 "상품",
                 "SKU-1",
@@ -65,7 +66,7 @@ class InventoryControllerTest {
                 List.of(),
                 0,
                 List.of(
-                        new SalesPointResponse("SP-1", "판매처 1", "GREETING", new BigDecimal("10"), new BigDecimal("8"), new BigDecimal("2"), "SAFE", "센터")
+                        new SalesPointResponse(77L, "SP-1", "판매처 1", "GREETING", new BigDecimal("10"), new BigDecimal("8"), new BigDecimal("2"), "SAFE", "센터")
                 ),
                 null,
                 null,
@@ -86,7 +87,9 @@ class InventoryControllerTest {
                         .param("size", "20"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.items[0].rowId").value("SKU-1"))
+                .andExpect(jsonPath("$.data.items[0].skuId").value(1001))
                 .andExpect(jsonPath("$.data.items[0].salesPoints[0].salesPointCode").value("SP-1"))
+                .andExpect(jsonPath("$.data.items[0].salesPoints[0].salesPointId").value(77))
                 .andExpect(jsonPath("$.data.items[0].unassignedInventory").exists())
                 .andExpect(jsonPath("$.data.items[0].risk.assessmentStatus").value("UNASSESSED"))
                 .andExpect(jsonPath("$.data.totalCount").value(1));
@@ -148,11 +151,12 @@ class InventoryControllerTest {
                 new BigDecimal("2"), null, null, null, null, 10, 1, "GYEONGIN_1", "경인 1센터"
         );
         given(inventoryQueryService.detail("SKU-1", "GREETING")).willReturn(new InventoryDetailResponse(
-                "SKU-1:GREETING", "P-1", "상품", "SKU-1", "규격", null,
+                "SKU-1:GREETING", 1001L, "P-1", "상품", "SKU-1", "규격", null,
                 "GREETING", "GREETING", "그리팅", "FROZEN", null,
                 new BigDecimal("10"), new BigDecimal("8"), new BigDecimal("2"), null,
                 "AVAILABLE", new RiskResponse("UNASSESSED", null, null), List.of(), 0,
-                List.of(), 1, 10, null, null, List.of(lot)
+                List.of(new SalesPointResponse(77L, "GREETING", "그리팅", "GREETING", new BigDecimal("10"), new BigDecimal("8"), new BigDecimal("2"), null, null)),
+                1, 10, null, null, List.of(lot)
         ));
         given(inventoryQueryService.lots("SKU-1", "GREETING"))
                 .willReturn(new InventoryLotsResponse(List.of(lot), 1));
@@ -165,6 +169,8 @@ class InventoryControllerTest {
         mockMvc.perform(get("/api/v1/inventories/SKU-1/sales-points/GREETING"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.rowId").value("SKU-1:GREETING"))
+                .andExpect(jsonPath("$.data.skuId").value(1001))
+                .andExpect(jsonPath("$.data.salesPoints[0].salesPointId").value(77))
                 .andExpect(jsonPath("$.data.lots[0].lotNumber").value("LOT-1"));
 
         mockMvc.perform(get("/api/v1/inventories/SKU-1/sales-points/GREETING/lots"))

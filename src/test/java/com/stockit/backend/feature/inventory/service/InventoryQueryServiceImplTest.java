@@ -49,6 +49,8 @@ class InventoryQueryServiceImplTest {
     @Test
     void detailReturnsHeaderWithoutAssemblingLots() {
         InventoryItemVO item = createItemVO("SKU-1", "GREETING");
+        item.setSkuId(1001L);
+        item.setSalesPointsJson("[{\"salesPointId\":77,\"salesPointCode\":\"GREETING\",\"salesPointName\":\"그리팅\",\"channelType\":\"GREETING\"}]");
         item.setSupplierName("테스트 공급사");
         item.setAssessmentStatus("ASSESSED");
         item.setRiskGrade("CAUTION");
@@ -59,9 +61,13 @@ class InventoryQueryServiceImplTest {
         InventoryDetailResponse response = inventoryQueryService.detail("SKU-1", "GREETING");
 
         assertThat(response.rowId()).isEqualTo("SKU-1:GREETING");
+        assertThat(response.skuId()).isEqualTo(1001L);
         assertThat(response.skuCode()).isEqualTo("SKU-1");
         assertThat(response.supplierName()).isEqualTo("테스트 공급사");
         assertThat(response.salesPointCode()).isEqualTo("GREETING");
+        assertThat(response.salesPoints()).singleElement()
+                .extracting(point -> point.salesPointId())
+                .isEqualTo(77L);
         assertThat(response.category()).isNotNull();
         assertThat(response.category().path()).extracting(path -> path.name())
                 .containsExactly("식품", "베이커리/간식", "베이커리");
