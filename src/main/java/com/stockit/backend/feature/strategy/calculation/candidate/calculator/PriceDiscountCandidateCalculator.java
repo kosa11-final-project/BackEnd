@@ -35,7 +35,9 @@ import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculati
 import com.stockit.backend.feature.strategy.calculation.engine.CalculationPrecisionPolicy;
 import com.stockit.backend.feature.strategy.domain.StrategyType;
 
-/** 현재 판매처에서 최저 판매가를 지키는 5% 단위 할인 후보를 만든다. */
+/**
+ * 현재 판매처의 최저 판매가와 예상 잔여 재고를 지키는 5% 단위 할인 후보 계산기
+ */
 @Component
 public class PriceDiscountCandidateCalculator implements StrategyCandidateCalculator {
 
@@ -69,6 +71,12 @@ public class PriceDiscountCandidateCalculator implements StrategyCandidateCalcul
         return StrategyType.PRICE_DISCOUNT;
     }
 
+    /**
+     * 기간·할인율·적용 수량 조합별 가격 할인 후보를 생성한다
+     *
+     * <p>각 기간의 시작 시점에 남을 것으로 예상되는 수량을 다시 계산해
+     * 미래 재고를 미리 예약하는 후보가 생성되지 않도록 한다</p>
+     */
     @Override
     public CandidateGenerationResult generate(
             StrategyCalculationContext context,
@@ -107,10 +115,10 @@ public class PriceDiscountCandidateCalculator implements StrategyCandidateCalcul
             );
         }
 
-        SourceInventoryCapacityPolicy.Capacity sourceCapacity =
+        SourceInventoryCapacityPolicy.Capacity currentSourceCapacity =
                 sourceCapacityPolicy.resolve(context, context.evaluationInventory());
-        if (sourceCapacity.total().signum() == 0) {
-            CandidateExclusionReason reason = sourceCapacity.safetyStockBlocked()
+        if (currentSourceCapacity.total().signum() == 0) {
+            CandidateExclusionReason reason = currentSourceCapacity.safetyStockBlocked()
                     ? CandidateExclusionReason.SOURCE_SAFETY_STOCK_VIOLATION
                     : CandidateExclusionReason.SOURCE_STOCK_INSUFFICIENT;
             return excluded(
@@ -122,13 +130,29 @@ public class PriceDiscountCandidateCalculator implements StrategyCandidateCalcul
 
         List<StrategyCandidate> candidates = new ArrayList<>();
         for (StrategyPeriodCandidate period : periodPolicy.generate(context, sourceId)) {
+            // 후보 기간마다 시작일이 달라지므로 기간별 예상 잔여 재고를 개별 계산
+            SourceInventoryCapacityPolicy.Projection projection =
+                    sourceCapacityPolicy.projectAt(context, period.startDate());
+            StrategyCalculationContext projectedContext = context.withInventory(
+                    projection.evaluationInventory(),
+                    projection.referenceInventory()
+            );
+            SourceInventoryCapacityPolicy.Capacity sourceCapacity =
+                    sourceCapacityPolicy.resolve(
+                            projectedContext,
+                            projectedContext.evaluationInventory(),
+                            period.startDate()
+                    );
+            if (sourceCapacity.total().signum() == 0) {
+                continue;
+            }
             Map<LocalDate, BigDecimal> periodDemand = periodDemand(
                     source.dailyForecast(),
                     period
             );
             BigDecimal baselineDemand = sum(periodDemand.values());
             MovementCandidatePlan maximumPlan = allocationPolicy.plan(
-                    context.evaluationInventory(),
+                    projectedContext.evaluationInventory(),
                     sourceCapacity.byWarehouse(),
                     periodDemand,
                     sourceCapacity.total().min(baselineDemand)
@@ -140,7 +164,7 @@ public class PriceDiscountCandidateCalculator implements StrategyCandidateCalcul
             }
 
             List<QuantityTier> quantityTiers = planQuantityTiers(
-                    context,
+                    projectedContext,
                     sourceCapacity,
                     periodDemand,
                     maximumPlan,

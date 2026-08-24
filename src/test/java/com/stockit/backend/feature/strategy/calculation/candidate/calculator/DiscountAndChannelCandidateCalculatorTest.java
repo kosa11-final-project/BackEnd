@@ -135,6 +135,40 @@ class DiscountAndChannelCandidateCalculatorTest {
     }
 
     @Test
+    void limitsFutureDiscountQuantityToProjectedRemainingInventory() {
+        StrategyCalculationContext original = context(
+                null,
+                List.of(StrategyType.PRICE_DISCOUNT),
+                "20",
+                "5"
+        );
+        StrategyCalculationContext context = withRequestPeriod(
+                replaceSalesPoint(
+                        original,
+                        salesPoint(
+                                10L,
+                                price(10L, "100", "90"),
+                                forecasts("5", "20"),
+                                List.of(route(10L, 501L))
+                        )
+                ),
+                END,
+                END
+        );
+
+        CandidateGenerationResult result = discountCalculator.generate(context, 1);
+
+        StrategyCandidate maximum = result.candidates().stream()
+                .filter(candidate -> candidate.preference().quantityPercentage() == 100)
+                .findFirst()
+                .orElseThrow();
+        assertThat(maximum.actions().get(0).actionQuantity())
+                .isEqualByComparingTo("15");
+        assertThat(maximum.evidence().maxExecutableQty())
+                .isEqualByComparingTo("15");
+    }
+
+    @Test
     void expandsOnlyToUnlistedTargetUsingCopiedSourceCommercialTerms() {
         StrategyCalculationContext context = context(
                 null,
@@ -316,9 +350,16 @@ class DiscountAndChannelCandidateCalculatorTest {
             StrategyCalculationContext original,
             StrategyCalculationContext.SalesPoint target
     ) {
+        return replaceSalesPoint(original, target);
+    }
+
+    private static StrategyCalculationContext replaceSalesPoint(
+            StrategyCalculationContext original,
+            StrategyCalculationContext.SalesPoint salesPoint
+    ) {
         Map<Long, StrategyCalculationContext.SalesPoint> salesPoints =
                 new LinkedHashMap<>(original.salesPoints());
-        salesPoints.put(target.salesPointId(), target);
+        salesPoints.put(salesPoint.salesPointId(), salesPoint);
         return new StrategyCalculationContext(
                 original.strategyCaseId(),
                 original.sourceSalesPointId(),
@@ -332,6 +373,33 @@ class DiscountAndChannelCandidateCalculatorTest {
                 original.referenceInventory(),
                 original.inventoryPolicies(),
                 salesPoints,
+                original.forecastMetadata()
+        );
+    }
+
+    private static StrategyCalculationContext withRequestPeriod(
+            StrategyCalculationContext original,
+            LocalDate preferredStartDate,
+            LocalDate preferredEndDate
+    ) {
+        return new StrategyCalculationContext(
+                original.strategyCaseId(),
+                original.sourceSalesPointId(),
+                original.calculatedAt(),
+                original.forecastStartDate(),
+                original.forecastEndDate(),
+                original.sku(),
+                original.unitCost(),
+                new StrategyCalculationContext.RequestConstraints(
+                        original.requestConstraints().orderedCandidateSalesPointIds(),
+                        original.requestConstraints().orderedStrategyTypes(),
+                        preferredStartDate,
+                        preferredEndDate
+                ),
+                original.evaluationInventory(),
+                original.referenceInventory(),
+                original.inventoryPolicies(),
+                original.salesPoints(),
                 original.forecastMetadata()
         );
     }
@@ -462,6 +530,16 @@ class DiscountAndChannelCandidateCalculatorTest {
         for (LocalDate date = START; !date.isAfter(END); date = date.plusDays(1)) {
             forecasts.put(date, decimal(quantity));
         }
+        return forecasts;
+    }
+
+    private static Map<LocalDate, BigDecimal> forecasts(
+            String first,
+            String second
+    ) {
+        Map<LocalDate, BigDecimal> forecasts = new LinkedHashMap<>();
+        forecasts.put(START, decimal(first));
+        forecasts.put(END, decimal(second));
         return forecasts;
     }
 

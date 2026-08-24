@@ -245,10 +245,10 @@ class StrategyCandidateSimulationEngineTest {
     }
 
     @Test
-    void reservesStrategyQuantityUntilFutureStartDate() {
+    void appliesOnlyInventoryRemainingAtFutureStartDate() {
         StrategyCalculationContext context = context(
                 lot("10", null),
-                forecasts("10", "0", "0"),
+                forecasts("4", "0", "0"),
                 forecasts("0", "3", "3"),
                 price(10L, "100", "70"),
                 price(20L, "110", "70"),
@@ -272,13 +272,13 @@ class StrategyCandidateSimulationEngineTest {
                 .extracting(StrategyCandidateSimulation.DailyPoint::expectedSalesQty)
                 .containsExactly(decimal("4.000"), decimal("3.000"), decimal("3.000"));
         assertThat(result.summary().expectedSellThroughDays()).isEqualTo(2);
-        assertThat(result.assumptions()).contains(
+        assertThat(result.assumptions()).doesNotContain(
                 CandidateAssumption.INVENTORY_RESERVED_UNTIL_STRATEGY_START
         );
     }
 
     @Test
-    void rejectsReservedInventoryThatExpiresBeforeStrategyStart() {
+    void rejectsProjectedInventoryThatExpiresBeforeStrategyStart() {
         StrategyCalculationContext context = context(
                 lot("10", START),
                 forecasts("0", "0", "0"),
@@ -300,7 +300,7 @@ class StrategyCandidateSimulationEngineTest {
                 baselineEngine.simulate(context),
                 SimulationDetailLevel.SUMMARY_ONLY
         )).isInstanceOf(CandidateSimulationException.class)
-                .hasMessageContaining("unavailable");
+                .hasMessageContaining("Projected candidate inventory is unavailable");
     }
 
     @Test

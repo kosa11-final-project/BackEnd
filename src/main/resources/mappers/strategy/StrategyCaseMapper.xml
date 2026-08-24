@@ -44,11 +44,25 @@
         </foreach>
     </select>
 
-    <select id="selectAllActiveSalesPointIds" resultType="long">
-        SELECT sales_point_id
-        FROM sales_point
-        WHERE active_yn = 'Y'
-          AND is_deleted = 0
+    <select id="selectActiveSalesPointIdsBySkuInventory" resultType="long">
+        SELECT DISTINCT
+               COALESCE(balance.stock_sales_point_id, balance.allocated_sales_point_id)
+                   AS sales_point_id
+        FROM inventory_balance balance
+        INNER JOIN sales_point point
+                ON point.sales_point_id = COALESCE(
+                    balance.stock_sales_point_id,
+                    balance.allocated_sales_point_id
+                )
+               AND point.active_yn = 'Y'
+               AND point.is_deleted = 0
+        WHERE balance.sku_id = #{skuId}
+          AND balance.on_hand_qty &gt; 0
+          AND balance.is_deleted = 0
+          AND COALESCE(
+              balance.stock_sales_point_id,
+              balance.allocated_sales_point_id
+          ) IS NOT NULL
         ORDER BY sales_point_id
     </select>
 

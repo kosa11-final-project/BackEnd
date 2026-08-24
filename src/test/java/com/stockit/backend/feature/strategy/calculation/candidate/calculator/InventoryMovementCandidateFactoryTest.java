@@ -247,6 +247,32 @@ class InventoryMovementCandidateFactoryTest {
                 .isEqualByComparingTo("10");
     }
 
+    @Test
+    void limitsFutureStrategyQuantityToProjectedRemainingInventory() {
+        LocalDate fixedDate = START.plusDays(4);
+        StrategyCalculationContext context = context(
+                List.of(lot(1L, 1001L, 501L, 10L, "100", null)),
+                List.of(policy(1L, 501L, 10L, "0")),
+                List.of(route(20L, 501L, 1)),
+                forecasts("100"),
+                StrategyType.REALLOCATION,
+                fixedDate,
+                fixedDate
+        );
+
+        CandidateGenerationResult result = factory.generate(
+                context,
+                StrategyType.REALLOCATION,
+                1
+        );
+
+        StrategyCandidate maximum = result.candidates().get(9);
+        assertThat(maximum.evidence().maxExecutableQty())
+                .isEqualByComparingTo("88");
+        assertThat(maximum.actions().get(0).actionQuantity())
+                .isEqualByComparingTo("88");
+    }
+
     private static StrategyCalculationContext context(
             List<StrategyCalculationContext.InventoryLot> inventory,
             List<StrategyCalculationContext.InventoryPolicy> policies,

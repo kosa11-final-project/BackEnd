@@ -54,7 +54,7 @@ public class StrategyForecastRequestFactory {
                 requested,
                 expectedStage
         );
-        // 후보 미지정도 ML이 명시적인 판매처 범위로 처리하도록 전체 활성 판매처 ID로 확정
+        // 후보 미지정도 ML이 명시적인 판매처 범위로 처리하도록 SKU 재고 보유 판매처로 확정
         StrategyForecastRequest outboundRequest = requested.candidateSalesPointIds().isEmpty()
                 ? new StrategyForecastRequest(
                         requested.strategyRequestId(),
@@ -77,9 +77,11 @@ public class StrategyForecastRequestFactory {
             StrategyGenerationStage expectedStage
     ) {
         if (request.candidateSalesPointIds().isEmpty()) {
-            // 후보 미지정은 Worker 실행 시점의 전체 활성 판매처 예측을 의미
+            // 후보 미지정은 Worker 실행 시점에 해당 SKU 가용 재고가 존재하는 활성 판매처를 의미
             List<Long> activeIds = new ArrayList<>(
-                    strategyCaseMapper.selectAllActiveSalesPointIds()
+                    strategyCaseMapper.selectActiveSalesPointIdsBySkuInventory(
+                            request.skuId()
+                    )
             );
             activeIds.sort(Long::compareTo);
             if (activeIds.isEmpty()
