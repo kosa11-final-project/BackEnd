@@ -18,7 +18,7 @@ public record RiskAssessmentDetailResponse(
         @Schema(description = "DB 내부 위험 등급 (CRITICAL, WARNING, NORMAL, GOOD)", example = "CRITICAL")
         String dbRiskGrade,
 
-        @Schema(description = "대표 위험 사유 메시지", example = "소비기한 30일 이하 임박 (22일 남음)")
+        @Schema(description = "마지막 재고 동기화가 RISK_ASSESSMENT.reason_message에 저장한 대표 위험 사유", example = "소비기한 30일 이하 임박 (22일 남음)")
         String reasonMessage,
 
         @Schema(description = "평가 규칙 버전", example = "v1.1.0")
@@ -48,13 +48,58 @@ public record RiskAssessmentDetailResponse(
         @Schema(description = "가장 가까운 잔여 소비기한(일)", example = "22")
         Integer nearestExpiryDays,
 
-        @Schema(description = "최대 보유 일수(일)", example = "14")
+        @Schema(description = "RISK_ASSESSMENT.holding_days에 저장된 최대 보유 일수(일)", example = "14")
         Integer maxHoldingDays,
 
         @Schema(description = "세부 위험 사유 및 근거 목록")
-        List<RiskReasonDto> reasons
+        List<RiskReasonDto> reasons,
+
+        @Schema(description = "RISK_ASSESSMENT.stock_days에 저장된 30일 평균 예측수요 기준 예상 소진까지 남은 일수", example = "20.0")
+        BigDecimal stockCoverageDays,
+
+        @Schema(description = "현재 가용재고가 안전재고보다 적은지 여부 (Y, N)", example = "Y")
+        String shortageYn
 ) {
     public RiskAssessmentDetailResponse {
         reasons = List.copyOf(reasons == null ? List.of() : reasons);
+    }
+
+    /** 기존 위험 응답 생성부와의 하위 호환용 생성자입니다. */
+    public RiskAssessmentDetailResponse(
+            String assessmentStatus,
+            String riskGrade,
+            String dbRiskGrade,
+            String reasonMessage,
+            String ruleVersion,
+            Instant assessedAt,
+            LocalDate baseDate,
+            BigDecimal availableQty,
+            BigDecimal shortageQty30,
+            BigDecimal safetyGapQty,
+            BigDecimal projectedD7,
+            BigDecimal safetyStockQty,
+            Integer nearestExpiryDays,
+            Integer maxHoldingDays,
+            List<RiskReasonDto> reasons
+    ) {
+        this(
+                assessmentStatus,
+                riskGrade,
+                dbRiskGrade,
+                reasonMessage,
+                ruleVersion,
+                assessedAt,
+                baseDate,
+                availableQty,
+                shortageQty30,
+                safetyGapQty,
+                projectedD7,
+                safetyStockQty,
+                nearestExpiryDays,
+                maxHoldingDays,
+                reasons,
+                null,
+                null
+        );
     }
 }

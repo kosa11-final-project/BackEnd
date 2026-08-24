@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.math.BigDecimal;
+import java.util.Objects;
 
 import org.springframework.stereotype.Component;
 
@@ -32,7 +33,10 @@ public class InventorySyncRiskScopeSnapshotLoader implements InventorySyncRiskWr
         for (int start = 0; start < keys.size(); start += 500) {
             Set<String> chunk = Set.copyOf(keys.subList(start, Math.min(start + 500, keys.size())));
             for (var row : mapper.selectAffectedScopeSnapshot(chunk, baseDate)) {
-                String scopeKey = row.getSkuCode() + ":" + row.getSalesPointCode();
+                // InventorySyncAttemptBuffer가 기록하는 키와 동일하게 ID 기반으로 그룹화합니다.
+                // 화면 표시용 SKU/판매처 코드는 RiskAssessmentInput에만 사용합니다.
+                String scopeKey = Objects.toString(row.getSkuId(), row.getSkuCode()) + ":"
+                        + Objects.toString(row.getSalesPointId(), "UNASSIGNED");
                 grouped.computeIfAbsent(scopeKey, ignored -> new ArrayList<>()).add(row);
             }
         }
@@ -54,7 +58,7 @@ public class InventorySyncRiskScopeSnapshotLoader implements InventorySyncRiskWr
             LocalDate forecastDate = first.getForecastBaseDate();
             boolean forecastAvailable = first.getPredictedQtyD7() != null && first.getPredictedQtyD30() != null;
             boolean stale = forecastDate != null && forecastDate.isBefore(baseDate.minusDays(14));
-            var input = new RiskAssessmentInput(first.getSkuCode(), first.getSalesPointCode(), totalOnHand, first.getPredictedQtyD7(), first.getPredictedQtyD30(), first.getSafetyStockQty(), forecastDate == null ? baseDate : forecastDate, lots, forecastAvailable, stale);
+            var input = new RiskAssessmentInput(first.getSkuCode(), first.getSalesPointCode(), totalOnHand, first.getPredictedQtyD7(), first.getPredictedQtyD30(), first.getSafetyStockQty(), forecastDate == null ? baseDate : forecastDate, lots, forecastAvailable, stale, baseDate);
             List<Long> siblingIds = rows.stream().skip(1).map(InventorySyncRiskSnapshotMapper.RiskScopeRow::getInventoryBalanceId).toList();
             return new InventorySyncRiskWriter.RiskScopeSnapshot(first.getInventoryBalanceId(), first.getForecastId(), input, siblingIds);
         }).toList();

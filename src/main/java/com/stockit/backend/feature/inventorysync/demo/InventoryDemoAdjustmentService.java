@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Set;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -18,6 +19,7 @@ import com.stockit.backend.common.exception.AppException;
 import com.stockit.backend.common.exception.ErrorCode;
 import com.stockit.backend.feature.inventorysync.InventorySyncSourceOrder;
 import com.stockit.backend.feature.inventorysync.InventorySyncHash;
+import com.stockit.backend.feature.inventorysync.InventorySyncLockSupport;
 
 @Service
 public class InventoryDemoAdjustmentService {
@@ -61,24 +63,31 @@ public class InventoryDemoAdjustmentService {
                 .toList();
         List<InventoryDemoAdjustmentResponse.ItemResult> results = new ArrayList<>();
         for (InventoryDemoAdjustmentRequest.Item item : items) {
-            if (mapper.lockSourceState(item.sourceType()) != 1) {
-                throw new AppException(ErrorCode.INVENTORY_SYNC_CONFLICT, "원천 상태가 초기화되지 않았습니다: " + item.sourceType());
+            try {
+                if (mapper.lockSourceState(item.sourceType()) != 1) {
+                    throw new AppException(ErrorCode.INVENTORY_SYNC_CONFLICT, "원천 상태가 초기화되지 않았습니다: " + item.sourceType());
+                }
+                InventoryDemoAdjustmentMapper.DemoSourceRow source = mapper.lockSourceRow(item.sourceType(), item.sourceRecordKey());
+                if (source == null || source.getOnHandQty() == null || source.getOnHandQty().compareTo(item.decreaseQty()) < 0) {
+                    throw new AppException(ErrorCode.INVALID_PARAMETER, "차감 수량이 현재 원천 가용재고를 초과합니다: " + item.sourceRecordKey());
+                }
+                BigDecimal remaining = source.getOnHandQty().subtract(item.decreaseQty());
+                String hashAfter = hashAfter(item.sourceRecordKey(), remaining, source.getRowVersion() + 1);
+                if (mapper.updateSource(item.sourceType(), item.sourceRecordKey(), item.decreaseQty(), hashAfter) != 1) {
+                    throw new AppException(ErrorCode.INVENTORY_SYNC_CONFLICT, "원천 재고가 동시에 변경되었습니다: " + item.sourceRecordKey());
+                }
+                int wasSynced = source.getRecordHash() != null && source.getRecordHash().equals(source.getSyncedRecordHash()) ? 1 : 0;
+                mapper.updatePendingCount(item.sourceType(), wasSynced);
+                mapper.insertAudit(request.clientRequestId(), hash, item.sourceType(), item.sourceRecordKey(), item.decreaseQty(),
+                        source.getRowVersion(), source.getRowVersion() + 1, source.getRecordHash(), hashAfter, requestedBy,
+                        payload(item));
+                results.add(new InventoryDemoAdjustmentResponse.ItemResult(item.sourceType(), item.sourceRecordKey(), item.decreaseQty(), remaining));
+            } catch (DataAccessException exception) {
+                if (InventorySyncLockSupport.isLockWaitFailure(exception)) {
+                    throw InventorySyncLockSupport.conflict();
+                }
+                throw exception;
             }
-            InventoryDemoAdjustmentMapper.DemoSourceRow source = mapper.lockSourceRow(item.sourceType(), item.sourceRecordKey());
-            if (source == null || source.getOnHandQty() == null || source.getOnHandQty().compareTo(item.decreaseQty()) < 0) {
-                throw new AppException(ErrorCode.INVALID_PARAMETER, "차감 수량이 현재 원천 가용재고를 초과합니다: " + item.sourceRecordKey());
-            }
-            BigDecimal remaining = source.getOnHandQty().subtract(item.decreaseQty());
-            String hashAfter = hashAfter(item.sourceRecordKey(), remaining, source.getRowVersion() + 1);
-            if (mapper.updateSource(item.sourceType(), item.sourceRecordKey(), item.decreaseQty(), hashAfter) != 1) {
-                throw new AppException(ErrorCode.INVENTORY_SYNC_CONFLICT, "원천 재고가 동시에 변경되었습니다: " + item.sourceRecordKey());
-            }
-            int wasSynced = source.getRecordHash() != null && source.getRecordHash().equals(source.getSyncedRecordHash()) ? 1 : 0;
-            mapper.updatePendingCount(item.sourceType(), wasSynced);
-            mapper.insertAudit(request.clientRequestId(), hash, item.sourceType(), item.sourceRecordKey(), item.decreaseQty(),
-                    source.getRowVersion(), source.getRowVersion() + 1, source.getRecordHash(), hashAfter, requestedBy,
-                    payload(item));
-            results.add(new InventoryDemoAdjustmentResponse.ItemResult(item.sourceType(), item.sourceRecordKey(), item.decreaseQty(), remaining));
         }
         return new InventoryDemoAdjustmentResponse(request.clientRequestId(), "APPLIED", results.size(), Instant.now(), results);
     }

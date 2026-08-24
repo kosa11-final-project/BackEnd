@@ -5,6 +5,9 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 
 import java.util.List;
 
@@ -41,6 +44,7 @@ class InventorySyncWorkerFailureTest {
         when(runMapper.selectById(1L)).thenReturn(run);
         when(runMapper.markRunning(eq(1L), eq(0), eq(1L), eq("local-worker"), org.mockito.ArgumentMatchers.any()))
                 .thenReturn(1);
+        when(runMapper.updatePhase(anyLong(), anyInt(), anyLong(), anyString(), anyLong(), anyLong())).thenReturn(1);
         when(runMapper.selectSourceTypes()).thenThrow(new IllegalStateException("source state unavailable"));
 
         InventorySyncWorker worker = new InventorySyncWorker(

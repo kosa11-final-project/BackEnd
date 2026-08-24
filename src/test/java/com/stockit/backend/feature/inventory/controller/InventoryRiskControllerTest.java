@@ -63,7 +63,9 @@ class InventoryRiskControllerTest {
                         "소비기한 30일 이하 임박 (22일 남음)",
                         "CRITICAL",
                         "nearestExpiryDays=22"
-                ))
+                )),
+                BigDecimal.valueOf(20),
+                "Y"
         );
 
         when(riskAssessmentService.getRiskAssessment(eq(skuCode), eq(salesPointCode))).thenReturn(response);
@@ -75,6 +77,8 @@ class InventoryRiskControllerTest {
                 .andExpect(jsonPath("$.data.riskGrade").value("DANGER"))
                 .andExpect(jsonPath("$.data.dbRiskGrade").value("CRITICAL"))
                 .andExpect(jsonPath("$.data.nearestExpiryDays").value(22))
+                .andExpect(jsonPath("$.data.stockCoverageDays").value(20))
+                .andExpect(jsonPath("$.data.shortageYn").value("Y"))
                 .andExpect(jsonPath("$.timestamp").exists());
     }
 }

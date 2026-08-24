@@ -19,6 +19,7 @@ class InventorySyncRiskMapperContractTest {
 
         assertThat(sql)
                 .contains("#{record.forecastId,jdbcType=NUMERIC}")
+                .contains("#{record.stockDays,jdbcType=NUMERIC}")
                 .contains("#{record.expiryDaysLeft,jdbcType=NUMERIC}")
                 .contains("#{record.holdingDays,jdbcType=NUMERIC}");
     }

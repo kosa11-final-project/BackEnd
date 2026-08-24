@@ -1,6 +1,7 @@
 package com.stockit.backend.feature.inventorysync.risk;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.List;
 import java.util.Set;
 
@@ -33,6 +34,9 @@ public class InventorySyncRiskWriter {
     ) {
         // loader는 balance·policy·LOT·latest forecast를 하나의 set-based SELECT snapshot으로 반환해야 합니다.
         List<RiskScopeSnapshot> snapshots = snapshotLoader.load(affectedScopes);
+        if (affectedScopes != null && !affectedScopes.isEmpty() && snapshots.isEmpty()) {
+            throw new IllegalStateException("risk snapshot is empty for affected scopes");
+        }
         List<RiskPersistenceRecord> records = snapshots.stream()
                 .map(snapshot -> toPersistence(runId, actorId, snapshot))
                 .toList();
@@ -54,39 +58,75 @@ public class InventorySyncRiskWriter {
 
     private RiskPersistenceRecord toPersistence(Long runId, Long actorId, RiskScopeSnapshot snapshot) {
         RiskAssessmentResult result = ruleEngine.evaluate(snapshot.input());
-        // 기존 RISK_ASSESSMENT의 risk_grade 제약은 CRITICAL/WARNING/NORMAL/GOOD만
-        // 허용하므로 UNASSESSED/STALE 상태는 WARNING으로 보존하고 실제 상태는
-        // reason_message에 명시합니다.
-        String grade = result.dbRiskGrade() == null ? "WARNING" : result.dbRiskGrade();
-        BigDecimal shortage = result.shortageQty30() == null ? BigDecimal.ZERO : result.shortageQty30();
+        // 유효한 입력은 항상 네 등급 중 하나로 확정되어야 합니다.
+        // 음수 수량처럼 잘못된 입력은 엔진에서 예외를 발생시켜 동기화 자체를 중단합니다.
+        if (result.dbRiskGrade() == null) {
+            throw new IllegalStateException("risk grade was not resolved: " + result.assessmentStatus());
+        }
+        String grade = result.dbRiskGrade();
         String ruleCode = result.reasons() == null || result.reasons().isEmpty()
                 ? "RULE_EVALUATION" : result.reasons().get(0).code();
         String reason = truncate(serverReason(result, ruleCode), 1000);
         return new RiskPersistenceRecord(
                 snapshot.inventoryBalanceId(), snapshot.forecastId(), grade,
-                shortage.signum() > 0 ? "Y" : "N", result.nearestExpiryDays(), result.maxHoldingDays(),
+                safetyStockShortageYn(result), stockDays(result, snapshot.input()),
+                result.nearestExpiryDays(), result.maxHoldingDays(),
                 result.ruleVersion(), reason, score(grade), runId, actorId, snapshot.siblingInventoryBalanceIds()
         );
+    }
+
+    /** RISK_ASSESSMENT.shortage_yn의 DB 계약(현재 가용재고가 안전재고보다 낮은지)을 따릅니다. */
+    private static String safetyStockShortageYn(RiskAssessmentResult result) {
+        BigDecimal availableQty = result.availableQty();
+        BigDecimal safetyStockQty = result.safetyStockQty();
+        if (availableQty == null || availableQty.signum() == 0) {
+            return "Y";
+        }
+        if (safetyStockQty == null) {
+            return "N";
+        }
+        return availableQty.compareTo(safetyStockQty) < 0 ? "Y" : "N";
+    }
+
+    private static BigDecimal stockDays(RiskAssessmentResult result, RiskAssessmentInput input) {
+        BigDecimal availableQty = result.availableQty();
+        BigDecimal predictedQtyD30 = input.predictedQtyD30();
+        if (result.shortageQty30() == null
+                || availableQty == null
+                || predictedQtyD30 == null
+                || predictedQtyD30.signum() <= 0) {
+            return null;
+        }
+        return availableQty.multiply(BigDecimal.valueOf(30))
+                .divide(predictedQtyD30, 2, RoundingMode.HALF_UP);
     }
 
     private static String serverReason(RiskAssessmentResult result, String ruleCode) {
         String status = result.assessmentStatus() == null ? "UNKNOWN" : result.assessmentStatus();
         String primary = result.primaryReason() == null ? "규칙 판정 결과가 없습니다." : result.primaryReason();
-        if (result.availableQty() == null || result.safetyStockQty() == null || result.projectedD7() == null) {
-            return "[" + status + "/" + result.ruleVersion() + "/" + ruleCode + "] " + primary;
+        StringBuilder reason = new StringBuilder("[")
+                .append(status).append('/').append(result.ruleVersion()).append('/').append(ruleCode).append("] ")
+                .append(primary);
+        if (result.availableQty() == null) {
+            return reason.toString();
         }
-        BigDecimal available = result.availableQty();
-        BigDecimal predictedD7 = result.projectedD7() == null
-                ? BigDecimal.ZERO : result.projectedD7();
-        BigDecimal safety = result.safetyStockQty();
-        BigDecimal shortage30 = result.shortageQty30() == null ? BigDecimal.ZERO : result.shortageQty30();
-        BigDecimal safetyGap = result.safetyGapQty() == null ? BigDecimal.ZERO : result.safetyGapQty();
-        return "[" + status + "/" + result.ruleVersion() + "/" + ruleCode + "] " + primary
-                + " | 산식: 가용재고=on_hand_qty(" + format(available) + ")"
-                + ", D+7예상잔고=max(0, 가용재고-예측D7)=" + format(result.projectedD7())
-                + ", D+30부족량=max(0, 예측D30-가용재고)=" + format(shortage30)
-                + ", 안전재고부족=max(0, 안전재고-D+7예상잔고)=" + format(safetyGap)
-                + ", 소비기한/LOT 규칙을 함께 적용했습니다.";
+
+        reason.append(" | 산식: 가용재고=on_hand_qty(")
+                .append(format(result.availableQty())).append(')');
+        if (result.projectedD7() != null) {
+            reason.append(", D+7예상잔고=max(0, 가용재고-예측D7)=")
+                    .append(format(result.projectedD7()));
+        }
+        if (result.shortageQty30() != null) {
+            reason.append(", D+30부족량=max(0, 예측D30-가용재고)=")
+                    .append(format(result.shortageQty30()));
+        }
+        if (result.safetyStockQty() != null && result.safetyGapQty() != null) {
+            reason.append(", 안전재고부족=max(0, 안전재고-D+7예상잔고)=")
+                    .append(format(result.safetyGapQty()));
+        }
+        reason.append(", 소비기한/LOT 규칙을 함께 적용했습니다.");
+        return reason.toString();
     }
 
     private static String format(BigDecimal value) {
@@ -124,7 +164,8 @@ public class InventorySyncRiskWriter {
     }
     public record RiskPersistenceRecord(
             Long inventoryBalanceId, Long forecastId, String riskGrade, String shortageYn,
-            Integer expiryDaysLeft, Integer holdingDays, String ruleVersion, String reasonMessage,
+            BigDecimal stockDays, Integer expiryDaysLeft, Integer holdingDays,
+            String ruleVersion, String reasonMessage,
             int riskScore, Long runId, Long actorId, List<Long> siblingInventoryBalanceIds
     ) { }
 }

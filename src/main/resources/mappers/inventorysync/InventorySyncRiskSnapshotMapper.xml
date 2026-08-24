@@ -18,7 +18,8 @@
                AND (effective_from IS NULL OR effective_from &lt;= #{asOfDate})
                AND (effective_to IS NULL OR effective_to &gt;= #{asOfDate})
         )
-        SELECT ib.inventory_balance_id, lf.forecast_id, s.sku_code,
+        SELECT ib.inventory_balance_id, ib.sku_id, ib.allocated_sales_point_id AS sales_point_id,
+               lf.forecast_id, s.sku_code,
                COALESCE(sp.sales_point_code, 'UNASSIGNED') AS sales_point_code,
                ib.on_hand_qty, lf.predicted_qty_d7, lf.predicted_qty_d30,
                lp.safety_stock_qty, lf.base_date AS forecast_base_date,

@@ -28,4 +28,13 @@ class InventorySyncRunMapperContractTest {
 
         assertThat(sql).contains("<selectKey keyProperty=\"inventorySyncRunId\" resultType=\"long\" order=\"AFTER\">");
     }
+
+    @Test
+    void pessimisticLocksHaveAfiniteOracleWait() throws Exception {
+        String sql = Files.readString(MAPPER);
+
+        assertThat(sql)
+                .contains("WHERE inventory_sync_run_id = #{runId} FOR UPDATE WAIT 5")
+                .contains("SELECT 1 FROM inventory_sync_mutex\n         FOR UPDATE WAIT 5");
+    }
 }

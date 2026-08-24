@@ -31,122 +31,44 @@ public class RiskRuleEngine {
     public RiskAssessmentResult evaluate(RiskAssessmentInput input) {
         Instant now = Instant.now(clock);
         LocalDate baseDate = input.baseDate() != null ? input.baseDate() : LocalDate.now(clock);
+        LocalDate assessmentDate = input.assessmentDate() != null ? input.assessmentDate() : baseDate;
 
-        // 1. 필수 입력 검증. 위험등급은 재고·수요예측·정책·LOT 데이터로 판정합니다.
-        if (input.onHandQty() == null) {
-            return new RiskAssessmentResult(
-                    "UNASSESSED",
-                    null,
-                    "UNASSESSED",
-                    "가용수량이 누락되어 위험등급을 판정할 수 없습니다.",
-                    List.of(new RiskReason("DATA_MISSING", "가용수량 정보 없음", "WARNING", "onHandQty is null")),
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    baseDate,
-                    now,
-                    RULE_VERSION
-            );
+        // 1. 입력 검증. 음수 수량은 잘못된 입력이므로 판정하지 않고 동기화를 차단합니다.
+        if (input.onHandQty() != null && input.onHandQty().compareTo(BigDecimal.ZERO) < 0) {
+            throw new IllegalArgumentException("on_hand_qty must be non-negative");
         }
-
-        if (input.onHandQty().compareTo(BigDecimal.ZERO) < 0) {
-            return unassessed(
-                    "INVALID_INVENTORY_DATA",
-                    "가용수량이 음수여서 위험등급을 판정할 수 없습니다.",
-                    "on_hand_qty must be non-negative",
-                    baseDate,
-                    now
-            );
+        if (input.safetyStockQty() != null && input.safetyStockQty().compareTo(BigDecimal.ZERO) < 0) {
+            throw new IllegalArgumentException("safetyStockQty must be non-negative");
         }
-
-        if (input.forecastStale()) {
-            return stale(
-                    "STALE_FORECAST",
-                    "수요예측 기준일이 오래되어 위험등급을 최신 상태로 판정할 수 없습니다.",
-                    "forecast base date is older than 14 days",
-                    baseDate,
-                    now
-            );
-        }
-
-        if (!input.forecastAvailable()) {
-            return unassessed(
-                    "MISSING_FORECAST",
-                    "수요예측 결과가 없어 위험등급을 판정할 수 없습니다.",
-                    "forecast horizon is missing",
-                    baseDate,
-                    now
-            );
-        }
-
-        if (input.predictedQtyD7() == null
-                || input.predictedQtyD30() == null
-                || input.predictedQtyD7().compareTo(BigDecimal.ZERO) < 0
-                || input.predictedQtyD30().compareTo(input.predictedQtyD7()) < 0) {
-            return unassessed(
-                    "INVALID_FORECAST_DATA",
-                    "수요예측 누적값이 음수이거나 기간 순서를 만족하지 않아 위험등급을 판정할 수 없습니다.",
-                    "forecast horizons are invalid",
-                    baseDate,
-                    now
-            );
-        }
-
-        if (input.safetyStockQty() == null) {
-            return unassessed(
-                    "MISSING_POLICY",
-                    "안전재고 정책이 없어 위험등급을 판정할 수 없습니다.",
-                    "active inventory policy is missing",
-                    baseDate,
-                    now
-            );
-        }
-
-        if (input.safetyStockQty().compareTo(BigDecimal.ZERO) < 0) {
-            return unassessed(
-                    "INVALID_POLICY_DATA",
-                    "안전재고 기준이 음수여서 위험등급을 판정할 수 없습니다.",
-                    "safetyStockQty must be non-negative",
-                    baseDate,
-                    now
-            );
-        }
-
         if (input.lots() != null && input.lots().stream()
                 .anyMatch(lot -> lot.quantity() != null && lot.quantity().compareTo(BigDecimal.ZERO) < 0)) {
-            return unassessed(
-                    "INVALID_INVENTORY_DATA",
-                    "LOT 수량이 음수여서 위험등급을 판정할 수 없습니다.",
-                    "lot quantity must be non-negative",
-                    baseDate,
-                    now
-            );
+            throw new IllegalArgumentException("lot quantity must be non-negative");
         }
 
         // 현재 canonical 계약에서는 on_hand_qty 자체가 예약을 제외한 가용수량입니다.
         // 소비기한·판매중지에 따른 별도 차감 컬럼은 후속 스키마 결정에서 반영합니다.
-        BigDecimal availableQty = input.onHandQty();
+        BigDecimal availableQty = input.onHandQty() == null ? BigDecimal.ZERO : input.onHandQty();
+        boolean inventoryMissing = input.onHandQty() == null;
+        boolean forecastUsable = isUsableForecast(input);
 
-        // 2. 수요예측·안전재고 기준으로 예상 잔고와 부족량을 계산합니다.
-        BigDecimal predictedQtyD7 = input.predictedQtyD7();
-        BigDecimal projectedD7 = availableQty;
-        if (predictedQtyD7 != null) {
-            projectedD7 = availableQty.subtract(predictedQtyD7).max(BigDecimal.ZERO);
-        }
+        // 2. 수요예측이 유효할 때만 예측 기반 규칙과 수치를 계산합니다.
+        // 기준일이 오래된 forecast도 값 자체가 유효하면 그대로 사용합니다.
+        BigDecimal predictedQtyD7 = forecastUsable ? input.predictedQtyD7() : null;
+        BigDecimal projectedD7 = predictedQtyD7 == null
+                ? null
+                : availableQty.subtract(predictedQtyD7).max(BigDecimal.ZERO);
 
-        BigDecimal predictedQtyD30 = input.predictedQtyD30();
-        BigDecimal shortageQty30 = BigDecimal.ZERO;
+        BigDecimal predictedQtyD30 = forecastUsable ? input.predictedQtyD30() : null;
+        BigDecimal shortageQty30 = null;
         if (predictedQtyD30 != null && predictedQtyD30.compareTo(availableQty) > 0) {
             shortageQty30 = predictedQtyD30.subtract(availableQty);
+        } else if (predictedQtyD30 != null) {
+            shortageQty30 = BigDecimal.ZERO;
         }
 
         BigDecimal safetyStock = input.safetyStockQty();
-        BigDecimal safetyGap = BigDecimal.ZERO;
-        if (safetyStock != null && safetyStock.compareTo(projectedD7) > 0) {
+        BigDecimal safetyGap = null;
+        if (safetyStock != null && projectedD7 != null && safetyStock.compareTo(projectedD7) > 0) {
             safetyGap = safetyStock.subtract(projectedD7);
         }
 
@@ -155,11 +77,27 @@ public class RiskRuleEngine {
         Integer maxHoldingDays = null;
         List<RiskReason> reasons = new ArrayList<>();
 
+        if (inventoryMissing) {
+            reasons.add(new RiskReason(
+                    "DATA_MISSING",
+                    "가용재고 데이터가 없어 재고 0개로 간주하여 위험 판정했습니다.",
+                    "CRITICAL",
+                    "on_hand_qty is null"
+            ));
+        } else if (availableQty.signum() == 0) {
+            reasons.add(new RiskReason(
+                    "ZERO_AVAILABLE_STOCK",
+                    "가용재고가 0개입니다.",
+                    "CRITICAL",
+                    "on_hand_qty=0"
+            ));
+        }
+
         if (input.lots() != null && !input.lots().isEmpty()) {
             for (RiskAssessmentInput.LotRiskItem lot : input.lots()) {
                 boolean hasQuantity = lot.quantity() != null && lot.quantity().compareTo(BigDecimal.ZERO) > 0;
                 if (hasQuantity && lot.expiryDate() != null) {
-                    long days = ChronoUnit.DAYS.between(baseDate, lot.expiryDate());
+                    long days = ChronoUnit.DAYS.between(assessmentDate, lot.expiryDate());
                     int daysInt = (int) days;
                     if (nearestExpiryDays == null || daysInt < nearestExpiryDays) {
                         nearestExpiryDays = daysInt;
@@ -167,7 +105,7 @@ public class RiskRuleEngine {
                 }
 
                 if (hasQuantity && lot.receivedDate() != null) {
-                    long holding = ChronoUnit.DAYS.between(lot.receivedDate(), baseDate);
+                    long holding = ChronoUnit.DAYS.between(lot.receivedDate(), assessmentDate);
                     int holdingInt = (int) holding;
                     if (maxHoldingDays == null || holdingInt > maxHoldingDays) {
                         maxHoldingDays = holdingInt;
@@ -175,7 +113,7 @@ public class RiskRuleEngine {
                 }
 
                 // 개별 LOT 단위 경과/임박 체크
-                if (hasQuantity && isSaleStopped(lot, baseDate)) {
+                if (hasQuantity && isSaleStopped(lot, assessmentDate)) {
                     reasons.add(new RiskReason(
                             "LOT_SALE_STOPPED",
                             "판매중지일 도래 LOT 존재 (" + lot.lotNumber() + ")",
@@ -183,7 +121,7 @@ public class RiskRuleEngine {
                             "saleStopDate=" + lot.saleStopDate() + ", qty=" + lot.quantity()
                     ));
                 }
-                if (hasQuantity && isExpired(lot, baseDate)) {
+                if (hasQuantity && isExpired(lot, assessmentDate)) {
                     reasons.add(new RiskReason(
                             "LOT_EXPIRED",
                             "소비기한 만료 LOT 존재 (" + lot.lotNumber() + ")",
@@ -222,7 +160,7 @@ public class RiskRuleEngine {
         }
 
         // B. 수요예측 기반 부족량 평가
-        if (shortageQty30.compareTo(BigDecimal.ZERO) > 0) {
+        if (shortageQty30 != null && shortageQty30.compareTo(BigDecimal.ZERO) > 0) {
             reasons.add(new RiskReason(
                     "PREDICTED_SHORTAGE",
                     "D+30 수요예측 대비 재고 부족 예상 (" + shortageQty30 + "개 부족)",
@@ -233,7 +171,7 @@ public class RiskRuleEngine {
 
         // C. 안전재고 미달 평가
         if (safetyStock != null && safetyStock.compareTo(BigDecimal.ZERO) > 0) {
-            if (projectedD7.compareTo(safetyStock) < 0) {
+            if (projectedD7 != null && projectedD7.compareTo(safetyStock) < 0) {
                 reasons.add(new RiskReason(
                         "PROJECTED_UNDER_SAFETY",
                         "D+7 예상잔고(" + projectedD7 + ")가 안전재고(" + safetyStock + ") 미만",
@@ -286,6 +224,13 @@ public class RiskRuleEngine {
         }
 
         String primaryReason = reasons.get(0).message();
+        String forecastNote = forecastNote(input, forecastUsable);
+        if (forecastNote != null) {
+            primaryReason += " " + forecastNote;
+        }
+        if (safetyStock == null) {
+            primaryReason += " 안전재고 정책이 없어 안전재고 규칙은 제외했습니다.";
+        }
 
         return new RiskAssessmentResult(
                 "ASSESSED",
@@ -319,6 +264,29 @@ public class RiskRuleEngine {
         };
     }
 
+    private static boolean isUsableForecast(RiskAssessmentInput input) {
+        if (!input.forecastAvailable()
+                || input.predictedQtyD7() == null
+                || input.predictedQtyD30() == null) {
+            return false;
+        }
+        return input.predictedQtyD7().compareTo(BigDecimal.ZERO) >= 0
+                && input.predictedQtyD30().compareTo(input.predictedQtyD7()) >= 0;
+    }
+
+    private static String forecastNote(RiskAssessmentInput input, boolean forecastUsable) {
+        if (forecastUsable && input.forecastStale()) {
+            return "기준일이 오래된 수요예측도 현재 확보된 값으로 적용했습니다.";
+        }
+        if (!forecastUsable && !input.forecastAvailable()) {
+            return "수요예측이 없어 재고·안전재고·LOT 규칙만 적용했습니다.";
+        }
+        if (!forecastUsable) {
+            return "수요예측 값이 유효하지 않아 예측 기반 규칙은 제외했습니다.";
+        }
+        return null;
+    }
+
     private static boolean isExpired(RiskAssessmentInput.LotRiskItem lot, LocalDate baseDate) {
         return "EXPIRED".equalsIgnoreCase(lot.lotStatus())
                 || (lot.expiryDate() != null && !lot.expiryDate().isAfter(baseDate));
@@ -330,55 +298,4 @@ public class RiskRuleEngine {
                 || (lot.saleStopDate() != null && !lot.saleStopDate().isAfter(baseDate));
     }
 
-    private RiskAssessmentResult unassessed(
-            String code,
-            String message,
-            String evidence,
-            LocalDate baseDate,
-            Instant assessedAt
-    ) {
-        return new RiskAssessmentResult(
-                "UNASSESSED",
-                null,
-                "UNASSESSED",
-                message,
-                List.of(new RiskReason(code, message, "WARNING", evidence)),
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                baseDate,
-                assessedAt,
-                RULE_VERSION
-        );
-    }
-
-    private RiskAssessmentResult stale(
-            String code,
-            String message,
-            String evidence,
-            LocalDate baseDate,
-            Instant assessedAt
-    ) {
-        return new RiskAssessmentResult(
-                "STALE",
-                null,
-                "UNASSESSED",
-                message,
-                List.of(new RiskReason(code, message, "WARNING", evidence)),
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                baseDate,
-                assessedAt,
-                RULE_VERSION
-        );
-    }
 }

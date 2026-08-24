@@ -4,7 +4,7 @@
     <select id="lockSourceState" resultType="long">
         SELECT current_version FROM inventory_source_state
          WHERE source_type = #{sourceType}
-         FOR UPDATE
+         FOR UPDATE WAIT 5
     </select>
     <sql id="sourceRows">
         <foreach collection="records" item="record" separator=" UNION ALL ">

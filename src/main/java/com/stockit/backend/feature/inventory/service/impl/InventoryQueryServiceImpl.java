@@ -45,7 +45,7 @@ public class InventoryQueryServiceImpl implements InventoryQueryService {
     private static final Map<String, String> ASSESSMENT_STATUS_NAMES = Map.of(
             "ASSESSED", "판정 완료",
             "UNASSESSED", "미판정",
-            "STALE", "만료됨",
+            "STALE", "판정 만료",
             "FAILED", "판정 실패",
             "REASSESSING", "재판정 중"
     );

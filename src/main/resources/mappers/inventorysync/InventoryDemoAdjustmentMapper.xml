@@ -16,29 +16,29 @@
          WHERE requested_by = #{requestedBy} AND adjustment_status = 'APPLIED'
     </select>
     <select id="lockSourceState" resultType="int">
-        SELECT 1 FROM inventory_source_state WHERE source_type = #{sourceType} FOR UPDATE
+        SELECT 1 FROM inventory_source_state WHERE source_type = #{sourceType} FOR UPDATE WAIT 5
     </select>
     <select id="lockSourceRow" resultType="com.stockit.backend.feature.inventorysync.demo.InventoryDemoAdjustmentMapper$DemoSourceRow">
         <choose>
             <when test="sourceType == 'OFFLINE'">
                 SELECT available_stock_count AS on_hand_qty, reserved_stock_count AS reserved_qty,
                        row_version, record_hash, synced_record_hash FROM inventory_source_offline
-                 WHERE source_record_key = #{sourceRecordKey} AND active_yn = 'Y' AND is_deleted = 0 FOR UPDATE
+                 WHERE source_record_key = #{sourceRecordKey} AND active_yn = 'Y' AND is_deleted = 0 FOR UPDATE WAIT 5
             </when>
             <when test="sourceType == 'ECOMMERCE'">
                 SELECT sellable_quantity AS on_hand_qty, ordered_quantity AS reserved_qty,
                        row_version, record_hash, synced_record_hash FROM inventory_source_ecommerce
-                 WHERE source_record_key = #{sourceRecordKey} AND active_yn = 'Y' AND is_deleted = 0 FOR UPDATE
+                 WHERE source_record_key = #{sourceRecordKey} AND active_yn = 'Y' AND is_deleted = 0 FOR UPDATE WAIT 5
             </when>
             <when test="sourceType == 'GREETING'">
                 SELECT saleable_meal_count AS on_hand_qty, committed_meal_count AS reserved_qty,
                        row_version, record_hash, synced_record_hash FROM inventory_source_greeting
-                 WHERE source_record_key = #{sourceRecordKey} AND active_yn = 'Y' AND is_deleted = 0 FOR UPDATE
+                 WHERE source_record_key = #{sourceRecordKey} AND active_yn = 'Y' AND is_deleted = 0 FOR UPDATE WAIT 5
             </when>
             <otherwise>
                 SELECT physical_available_qty AS on_hand_qty, physical_reserved_qty AS reserved_qty,
                        row_version, record_hash, synced_record_hash FROM inventory_source_warehouse
-                 WHERE source_record_key = #{sourceRecordKey} AND active_yn = 'Y' AND is_deleted = 0 FOR UPDATE
+                 WHERE source_record_key = #{sourceRecordKey} AND active_yn = 'Y' AND is_deleted = 0 FOR UPDATE WAIT 5
             </otherwise>
         </choose>
     </select>
