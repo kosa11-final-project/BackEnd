@@ -32,15 +32,23 @@ import com.stockit.backend.common.exception.AppException;
 import com.stockit.backend.common.exception.ErrorCode;
 import com.stockit.backend.feature.strategy.domain.StrategyCaseCreated;
 import com.stockit.backend.feature.strategy.domain.StrategyCaseStatus;
+import com.stockit.backend.feature.strategy.approval.StrategyReviewStatus;
+import com.stockit.backend.feature.strategy.dto.response.AiStrategyReviewerListResponse;
+import com.stockit.backend.feature.strategy.dto.response.AiStrategyTeamsRequestResponse;
+import com.stockit.backend.feature.strategy.dto.response.AiStrategyTeamsRequestResponse.DeliveryStatus;
 import com.stockit.backend.feature.strategy.dto.response.AiStrategyCaseResponse;
 import com.stockit.backend.feature.strategy.dto.response.AiStrategyCaseListPageResponse;
 import com.stockit.backend.feature.strategy.dto.response.AdjustedAiStrategySimulationResponse;
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCandidateSimulation;
 import com.stockit.backend.feature.strategy.calculation.policy.SalesPointDiscountPolicy;
+import com.stockit.backend.feature.strategy.service.AiStrategyApprovalService;
 import com.stockit.backend.feature.strategy.service.AiStrategyCaseListService;
 import com.stockit.backend.feature.strategy.service.AiStrategyCaseQueryService;
+import com.stockit.backend.feature.strategy.service.AiStrategyReviewerService;
 import com.stockit.backend.feature.strategy.service.StrategyCaseService;
 import com.stockit.backend.feature.strategy.simulation.StrategyAdjustmentSimulationService;
+import com.stockit.backend.feature.auth.security.AuthPrincipal;
+import com.stockit.backend.feature.auth.vo.AuthUserVO;
 
 import jakarta.servlet.http.Cookie;
 
@@ -55,6 +63,8 @@ class AiStrategyControllerTest {
     @MockitoBean private AiStrategyCaseQueryService queryService;
     @MockitoBean private AiStrategyCaseListService listService;
     @MockitoBean private StrategyAdjustmentSimulationService adjustmentSimulationService;
+    @MockitoBean private AiStrategyReviewerService reviewerService;
+    @MockitoBean private AiStrategyApprovalService approvalService;
 
     @Test
     @WithMockUser(roles = "GREENFOOD_ADMIN")
@@ -209,6 +219,87 @@ class AiStrategyControllerTest {
     }
 
     @Test
+    void returnsReviewersAvailableInAuthenticatedUsersOrganization() throws Exception {
+        when(reviewerService.findAll(1L)).thenReturn(
+                new AiStrategyReviewerListResponse(List.of(
+                        new AiStrategyReviewerListResponse.Reviewer(
+                                7L, "검토자", "reviewer@stockit.test",
+                                1L, "StockIt", "그린푸드 총괄"
+                        )
+                ))
+        );
+
+        mockMvc.perform(get("/api/v1/ai-strategies/reviewers")
+                        .with(user(adminPrincipal())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.reviewers[0].reviewerId").value(7))
+                .andExpect(jsonPath("$.data.reviewers[0].email")
+                        .value("reviewer@stockit.test"));
+    }
+
+    @Test
+    void persistsFinalSelectionAndSendsTeamsRequests() throws Exception {
+        when(approvalService.sendToTeams(
+                123L, "CAND-1", List.of(7L, 8L),
+                3L, "요청자", 1L
+        )).thenReturn(new AiStrategyTeamsRequestResponse(
+                123L,
+                "CAND-1",
+                55L,
+                44L,
+                StrategyCaseStatus.READY_TO_EXECUTE,
+                DeliveryStatus.SENT,
+                List.of(
+                        new AiStrategyTeamsRequestResponse.ReviewerDelivery(
+                                7L, "검토자 7", "one@stockit.test",
+                                StrategyReviewStatus.SENT, null
+                        ),
+                        new AiStrategyTeamsRequestResponse.ReviewerDelivery(
+                                8L, "검토자 8", "two@stockit.test",
+                                StrategyReviewStatus.SENT, null
+                        )
+                )
+        ));
+
+        CsrfCredentials csrf = requestCsrf();
+        mockMvc.perform(post("/api/v1/ai-strategies/123/teams-requests")
+                        .with(user(adminPrincipal()))
+                        .cookie(csrf.cookie())
+                        .header(csrf.headerName(), csrf.token())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "optionId": "CAND-1",
+                                  "reviewerIds": [7, 8]
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.selectedOptionId").value("CAND-1"))
+                .andExpect(jsonPath("$.data.caseStatus")
+                        .value("READY_TO_EXECUTE"))
+                .andExpect(jsonPath("$.data.deliveryStatus").value("SENT"))
+                .andExpect(jsonPath("$.data.reviewers.length()").value(2));
+    }
+
+    @Test
+    void rejectsInvalidTeamsRequestBeforePersistence() throws Exception {
+        CsrfCredentials csrf = requestCsrf();
+        mockMvc.perform(post("/api/v1/ai-strategies/123/teams-requests")
+                        .with(user(adminPrincipal()))
+                        .cookie(csrf.cookie())
+                        .header(csrf.headerName(), csrf.token())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "optionId": " ",
+                                  "reviewerIds": []
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON-002"));
+    }
+
+    @Test
     @WithMockUser(roles = "GREENFOOD_ADMIN")
     void rejectsUnknownOrDuplicateListParameters() throws Exception {
         mockMvc.perform(get("/api/v1/ai-strategies").queryParam("unknown", "value"))
@@ -258,7 +349,7 @@ class AiStrategyControllerTest {
     }
 
     @Test
-    void publishesCreateAndDetailEndpointsInSwagger() throws Exception {
+    void publishesAiStrategyEndpointsInSwagger() throws Exception {
         mockMvc.perform(get("/v3/api-docs"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.paths['/api/v1/ai-strategies'].post.summary")
@@ -268,7 +359,11 @@ class AiStrategyControllerTest {
                 .andExpect(jsonPath("$.paths['/api/v1/ai-strategies/{strategyCaseId}'].get.summary")
                         .value("AI 전략 생성 상태·결과 조회"))
                 .andExpect(jsonPath("$.paths['/api/v1/ai-strategies/{strategyCaseId}/candidates/{candidateId}/simulations'].post.summary")
-                        .value("AI 전략 조건 조정 시뮬레이션"));
+                        .value("AI 전략 조건 조정 시뮬레이션"))
+                .andExpect(jsonPath("$.paths['/api/v1/ai-strategies/reviewers'].get.summary")
+                        .value("AI 전략 Teams 검토자 목록 조회"))
+                .andExpect(jsonPath("$.paths['/api/v1/ai-strategies/{strategyCaseId}/teams-requests'].post.summary")
+                        .value("최종 AI 전략 선택 및 Teams 검토 요청"));
     }
 
     private MockHttpServletRequestBuilder createRequest(
@@ -299,6 +394,19 @@ class AiStrategyControllerTest {
     }
 
     private record CsrfCredentials(Cookie cookie, String token, String headerName) {
+    }
+
+    private static AuthPrincipal adminPrincipal() {
+        AuthUserVO user = new AuthUserVO();
+        user.setUserId(3L);
+        user.setLoginId("requester");
+        user.setPasswordHash("unused");
+        user.setUserName("요청자");
+        user.setEmail("requester@stockit.test");
+        user.setOrganizationId(1L);
+        user.setOrganizationName("StockIt");
+        user.setRoleCode("GREENFOOD_ADMIN");
+        return AuthPrincipal.from(user);
     }
 
     private static BigDecimal decimal(String value) {
