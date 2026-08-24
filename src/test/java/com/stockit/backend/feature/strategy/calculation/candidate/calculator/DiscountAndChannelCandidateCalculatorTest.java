@@ -30,6 +30,9 @@ import com.stockit.backend.feature.strategy.calculation.candidate.policy.SourceI
 import com.stockit.backend.feature.strategy.calculation.candidate.policy.StrategyPeriodCandidatePolicy;
 import com.stockit.backend.feature.strategy.calculation.candidate.policy.TargetAdditionalDemandPolicy;
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculationContext;
+import com.stockit.backend.feature.strategy.calculation.policy.DiscountSimulationProperties;
+import com.stockit.backend.feature.strategy.calculation.policy.DiscountDemandPolicy;
+import com.stockit.backend.feature.strategy.calculation.policy.SalesPointDiscountPolicy;
 import com.stockit.backend.feature.strategy.domain.StrategyType;
 
 class DiscountAndChannelCandidateCalculatorTest {
@@ -59,12 +62,22 @@ class DiscountAndChannelCandidateCalculatorTest {
                         allocationPolicy,
                         idGenerator
                 );
+        DiscountSimulationProperties discountProperties =
+                new DiscountSimulationProperties();
+        SalesPointDiscountPolicy salesPointDiscountPolicy =
+                new SalesPointDiscountPolicy(discountProperties);
         discountCalculator = new PriceDiscountCandidateCalculator(
-                new DiscountRateCandidatePolicy(),
+                new DiscountRateCandidatePolicy(
+                        salesPointDiscountPolicy
+                ),
                 periodPolicy,
                 capacityPolicy,
                 allocationPolicy,
-                idGenerator
+                idGenerator,
+                new DiscountDemandPolicy(
+                        discountProperties,
+                        salesPointDiscountPolicy
+                )
         );
         expansionCalculator = new ChannelExpansionCandidateCalculator(
                 movementFactory,
@@ -79,7 +92,7 @@ class DiscountAndChannelCandidateCalculatorTest {
     }
 
     @Test
-    void generatesFivePercentDiscountStepsWithoutDemandUplift() {
+    void generatesFivePercentDiscountStepsForSimulation() {
         StrategyCalculationContext context = context(
                 null,
                 List.of(StrategyType.PRICE_DISCOUNT)
@@ -102,12 +115,10 @@ class DiscountAndChannelCandidateCalculatorTest {
                 .isEqualByComparingTo("90");
         assertThat(tenPercentMaximum.evidence())
                 .isInstanceOf(StrategyCandidate.DiscountEvidence.class);
-        assertThat(tenPercentMaximum.assumptions()).containsExactly(
-                CandidateAssumption.DISCOUNT_DEMAND_UPLIFT_NOT_APPLIED
-        );
+        assertThat(tenPercentMaximum.assumptions()).isEmpty();
         assertThat(tenPercentMaximum.actions().get(0).actionQuantity())
-                .isEqualByComparingTo("10");
-        verify(allocationPolicy, times(10)).plan(any(), any(), any(), any());
+                .isEqualByComparingTo("11");
+        verify(allocationPolicy, times(22)).plan(any(), any(), any(), any());
     }
 
     @Test

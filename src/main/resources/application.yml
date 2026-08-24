@@ -148,6 +148,18 @@ app:
     result:
       ttl: ${AI_STRATEGY_RESULT_TTL:3d}
       lock-ttl: ${AI_STRATEGY_RESULT_LOCK_TTL:5m}
+    simulation:
+      discount:
+        # ML 예측은 정상가 유지 기준이며, 할인 기간에만 상수 가격탄력성 수요 배수를 적용합니다.
+        price-elasticity: ${AI_STRATEGY_PRICE_ELASTICITY:1.0}
+        maximum-demand-multiplier: ${AI_STRATEGY_MAX_DEMAND_MULTIPLIER:1.5}
+        department-store-maximum-discount-rate: ${AI_STRATEGY_DEPARTMENT_MAX_DISCOUNT_RATE:0.20}
+        general-maximum-discount-rate: ${AI_STRATEGY_GENERAL_MAX_DISCOUNT_RATE:0.30}
+        # 신규·미분류 판매처는 과도한 할인을 피하도록 백화점과 같은 보수적 상한을 사용합니다.
+        unknown-maximum-discount-rate: ${AI_STRATEGY_UNKNOWN_MAX_DISCOUNT_RATE:0.20}
+        department-store-code-prefixes: [DEPT_]
+        general-code-prefixes: [HMART_]
+        general-exact-codes: [GREETING, MODU_MATJIP]
 
 ai:
   recommendation:
