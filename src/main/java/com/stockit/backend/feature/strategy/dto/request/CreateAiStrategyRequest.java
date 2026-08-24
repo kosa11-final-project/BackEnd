@@ -14,7 +14,7 @@ import jakarta.validation.constraints.Size;
 @Schema(description = "비동기 AI 전략 생성 요청")
 public record CreateAiStrategyRequest(
         @Size(max = 200)
-        @Schema(description = "전략 이름. 비우면 서버가 SKU명과 요청 시각으로 생성")
+        @Schema(description = "전략 이름. 비우면 서버가 'SKU명 AI 전략' 형식으로 생성")
         String caseName,
 
         @NotNull @Positive

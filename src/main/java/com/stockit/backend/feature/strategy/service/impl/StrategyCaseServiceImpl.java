@@ -1,7 +1,6 @@
 package com.stockit.backend.feature.strategy.service.impl;
 
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -45,8 +44,6 @@ public class StrategyCaseServiceImpl implements StrategyCaseService {
 
     private static final int MAX_CASE_NAME_LENGTH = 200;
     private static final String AVAILABLE_LOT_STATUS = "AVAILABLE";
-    private static final DateTimeFormatter DEFAULT_CASE_NAME_DATE_FORMAT =
-            DateTimeFormatter.ofPattern("yyyy.MM.dd HH:mm");
 
     private final StrategyCaseMapper strategyCaseMapper;
     private final StrategyForecastDateRangeResolver dateRangeResolver;
@@ -92,7 +89,7 @@ public class StrategyCaseServiceImpl implements StrategyCaseService {
         validateSalesPoints(command.sourceSalesPointId(), command.candidateSalesPointIds());
         validateLots(command.skuId(), command.lotIds());
 
-        // 제목과 날짜 검증이 자정 경계를 사이에 두고 달라지지 않도록 요청 시각을 한 번만 고정
+        // 날짜 검증과 생성 이벤트의 기준 시각이 자정 경계를 사이에 두고 달라지지 않도록 한 번만 고정
         LocalDateTime requestedAt = dateTimeProvider.now();
         ForecastDateRange forecastDateRange = dateRangeResolver.resolve(
                 command.preferredStartDate(),
@@ -100,7 +97,7 @@ public class StrategyCaseServiceImpl implements StrategyCaseService {
                 requestedAt.toLocalDate()
         );
 
-        String caseName = resolveCaseName(command.caseName(), sku.getSkuName(), requestedAt);
+        String caseName = resolveCaseName(command.caseName(), sku.getSkuName());
         String requestPayloadJson = payloadSerializer.serialize(new StrategyCaseRequestPayload(
                 command.lotIds(),
                 command.candidateSalesPointIds(),
@@ -236,14 +233,13 @@ public class StrategyCaseServiceImpl implements StrategyCaseService {
 
     private static String resolveCaseName(
             String requestedCaseName,
-            String skuName,
-            LocalDateTime requestedAt
+            String skuName
     ) {
         if (requestedCaseName != null && !requestedCaseName.isBlank()) {
             return requestedCaseName.trim();
         }
 
-        String suffix = " AI 전략 - " + requestedAt.format(DEFAULT_CASE_NAME_DATE_FORMAT);
+        String suffix = " AI 전략";
         int maxSkuNameLength = MAX_CASE_NAME_LENGTH - suffix.length();
         String normalizedSkuName = skuName == null ? "SKU" : skuName.trim();
         if (normalizedSkuName.length() > maxSkuNameLength) {
