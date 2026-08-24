@@ -40,6 +40,11 @@ public interface InventoryMapper {
             @Param("asOfDate") LocalDate asOfDate
     );
 
+    int countInventoryScope(
+            @Param("skuCode") String skuCode,
+            @Param("salesPointCode") String salesPointCode
+    );
+
     List<InventoryLotVO> selectInventoryLots(
             @Param("skuCode") String skuCode,
             @Param("salesPointCode") String salesPointCode,

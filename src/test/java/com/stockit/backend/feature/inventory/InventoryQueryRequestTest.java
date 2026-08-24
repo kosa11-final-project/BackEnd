@@ -22,6 +22,7 @@ class InventoryQueryRequestTest {
         assertThat(query.size()).isEqualTo(20);
         assertThat(query.sortColumn()).isEqualTo("updated_at");
         assertThat(query.sortDirection()).isEqualTo("DESC");
+        assertThat(query.filterOperator()).isEqualTo("AND");
         assertThat(query.asOfDate()).isEqualTo(LocalDate.of(2026, 8, 14));
     }
 
@@ -31,6 +32,7 @@ class InventoryQueryRequestTest {
         request.setChannelType(List.of("GREETING", "HMART"));
         request.setSalesPointCode(List.of("SP-1", "SP-2"));
         request.setSort("availableQuantity,asc");
+        request.setFilterOperator("or");
 
         InventoryQuery query = request.toQuery(LocalDate.of(2026, 8, 14));
 
@@ -38,6 +40,16 @@ class InventoryQueryRequestTest {
         assertThat(query.salesPointCodes()).containsExactly("SP-1", "SP-2");
         assertThat(query.sortColumn()).isEqualTo("available_qty");
         assertThat(query.sortDirection()).isEqualTo("ASC");
+        assertThat(query.filterOperator()).isEqualTo("OR");
+    }
+
+    @Test
+    void rejectsUnsupportedFilterOperator() {
+        InventoryQueryRequest request = new InventoryQueryRequest();
+        request.setFilterOperator("XOR");
+
+        assertThatThrownBy(() -> request.toQuery(LocalDate.of(2026, 8, 14)))
+                .isInstanceOf(AppException.class);
     }
 
     @Test
@@ -79,7 +91,7 @@ class InventoryQueryRequestTest {
     void calculatesLongOffsetWithoutIntegerOverflow() {
         InventoryQuery query = new InventoryQuery(
                 null, List.of(), List.of(), List.of(), List.of(),
-                null, List.of(), List.of(), List.of(),
+                null, List.of(), List.of(), List.of(), "AND",
                 100_000_000, 50, "updated_at", "DESC", LocalDate.of(2026, 8, 14)
         );
 

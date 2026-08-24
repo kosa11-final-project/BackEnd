@@ -97,6 +97,30 @@ class InventoryQuantitySqlContractTest {
     }
 
     @Test
+    void overallRiskFilterUsesTheSkuAggregateBeforeFilteringCandidates() throws IOException {
+        String inventorySql = read("inventory/InventoryMapper.xml");
+
+        assertThat(inventorySql)
+                .contains("sku_risk_agg AS")
+                .contains("LEFT JOIN sku_risk_agg sr ON sr.sku_id = ib.sku_id")
+                .contains("NVL(sr.risk_grade, 'UNASSESSED') IN")
+                .doesNotContain("NVL(r.risk_grade, 'UNASSESSED') IN");
+    }
+
+    @Test
+    void candidateFilterGroupsUseTheValidatedAndOrOperator() throws IOException {
+        String inventorySql = read("inventory/InventoryMapper.xml");
+
+        assertThat(inventorySql)
+                .contains("<sql id=\"candidateFilterOperator\">")
+                .contains("<when test=\"filterOperator == 'OR'\">OR</when>")
+                .contains("<sql id=\"candidateFilterWhere\">")
+                .contains("<include refid=\"candidateFilterOperator\"/>")
+                .contains("suffixOverrides=\"AND|OR\"")
+                .doesNotContain("${filterOperator}");
+    }
+
+    @Test
     void inventoryDetailCteDoesNotLeaveADanglingDelimiterBeforeTheSelect() throws IOException {
         String inventorySql = read("inventory/InventoryMapper.xml");
 

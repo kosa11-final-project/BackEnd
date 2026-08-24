@@ -142,12 +142,11 @@ public class InventoryQueryServiceImpl implements InventoryQueryService {
         String normalizedSkuCode = requiredCode(skuCode, "skuCode");
         String normalizedSalesPointCode = requiredCode(salesPointCode, "salesPointCode");
         LocalDate asOfDate = LocalDate.now(BUSINESS_ZONE);
-        InventoryItemVO item = inventoryMapper.selectInventoryDetail(
+        int inventoryScopeCount = inventoryMapper.countInventoryScope(
                 normalizedSkuCode,
-                normalizedSalesPointCode,
-                asOfDate
+                normalizedSalesPointCode
         );
-        if (item == null) {
+        if (inventoryScopeCount == 0) {
             throw new AppException(ErrorCode.NOT_FOUND);
         }
 
