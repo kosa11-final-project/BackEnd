@@ -4,6 +4,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
 
+import org.apache.ibatis.mapping.BoundSql;
+import org.apache.ibatis.mapping.ParameterMapping;
+import org.apache.ibatis.session.SqlSessionFactory;
+import org.apache.ibatis.type.JdbcType;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -25,6 +29,9 @@ class StrategyCaseMapperTest {
 
     @Autowired
     private StrategyCaseMapper strategyCaseMapper;
+
+    @Autowired
+    private SqlSessionFactory sqlSessionFactory;
 
     @Test
     void readsActiveReferencesInBulk() {
@@ -98,6 +105,37 @@ class StrategyCaseMapperTest {
         ).getGenerationStage()).isEqualTo(
                 StrategyGenerationStage.STRATEGY_GENERATING
         );
+    }
+
+    @Test
+    void insertsCaseWithoutRequestedSalesPointUsingNumericNullType() {
+        StrategyCaseVO strategyCase = StrategyCaseVO.generating(
+                101L,
+                null,
+                "SC-0123456789abcdef0123456789abcdea",
+                "공용 미할당 재고 전략",
+                "{\"lotIds\":[]}",
+                99L
+        );
+
+        BoundSql boundSql = sqlSessionFactory.getConfiguration()
+                .getMappedStatement(
+                        StrategyCaseMapper.class.getName() + ".insertStrategyCase"
+                )
+                .getBoundSql(strategyCase);
+        ParameterMapping requestedSalesPointMapping = boundSql.getParameterMappings().stream()
+                .filter(mapping -> "requestedSalesPointId".equals(mapping.getProperty()))
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(requestedSalesPointMapping.getJdbcType()).isEqualTo(JdbcType.NUMERIC);
+
+        strategyCaseMapper.insertStrategyCase(strategyCase);
+
+        StrategyCaseVO saved = strategyCaseMapper.selectStrategyCaseById(
+                strategyCase.getStrategyCaseId()
+        );
+        assertThat(saved.getRequestedSalesPointId()).isNull();
     }
 
     @Test
