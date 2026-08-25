@@ -380,9 +380,6 @@ public class StrategyApprovalPersistenceService {
             write.setPaymentFee(price.paymentFee());
             write.setLogisticsCost(price.logisticsCost());
             write.setUnitVariableCost(unitVariableCost);
-            write.setBaselineUnitContributionMargin(
-                    price.actualPrice().subtract(unitVariableCost)
-            );
             audit(write, actorId);
             approvalMapper.insertPriceSnapshot(write);
         }

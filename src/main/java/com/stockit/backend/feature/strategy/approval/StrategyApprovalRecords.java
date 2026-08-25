@@ -167,7 +167,6 @@ public final class StrategyApprovalRecords {
         private BigDecimal paymentFee;
         private BigDecimal logisticsCost;
         private BigDecimal unitVariableCost;
-        private BigDecimal baselineUnitContributionMargin;
     }
 
     @Getter
