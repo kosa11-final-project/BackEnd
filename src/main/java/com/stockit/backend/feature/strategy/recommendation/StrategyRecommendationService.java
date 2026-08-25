@@ -98,7 +98,10 @@ public class StrategyRecommendationService {
                 eligibleEvaluation
         );
         AiRecommendationRequest request = requestFactory.create(
-                strategyCaseId, evaluation.baselineSimulation(), selection
+                strategyCaseId,
+                evaluation.baselineSimulation(),
+                selection,
+                evaluation.calculationContext().requestConstraints()
         );
         AiRecommendationProviderResponse response = provider.recommend(request);
         StrategyRecommendationResult result = validator.validateAndMap(

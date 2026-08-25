@@ -63,7 +63,7 @@ class StrategyRecommendationServiceTest {
                 .isEqualTo("CURRENT_STATE_PREFERRED");
         assertThat(result.providerMetadata()).isNull();
         verify(preselector, never()).select(any());
-        verify(requestFactory, never()).create(any(), any(), any());
+        verify(requestFactory, never()).create(any(), any(), any(), any());
         verify(provider, never()).recommend(any());
         verify(validator, never()).validateAndMap(any(), any(), any(), any(), any(), any());
     }

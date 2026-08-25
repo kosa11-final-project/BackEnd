@@ -71,7 +71,7 @@ class DeterministicRecommendationCandidatePreselectorTest {
     }
 
     @Test
-    void capsAtTwentyWhilePreservingDiversityAndInputOrderIndependence() {
+    void capsAtFourWhilePreservingDiversityAndInputOrderIndependence() {
         List<StrategyCandidateEvaluationResult.EvaluatedCandidate> candidates =
                 new ArrayList<>();
         for (int index = 0; index < 24; index++) {
@@ -107,6 +107,81 @@ class DeterministicRecommendationCandidatePreselectorTest {
                 .extracting(value -> value.candidate().actions().get(0)
                         .target().salesPointId())
                 .contains(20L, 21L, 22L);
+    }
+
+    @Test
+    void keepsOnlyBestEconomicRepresentativeWhenQuantityOnlyDiffers() {
+        var fullQuantity = evaluatedForDiversity(
+                "FULL", StrategyType.REALLOCATION, 20L, 100, "100"
+        );
+        var partialQuantity = evaluatedForDiversity(
+                "PARTIAL", StrategyType.REALLOCATION, 20L, 40, "40"
+        );
+
+        RecommendationCandidateSelection result = preselector.select(evaluation(
+                List.of(partialQuantity, fullQuantity)
+        ));
+
+        assertThat(result.candidates())
+                .extracting(value -> value.candidate().candidateId())
+                .containsExactly("FULL");
+    }
+
+    @Test
+    void keepsLeastLossRepresentativeWhenEveryQuantityVariantIsNegative() {
+        var fullQuantity = evaluatedForDiversity(
+                "FULL", StrategyType.REALLOCATION, 20L, 100, "-100"
+        );
+        var partialQuantity = evaluatedForDiversity(
+                "PARTIAL", StrategyType.REALLOCATION, 20L, 40, "-40"
+        );
+
+        RecommendationCandidateSelection result = preselector.select(evaluation(
+                List.of(fullQuantity, partialQuantity)
+        ));
+
+        assertThat(result.candidates())
+                .extracting(value -> value.candidate().candidateId())
+                .containsExactly("PARTIAL");
+    }
+
+    @Test
+    void returnsOneRepresentativePerStrategyAndTargetFamily() {
+        var reallocationA = evaluatedForDiversity(
+                "REALLOC-A", StrategyType.REALLOCATION, 20L, 100, "100"
+        );
+        var reallocationB = evaluatedForDiversity(
+                "REALLOC-B", StrategyType.REALLOCATION, 30L, 80, "80"
+        );
+        var transferA = evaluatedForDiversity(
+                "TRANSFER-A", StrategyType.RT_TRANSFER, 20L, 60, "60"
+        );
+
+        RecommendationCandidateSelection result = preselector.select(evaluation(
+                List.of(reallocationA, reallocationB, transferA)
+        ));
+
+        assertThat(result.candidates())
+                .extracting(value -> value.candidate().candidateId())
+                .containsExactly("REALLOC-A", "TRANSFER-A", "REALLOC-B");
+    }
+
+    @Test
+    void groupsCompositeCandidatesIndependentlyOfStrategyAndActionOrder() {
+        var lowerEffect = evaluatedComposite(
+                "LOWER", false, "100"
+        );
+        var higherEffectWithReversedOrder = evaluatedComposite(
+                "HIGHER", true, "200"
+        );
+
+        RecommendationCandidateSelection result = preselector.select(evaluation(
+                List.of(lowerEffect, higherEffectWithReversedOrder)
+        ));
+
+        assertThat(result.candidates())
+                .extracting(value -> value.candidate().candidateId())
+                .containsExactly("HIGHER");
     }
 
     private static StrategyCandidateEvaluationResult evaluation(
@@ -164,6 +239,19 @@ class DeterministicRecommendationCandidatePreselectorTest {
             Long targetSalesPointId,
             int quantity
     ) {
+        return evaluatedForDiversity(
+                id, type, targetSalesPointId, quantity, String.valueOf(quantity)
+        );
+    }
+
+    private static StrategyCandidateEvaluationResult.EvaluatedCandidate
+            evaluatedForDiversity(
+            String id,
+            StrategyType type,
+            Long targetSalesPointId,
+            int quantity,
+            String netEffect
+    ) {
         StrategyCandidate.Location source = new StrategyCandidate.Location(1L, 10L);
         StrategyCandidate.Location target = new StrategyCandidate.Location(
                 1L, targetSalesPointId
@@ -209,7 +297,7 @@ class DeterministicRecommendationCandidatePreselectorTest {
                         BigDecimal.ZERO,
                         BigDecimal.ZERO,
                         BigDecimal.ZERO,
-                        BigDecimal.ZERO
+                        new BigDecimal(netEffect)
                 ),
                 new StrategyCandidateSimulation.ComparisonToBaseline(
                         BigDecimal.ZERO,
@@ -217,7 +305,7 @@ class DeterministicRecommendationCandidatePreselectorTest {
                         BigDecimal.ZERO,
                         BigDecimal.ZERO,
                         BigDecimal.ZERO,
-                        BigDecimal.ZERO
+                        new BigDecimal(netEffect)
                 ),
                 List.of(),
                 List.of()
@@ -317,5 +405,86 @@ class DeterministicRecommendationCandidatePreselectorTest {
                 List.of()
         );
         return new StrategyCandidateEvaluationResult.EvaluatedCandidate(candidate, simulation);
+    }
+
+    private static StrategyCandidateEvaluationResult.EvaluatedCandidate evaluatedComposite(
+            String id,
+            boolean reverseOrder,
+            String netEffect
+    ) {
+        StrategyCandidate.Location source = new StrategyCandidate.Location(1L, 1L);
+        StrategyCandidate.Location target = new StrategyCandidate.Location(1L, 3L);
+        BigDecimal quantity = new BigDecimal("20");
+        StrategyCandidate.LotAllocation allocation =
+                new StrategyCandidate.LotAllocation(1L, 1L, quantity, 1);
+        StrategyCandidate.Action movement = new StrategyCandidate.Action(
+                StrategyType.REALLOCATION,
+                source,
+                target,
+                quantity,
+                BigDecimal.ZERO,
+                List.of(allocation)
+        );
+        StrategyCandidate.Action concentration = new StrategyCandidate.Action(
+                StrategyType.CHANNEL_CONCENTRATION,
+                source,
+                target,
+                quantity,
+                BigDecimal.ZERO,
+                List.of()
+        );
+        List<StrategyType> types = reverseOrder
+                ? List.of(StrategyType.REALLOCATION, StrategyType.CHANNEL_CONCENTRATION)
+                : List.of(StrategyType.CHANNEL_CONCENTRATION, StrategyType.REALLOCATION);
+        List<StrategyCandidate.Action> actions = reverseOrder
+                ? List.of(concentration, movement)
+                : List.of(movement, concentration);
+        StrategyCandidate candidate = new StrategyCandidate(
+                id,
+                types,
+                LocalDate.of(2026, 8, 24),
+                LocalDate.of(2026, 8, 31),
+                actions,
+                List.of(),
+                new StrategyCandidate.Preference(1, 1, 100),
+                new StrategyCandidate.ChannelEvidence(
+                        quantity,
+                        quantity,
+                        BigDecimal.ZERO,
+                        quantity,
+                        StrategyType.REALLOCATION,
+                        new BigDecimal("5500"),
+                        BigDecimal.ZERO,
+                        BigDecimal.ZERO
+                )
+        );
+        StrategyCandidateSimulation simulation = new StrategyCandidateSimulation(
+                id,
+                new StrategyCandidateSimulation.Summary(
+                        quantity,
+                        new BigDecimal("110000"),
+                        new BigDecimal("30000"),
+                        new BigDecimal("0.2727"),
+                        8,
+                        BigDecimal.ZERO,
+                        BigDecimal.ZERO,
+                        BigDecimal.ZERO,
+                        new BigDecimal(netEffect)
+                ),
+                new StrategyCandidateSimulation.ComparisonToBaseline(
+                        BigDecimal.ZERO,
+                        BigDecimal.ZERO,
+                        BigDecimal.ZERO,
+                        BigDecimal.ZERO,
+                        BigDecimal.ZERO,
+                        new BigDecimal(netEffect)
+                ),
+                List.of(),
+                List.of()
+        );
+        return new StrategyCandidateEvaluationResult.EvaluatedCandidate(
+                candidate,
+                simulation
+        );
     }
 }

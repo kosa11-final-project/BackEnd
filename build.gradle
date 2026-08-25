@@ -61,7 +61,21 @@ tasks.withType(JavaCompile).configureEach {
 }
 
 tasks.named('test') {
-    useJUnitPlatform()
+    useJUnitPlatform {
+        excludeTags 'live'
+    }
+}
+
+tasks.register('geminiLiveTest', Test) {
+    group = 'verification'
+    description = 'Runs the opt-in Gemini recommendation live smoke test.'
+    dependsOn testClasses
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform {
+        includeTags 'live'
+    }
+    shouldRunAfter test
 }
 
 tasks.register('generateBcrypt', JavaExec) {
