@@ -50,9 +50,13 @@ public class StrategySelectionExecutabilityValidator {
         Map<Long, BigDecimal> requiredByBalance = requiredInventory(candidate);
         for (Map.Entry<Long, BigDecimal> required : requiredByBalance.entrySet()) {
             StrategyCalculationInventoryVO current = byId.get(required.getKey());
-            if (current == null || current.getLotId() == null
-                    || !"AVAILABLE".equals(current.getLotStatus())
-                    || available(current).compareTo(required.getValue()) < 0) {
+            if (current == null || current.getLotId() == null) {
+                conflict("최종 선택 수량만큼 현재 가용재고가 남아 있지 않습니다.");
+            }
+            if (!isSellableAt(current, businessDate)) {
+                conflict("최종 선택에 포함된 LOT가 현재 판매 가능한 상태가 아닙니다.");
+            }
+            if (available(current).compareTo(required.getValue()) < 0) {
                 conflict("최종 선택 수량만큼 현재 가용재고가 남아 있지 않습니다.");
             }
             validateAllocationIdentity(candidate, current);

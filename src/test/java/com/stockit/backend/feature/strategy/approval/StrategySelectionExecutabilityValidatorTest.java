@@ -153,6 +153,47 @@ class StrategySelectionExecutabilityValidatorTest {
         );
     }
 
+    @Test
+    void allowsSelectionWhenRemainingQuantityEqualsSafetyStock() {
+        StrategyCalculationInputMapper mapper = mock(
+                StrategyCalculationInputMapper.class
+        );
+        ResolvedStrategySelection resolved = executableSelection("1");
+        StrategyCalculationInventoryVO current = unassignedInventory("11");
+        when(mapper.selectInventory(100L)).thenReturn(List.of(current));
+        when(mapper.selectEffectivePolicies(
+                100L, LocalDate.of(2026, 8, 25)
+        )).thenReturn(List.of(policy(2L, 501L, "10")));
+        when(mapper.selectEffectiveCosts(
+                100L, LocalDate.of(2026, 8, 25)
+        )).thenReturn(List.of(cost()));
+
+        validator(mapper).validate(resolved, LocalDate.of(2026, 8, 25));
+    }
+
+    @Test
+    void rejectsExpiredSelectedLotEvenWhenOtherSellableInventoryIsSufficient() {
+        StrategyCalculationInputMapper mapper = mock(
+                StrategyCalculationInputMapper.class
+        );
+        ResolvedStrategySelection resolved = executableSelection("10");
+        StrategyCalculationInventoryVO expired = unassignedInventory("10");
+        expired.setExpiryDate(LocalDate.of(2026, 8, 24));
+        StrategyCalculationInventoryVO sellable = unassignedInventory("10");
+        sellable.setInventoryBalanceId(2L);
+        sellable.setLotId(1002L);
+        when(mapper.selectInventory(100L)).thenReturn(List.of(expired, sellable));
+
+        assertThatThrownBy(() -> validator(mapper).validate(
+                resolved, LocalDate.of(2026, 8, 25)
+        )).isInstanceOfSatisfying(
+                AppException.class,
+                exception -> assertThat(exception.getMessage()).isEqualTo(
+                        "최종 선택에 포함된 LOT가 현재 판매 가능한 상태가 아닙니다."
+                )
+        );
+    }
+
     private static StrategySelectionExecutabilityValidator validator(
             StrategyCalculationInputMapper mapper
     ) {
