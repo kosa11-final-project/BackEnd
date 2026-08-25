@@ -1,0 +1,19 @@
+[Unit]
+Description=Stockit Oracle Data Pump backup to Amazon S3
+After=network-online.target oracle-free-23ai.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=oracle
+Group=oinstall
+EnvironmentFile=/etc/stockit/oracle-backup.env
+ExecStart=/usr/bin/bash /opt/stockit/infra/scripts/oracle-backup.sh
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,13 @@
+# Keep byte-sensitive migrations and contract-tested mapper files identical
+# across Windows development machines and Linux CI runners.
+*.sql text eol=lf
+*.xml text eol=lf
+
+# Deployment and CI files run on Linux.
+*.sh text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+gradlew text eol=lf
+
+# Windows wrapper remains native to Windows.
+*.bat text eol=crlf

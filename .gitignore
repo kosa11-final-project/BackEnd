@@ -8,6 +8,8 @@ out/
 
 .env
 .env.*
+infra/runtime/
+infra/env/*.env
 
 src/main/resources/application-local.yml
 
