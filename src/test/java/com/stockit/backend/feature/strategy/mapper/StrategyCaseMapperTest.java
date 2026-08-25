@@ -1,11 +1,18 @@
 package com.stockit.backend.feature.strategy.mapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 
+import java.sql.PreparedStatement;
+import java.sql.SQLException;
+import java.sql.Types;
 import java.util.List;
 
+import org.apache.ibatis.mapping.MappedStatement;
 import org.apache.ibatis.mapping.BoundSql;
 import org.apache.ibatis.mapping.ParameterMapping;
+import org.apache.ibatis.scripting.defaults.DefaultParameterHandler;
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.apache.ibatis.type.JdbcType;
 import org.junit.jupiter.api.Test;
@@ -108,7 +115,7 @@ class StrategyCaseMapperTest {
     }
 
     @Test
-    void insertsCaseWithoutRequestedSalesPointUsingNumericNullType() {
+    void insertsCaseWithoutRequestedSalesPointUsingNumericNullType() throws SQLException {
         StrategyCaseVO strategyCase = StrategyCaseVO.generating(
                 101L,
                 null,
@@ -118,17 +125,22 @@ class StrategyCaseMapperTest {
                 99L
         );
 
-        BoundSql boundSql = sqlSessionFactory.getConfiguration()
+        MappedStatement mappedStatement = sqlSessionFactory.getConfiguration()
                 .getMappedStatement(
                         StrategyCaseMapper.class.getName() + ".insertStrategyCase"
-                )
-                .getBoundSql(strategyCase);
+                );
+        BoundSql boundSql = mappedStatement.getBoundSql(strategyCase);
         ParameterMapping requestedSalesPointMapping = boundSql.getParameterMappings().stream()
                 .filter(mapping -> "requestedSalesPointId".equals(mapping.getProperty()))
                 .findFirst()
                 .orElseThrow();
 
         assertThat(requestedSalesPointMapping.getJdbcType()).isEqualTo(JdbcType.NUMERIC);
+
+        PreparedStatement preparedStatement = mock(PreparedStatement.class);
+        new DefaultParameterHandler(mappedStatement, strategyCase, boundSql)
+                .setParameters(preparedStatement);
+        verify(preparedStatement).setNull(4, Types.NUMERIC);
 
         strategyCaseMapper.insertStrategyCase(strategyCase);
 
