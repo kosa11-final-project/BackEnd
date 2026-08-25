@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.stockit.backend.feature.dashboard.mapper.DashboardSnapshotMapper">
+
+    <select id="selectNextSnapshotId" resultType="java.lang.Long">
+        SELECT dashboard_snapshot_seq.NEXTVAL
+        FROM dual
+    </select>
+
+    <select id="selectSnapshotIdBySyncJobId" resultType="java.lang.Long">
+        SELECT dashboard_snapshot_id
+        FROM dashboard_snapshot
+        WHERE sync_job_id = #{syncJobId}
+          AND is_deleted = 0
+    </select>
+
+    <insert id="insertSnapshot">
+        INSERT INTO dashboard_snapshot (
+            dashboard_snapshot_id,
+            sync_job_id,
+            payload_version,
+            payload_json,
+            created_by,
+            updated_by
+        ) VALUES (
+            #{snapshotId},
+            #{syncJobId},
+            #{payloadVersion},
+            #{payloadJson, jdbcType=CLOB},
+            (SELECT user_id FROM app_user WHERE login_id = '__system__' AND is_deleted = 0),
+            (SELECT user_id FROM app_user WHERE login_id = '__system__' AND is_deleted = 0)
+        )
+    </insert>
+
+    <select id="selectLatestSnapshot"
+            resultType="com.stockit.backend.feature.dashboard.vo.DashboardSnapshotVO">
+        SELECT
+            dashboard_snapshot_id,
+            sync_job_id,
+            payload_version,
+            payload_json,
+            created_at,
+            updated_at,
+            created_by,
+            updated_by,
+            is_deleted
+        FROM dashboard_snapshot
+        WHERE is_deleted = 0
+        ORDER BY created_at DESC, dashboard_snapshot_id DESC
+        FETCH FIRST 1 ROW ONLY
+    </select>
+</mapper>

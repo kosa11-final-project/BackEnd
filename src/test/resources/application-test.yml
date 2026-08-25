@@ -11,3 +11,23 @@ spring:
       initialize-schema: always
   flyway:
     enabled: false
+  rabbitmq:
+    username: ${RABBITMQ_USERNAME:stockit_test}
+    password: ${RABBITMQ_PASSWORD:stockit_test}
+
+app:
+  inventory-sync:
+    batch-enabled: false
+    schedule:
+      enabled: false
+    snapshot-recovery:
+      enabled: false
+  ai-strategy:
+    messaging:
+      enabled: false
+
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: false

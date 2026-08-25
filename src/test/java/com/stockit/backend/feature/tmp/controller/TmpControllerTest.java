@@ -2,6 +2,7 @@ package com.stockit.backend.feature.tmp.controller;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -12,10 +13,12 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.security.test.context.support.WithMockUser;
 
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
+@WithMockUser(roles = "GREENFOOD_ADMIN")
 class TmpControllerTest {
 
     @Autowired
@@ -32,6 +35,7 @@ class TmpControllerTest {
     @Test
     void echoesValidatedRequest() throws Exception {
         mockMvc.perform(post("/api/v1/tmp/echo")
+                        .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"message\":\"hello stockit\"}"))
                 .andExpect(status().isOk())
@@ -41,6 +45,7 @@ class TmpControllerTest {
     @Test
     void rejectsBlankMessageWithCommonErrorResponse() throws Exception {
         mockMvc.perform(post("/api/v1/tmp/echo")
+                        .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"message\":\"\"}"))
                 .andExpect(status().isBadRequest())

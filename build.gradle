@@ -19,9 +19,21 @@ repositories {
 }
 
 dependencies {
+    compileOnly 'org.projectlombok:lombok'
+    annotationProcessor 'org.projectlombok:lombok'
+
     implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-security'
     implementation 'org.springframework.boot:spring-boot-starter-validation'
     implementation 'org.springframework.boot:spring-boot-starter-batch'
+    implementation 'org.springframework.boot:spring-boot-starter-amqp'
+    implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
+
+    implementation platform('com.azure:azure-sdk-bom:1.3.8')
+    implementation 'com.azure:azure-storage-blob'
+    implementation 'com.azure:azure-identity'
 
     implementation 'org.mybatis.spring.boot:mybatis-spring-boot-starter:3.0.4'
     runtimeOnly 'com.oracle.database.jdbc:ojdbc11'
@@ -33,6 +45,12 @@ dependencies {
 
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'org.springframework.batch:spring-batch-test'
+    testImplementation 'org.springframework.security:spring-security-test'
+    testImplementation 'org.testcontainers:junit-jupiter'
+    testImplementation 'org.testcontainers:rabbitmq'
+    testImplementation 'org.awaitility:awaitility'
+    testCompileOnly 'org.projectlombok:lombok'
+    testAnnotationProcessor 'org.projectlombok:lombok'
     testRuntimeOnly 'com.h2database:h2'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
@@ -44,4 +62,36 @@ tasks.withType(JavaCompile).configureEach {
 
 tasks.named('test') {
     useJUnitPlatform()
+}
+
+sourceSets {
+    geminiLiveTest {
+        java.srcDir 'src/geminiLiveTest/java'
+        resources.srcDir 'src/geminiLiveTest/resources'
+        compileClasspath += sourceSets.main.output
+        runtimeClasspath += output + compileClasspath
+    }
+}
+
+configurations {
+    geminiLiveTestImplementation.extendsFrom testImplementation
+    geminiLiveTestRuntimeOnly.extendsFrom testRuntimeOnly
+}
+
+tasks.register('geminiLiveTest', Test) {
+    group = 'verification'
+    description = 'Runs the opt-in Gemini recommendation live smoke test.'
+    testClassesDirs = sourceSets.geminiLiveTest.output.classesDirs
+    classpath = sourceSets.geminiLiveTest.runtimeClasspath
+    useJUnitPlatform()
+    shouldRunAfter test
+}
+
+tasks.register('generateBcrypt', JavaExec) {
+    group = 'authentication'
+    description = 'Generates a BCrypt hash from a password read through standard input.'
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'com.stockit.backend.feature.auth.support.BcryptPasswordGenerator'
+    standardInput = System.in
 }

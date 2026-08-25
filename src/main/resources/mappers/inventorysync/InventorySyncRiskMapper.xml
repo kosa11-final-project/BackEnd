@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.stockit.backend.feature.inventorysync.mapper.InventorySyncRiskMapper">
+    <update id="logicalDeleteSiblingAssessments">
+        UPDATE risk_assessment
+           SET is_deleted = 1,
+               updated_at = SYSTIMESTAMP,
+               updated_by = #{actorId}
+         WHERE is_deleted = 0
+           AND inventory_balance_id IN
+           <foreach collection="inventoryBalanceIds" item="inventoryBalanceId" open="(" separator="," close=")">
+               #{inventoryBalanceId}
+           </foreach>
+    </update>
+
+    <update id="mergeRiskAssessments">
+        MERGE INTO risk_assessment target
+        USING (
+            <foreach collection="records" item="record" separator=" UNION ALL ">
+                SELECT CAST(#{record.inventoryBalanceId} AS NUMBER) AS inventory_balance_id,
+                       CAST(#{record.forecastId,jdbcType=NUMERIC} AS NUMBER) AS forecast_id,
+                       #{record.riskGrade} AS risk_grade,
+                       #{record.shortageYn} AS shortage_yn,
+                       CAST(#{record.stockDays,jdbcType=NUMERIC} AS NUMBER) AS stock_days,
+                       CAST(#{record.expiryDaysLeft,jdbcType=NUMERIC} AS NUMBER) AS expiry_days_left,
+                       CAST(#{record.holdingDays,jdbcType=NUMERIC} AS NUMBER) AS holding_days,
+                       #{record.ruleVersion} AS rule_version,
+                       #{record.reasonMessage} AS reason_message,
+                       CAST(#{record.riskScore} AS NUMBER) AS risk_score,
+                       CAST(#{record.runId} AS NUMBER) AS inventory_sync_run_id,
+                       CAST(#{record.actorId} AS NUMBER) AS actor_id
+                  FROM dual
+            </foreach>
+        ) source ON (target.inventory_balance_id = source.inventory_balance_id AND target.is_deleted = 0)
+        WHEN MATCHED THEN UPDATE SET
+             target.forecast_id = source.forecast_id,
+             target.risk_grade = source.risk_grade,
+             target.shortage_yn = source.shortage_yn,
+             target.stock_days = source.stock_days,
+             target.expiry_days_left = source.expiry_days_left,
+             target.holding_days = source.holding_days,
+             target.rule_version = source.rule_version,
+             target.reason_message = source.reason_message,
+             target.risk_score = source.risk_score,
+             target.inventory_sync_run_id = source.inventory_sync_run_id,
+             target.updated_at = SYSTIMESTAMP,
+             target.updated_by = source.actor_id
+        WHEN NOT MATCHED THEN INSERT (
+             inventory_balance_id, forecast_id, risk_grade, shortage_yn,
+             stock_days, expiry_days_left, holding_days, rule_version, reason_message,
+             risk_score, inventory_sync_run_id, created_at, updated_at,
+             created_by, updated_by, is_deleted
+        ) VALUES (
+             source.inventory_balance_id, source.forecast_id, source.risk_grade, source.shortage_yn,
+             source.stock_days, source.expiry_days_left, source.holding_days, source.rule_version, source.reason_message,
+             source.risk_score, source.inventory_sync_run_id, SYSTIMESTAMP, SYSTIMESTAMP,
+             source.actor_id, source.actor_id, 0
+        )
+    </update>
+</mapper>

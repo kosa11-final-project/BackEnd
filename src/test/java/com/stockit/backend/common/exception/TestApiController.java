@@ -7,6 +7,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.dao.DataAccessResourceFailureException;
 
 import com.stockit.backend.common.api.ApiResponse;
 
@@ -30,6 +31,16 @@ class TestApiController {
     @GetMapping("/app-error")
     void appError() {
         throw new AppException(ErrorCode.TMP_CONFLICT);
+    }
+
+    @GetMapping("/app-error-custom")
+    void appErrorWithCustomMessage() {
+        throw new AppException(ErrorCode.INVALID_PARAMETER, "지원하지 않는 테스트 파라미터입니다.");
+    }
+
+    @GetMapping("/database-error")
+    void databaseError() {
+        throw new DataAccessResourceFailureException("DB 내부 정보");
     }
 
     @GetMapping("/unexpected-error")

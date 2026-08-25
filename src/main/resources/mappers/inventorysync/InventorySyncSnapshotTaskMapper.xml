@@ -1,0 +1,141 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.stockit.backend.feature.inventorysync.mapper.InventorySyncSnapshotTaskMapper">
+    <insert id="insertPendingTasks">
+        MERGE INTO inventory_sync_snapshot_task target
+        USING (
+            SELECT #{runId} AS inventory_sync_run_id,
+                   'DASHBOARD' AS task_type,
+                   #{businessDate} AS business_date
+              FROM dual
+            UNION ALL
+            SELECT #{runId} AS inventory_sync_run_id,
+                   'INVENTORY_STATISTICS' AS task_type,
+                   #{businessDate} AS business_date
+              FROM dual
+        ) source
+        ON (
+            target.inventory_sync_run_id = source.inventory_sync_run_id
+            AND target.task_type = source.task_type
+        )
+        WHEN NOT MATCHED THEN INSERT (
+            inventory_sync_run_id, task_type, task_status, business_date,
+            attempt_count, max_attempts, next_attempt_at, created_at, updated_at
+        ) VALUES (
+            source.inventory_sync_run_id, source.task_type, 'PENDING', source.business_date,
+            0, 3, SYSTIMESTAMP, SYSTIMESTAMP, SYSTIMESTAMP
+        )
+    </insert>
+
+    <select id="selectByRunId"
+            resultType="com.stockit.backend.feature.inventorysync.vo.InventorySyncSnapshotTaskVO">
+        SELECT *
+        FROM inventory_sync_snapshot_task
+        WHERE inventory_sync_run_id = #{runId}
+        ORDER BY task_type
+    </select>
+
+    <select id="selectRecoverableTasks"
+            resultType="com.stockit.backend.feature.inventorysync.vo.InventorySyncSnapshotTaskVO">
+        SELECT *
+        FROM (
+            SELECT task.*
+            FROM inventory_sync_snapshot_task task
+            WHERE (
+                    task.task_status IN ('PENDING', 'RETRY_WAIT')
+                AND task.next_attempt_at &lt;= SYSTIMESTAMP
+                AND task.attempt_count &lt; task.max_attempts
+            ) OR (
+                    task.task_status = 'RUNNING'
+                AND task.lease_expires_at &lt;= SYSTIMESTAMP
+                AND task.attempt_count &lt; task.max_attempts
+            )
+            ORDER BY task.next_attempt_at, task.inventory_sync_snapshot_task_id
+        )
+        WHERE ROWNUM &lt;= #{limit}
+    </select>
+
+    <update id="claimTask">
+        UPDATE inventory_sync_snapshot_task
+        SET task_status = 'RUNNING',
+            attempt_count = attempt_count + 1,
+            lease_owner_instance_id = #{owner},
+            lease_expires_at = #{leaseExpiresAt},
+            started_at = COALESCE(started_at, SYSTIMESTAMP),
+            last_error_code = NULL,
+            last_error_message = NULL,
+            updated_at = SYSTIMESTAMP
+        WHERE inventory_sync_run_id = #{runId}
+          AND task_type = #{taskType}
+          AND attempt_count &lt; max_attempts
+          AND (
+                (task_status IN ('PENDING', 'RETRY_WAIT') AND next_attempt_at &lt;= SYSTIMESTAMP)
+             OR (task_status = 'RUNNING' AND lease_expires_at &lt;= SYSTIMESTAMP)
+          )
+    </update>
+
+    <update id="markSucceeded">
+        UPDATE inventory_sync_snapshot_task
+        SET task_status = 'SUCCEEDED', completed_at = SYSTIMESTAMP,
+            lease_owner_instance_id = NULL, lease_expires_at = NULL,
+            last_error_code = NULL, last_error_message = NULL, updated_at = SYSTIMESTAMP
+        WHERE inventory_sync_run_id = #{runId}
+          AND task_type = #{taskType}
+          AND task_status = 'RUNNING'
+          AND lease_owner_instance_id = #{owner}
+    </update>
+
+    <update id="markRetryOrFailed">
+        UPDATE inventory_sync_snapshot_task
+        SET task_status = CASE WHEN attempt_count &gt;= max_attempts THEN 'FAILED' ELSE 'RETRY_WAIT' END,
+            next_attempt_at = #{nextAttemptAt},
+            completed_at = CASE WHEN attempt_count &gt;= max_attempts THEN SYSTIMESTAMP ELSE NULL END,
+            lease_owner_instance_id = NULL, lease_expires_at = NULL,
+            last_error_code = #{errorCode}, last_error_message = #{errorMessage}, updated_at = SYSTIMESTAMP
+        WHERE inventory_sync_run_id = #{runId}
+          AND task_type = #{taskType}
+          AND task_status = 'RUNNING'
+          AND lease_owner_instance_id = #{owner}
+    </update>
+
+    <update id="markFailed">
+        UPDATE inventory_sync_snapshot_task
+        SET task_status = 'FAILED', completed_at = SYSTIMESTAMP,
+            lease_owner_instance_id = NULL, lease_expires_at = NULL,
+            last_error_code = #{errorCode}, last_error_message = #{errorMessage}, updated_at = SYSTIMESTAMP
+        WHERE inventory_sync_run_id = #{runId}
+          AND task_type = #{taskType}
+          AND task_status = 'RUNNING'
+          AND lease_owner_instance_id = #{owner}
+    </update>
+
+    <update id="markPersistedSnapshotsSucceeded">
+        UPDATE inventory_sync_snapshot_task task
+        SET task_status = 'SUCCEEDED', completed_at = SYSTIMESTAMP,
+            lease_owner_instance_id = NULL, lease_expires_at = NULL,
+            last_error_code = NULL, last_error_message = NULL, updated_at = SYSTIMESTAMP
+        WHERE task.task_status IN ('PENDING', 'RUNNING', 'RETRY_WAIT', 'FAILED')
+          AND (
+                (task.task_type = 'DASHBOARD' AND EXISTS (
+                    SELECT 1 FROM dashboard_snapshot snapshot
+                    WHERE snapshot.sync_job_id = task.inventory_sync_run_id AND snapshot.is_deleted = 0
+                ))
+             OR (task.task_type = 'INVENTORY_STATISTICS' AND EXISTS (
+                    SELECT 1 FROM statistics_snapshot snapshot
+                    WHERE snapshot.sync_job_id = task.inventory_sync_run_id AND snapshot.is_deleted = 0
+                ))
+          )
+    </update>
+
+    <update id="markExpiredExhaustedTasksFailed">
+        UPDATE inventory_sync_snapshot_task
+        SET task_status = 'FAILED', completed_at = SYSTIMESTAMP,
+            lease_owner_instance_id = NULL, lease_expires_at = NULL,
+            last_error_code = 'SNAPSHOT_WORKER_LEASE_EXPIRED',
+            last_error_message = '마지막 재시도 중 worker lease가 만료되었습니다.',
+            updated_at = SYSTIMESTAMP
+        WHERE task_status = 'RUNNING'
+          AND lease_expires_at &lt;= SYSTIMESTAMP
+          AND attempt_count &gt;= max_attempts
+    </update>
+</mapper>

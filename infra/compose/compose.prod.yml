@@ -1,0 +1,128 @@
+name: stockit
+
+x-backend-common: &backend-common
+  restart: unless-stopped
+  env_file:
+    - ${APP_ENV_FILE:-/opt/stockit/config/app.env}
+  environment: &backend-environment
+    SPRING_PROFILES_ACTIVE: prod
+    SERVER_PORT: "8080"
+    REDIS_HOST: redis
+    REDIS_PORT: "6379"
+    RABBITMQ_HOST: rabbitmq
+    RABBITMQ_PORT: "5672"
+    SALES_DAILY_EXPORT_PATH: /var/lib/stockit/exports/sales_daily.csv
+  extra_hosts:
+    - host.docker.internal:host-gateway
+  depends_on:
+    redis:
+      condition: service_healthy
+    rabbitmq:
+      condition: service_healthy
+  networks:
+    - stockit-internal
+  volumes:
+    - stockit-app-logs:/var/log/stockit
+    - stockit-exports:/var/lib/stockit/exports
+  healthcheck:
+    test: ["CMD", "curl", "--fail", "--silent", "--show-error", "http://localhost:8080/actuator/health/liveness"]
+    interval: 15s
+    timeout: 5s
+    start_period: 60s
+    retries: 4
+  mem_limit: 3g
+  cpus: "1.50"
+  stop_grace_period: 40s
+  logging:
+    driver: json-file
+    options:
+      max-size: 50m
+      max-file: "5"
+
+services:
+  backend-blue:
+    <<: *backend-common
+    image: ${BACKEND_IMAGE_REPOSITORY:?BACKEND_IMAGE_REPOSITORY is required}:${BACKEND_BLUE_IMAGE_TAG:-bootstrap}
+    container_name: stockit-backend-blue
+    profiles: ["blue"]
+    environment:
+      <<: *backend-environment
+      APP_LOG_FILE: /var/log/stockit/backend-blue.log
+      INVENTORY_SYNC_INSTANCE_ID: backend-blue
+    ports:
+      - 127.0.0.1:8081:8080
+
+  backend-green:
+    <<: *backend-common
+    image: ${BACKEND_IMAGE_REPOSITORY:?BACKEND_IMAGE_REPOSITORY is required}:${BACKEND_GREEN_IMAGE_TAG:-bootstrap}
+    container_name: stockit-backend-green
+    profiles: ["green"]
+    environment:
+      <<: *backend-environment
+      APP_LOG_FILE: /var/log/stockit/backend-green.log
+      INVENTORY_SYNC_INSTANCE_ID: backend-green
+    ports:
+      - 127.0.0.1:8082:8080
+
+  redis:
+    image: redis:7.4-alpine
+    container_name: stockit-redis
+    restart: unless-stopped
+    command:
+      - sh
+      - -c
+      - exec redis-server --appendonly yes --appendfsync everysec --requirepass "$$REDIS_PASSWORD"
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+    volumes:
+      - stockit-redis-data:/data
+    networks:
+      - stockit-internal
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    mem_limit: 768m
+    cpus: "0.50"
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "3"
+
+  rabbitmq:
+    image: rabbitmq:4.1-management
+    container_name: stockit-rabbitmq
+    hostname: stockit-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:?RABBITMQ_USERNAME is required}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD is required}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-/}
+    volumes:
+      - stockit-rabbitmq-data:/var/lib/rabbitmq
+    networks:
+      - stockit-internal
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    mem_limit: 1g
+    cpus: "0.75"
+    logging:
+      driver: json-file
+      options:
+        max-size: 30m
+        max-file: "3"
+
+networks:
+  stockit-internal:
+    name: stockit-internal
+
+volumes:
+  stockit-app-logs:
+  stockit-exports:
+  stockit-redis-data:
+  stockit-rabbitmq-data:

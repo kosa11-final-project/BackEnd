@@ -1,0 +1,206 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.stockit.backend.feature.inventorysync.mapper.InventorySyncRunMapper">
+    <resultMap id="runMap" type="com.stockit.backend.feature.inventorysync.vo.InventorySyncRunVO">
+        <id property="inventorySyncRunId" column="inventory_sync_run_id"/>
+        <result property="clientRequestId" column="client_request_id"/>
+        <result property="requestHash" column="request_hash"/>
+        <result property="triggerType" column="trigger_type"/>
+        <result property="runStatus" column="run_status"/>
+        <result property="currentPhase" column="current_phase"/>
+        <result property="activeScopeKey" column="active_scope_key"/>
+        <result property="fencingToken" column="fencing_token"/>
+        <result property="mainBatchJobExecutionId" column="main_batch_job_execution_id"/>
+        <result property="mainAttemptNo" column="main_attempt_no"/>
+        <result property="requestedBy" column="requested_by"/>
+        <result property="requestedAt" column="requested_at"/>
+        <result property="startedAt" column="started_at"/>
+        <result property="heartbeatAt" column="heartbeat_at"/>
+        <result property="leaseExpiresAt" column="lease_expires_at"/>
+        <result property="leaseOwnerInstanceId" column="lease_owner_instance_id"/>
+        <result property="completedAt" column="completed_at"/>
+        <result property="readCount" column="read_count"/>
+        <result property="mappedCount" column="mapped_count"/>
+        <result property="changedCount" column="changed_count"/>
+        <result property="errorCount" column="error_count"/>
+        <result property="errorCode" column="error_code"/>
+        <result property="errorMessage" column="error_message"/>
+    </resultMap>
+
+    <select id="selectByClientRequestId" resultMap="runMap">
+        SELECT * FROM inventory_sync_run WHERE client_request_id = #{clientRequestId}
+    </select>
+    <select id="selectById" resultMap="runMap">
+        SELECT * FROM inventory_sync_run WHERE inventory_sync_run_id = #{runId}
+    </select>
+    <select id="selectByIdForUpdate" resultMap="runMap">
+        SELECT * FROM inventory_sync_run WHERE inventory_sync_run_id = #{runId} FOR UPDATE WAIT 5
+    </select>
+    <select id="selectActiveRun" resultMap="runMap">
+        SELECT * FROM inventory_sync_run
+         WHERE active_scope_key = 'INVENTORY_CANONICAL'
+         ORDER BY inventory_sync_run_id DESC FETCH FIRST 1 ROW ONLY
+    </select>
+    <select id="selectLatestRun" resultMap="runMap">
+        SELECT * FROM inventory_sync_run
+         ORDER BY inventory_sync_run_id DESC FETCH FIRST 1 ROW ONLY
+    </select>
+    <select id="selectSnapshotState"
+            resultType="com.stockit.backend.feature.inventorysync.vo.InventorySyncSnapshotStateVO">
+        SELECT snapshot_state.inventory_sync_run_id,
+               snapshot_state.dashboard_ready,
+               snapshot_state.inventory_statistics_ready,
+               CASE WHEN snapshot_state.dashboard_ready = 1 THEN 'SUCCEEDED' ELSE (
+                   SELECT task.task_status
+                   FROM inventory_sync_snapshot_task task
+                   WHERE task.inventory_sync_run_id = #{runId}
+                     AND task.task_type = 'DASHBOARD'
+               ) END AS dashboard_status,
+               CASE WHEN snapshot_state.inventory_statistics_ready = 1 THEN 'SUCCEEDED' ELSE (
+                   SELECT task.task_status
+                   FROM inventory_sync_snapshot_task task
+                   WHERE task.inventory_sync_run_id = #{runId}
+                     AND task.task_type = 'INVENTORY_STATISTICS'
+               ) END AS inventory_statistics_status
+        FROM (
+            SELECT #{runId} AS inventory_sync_run_id,
+                   CASE WHEN EXISTS (
+                       SELECT 1
+                       FROM dashboard_snapshot dashboard
+                       WHERE dashboard.sync_job_id = #{runId}
+                         AND dashboard.is_deleted = 0
+                   ) THEN 1 ELSE 0 END AS dashboard_ready,
+                   CASE WHEN EXISTS (
+                       SELECT 1
+                       FROM statistics_snapshot statistics
+                       WHERE statistics.sync_job_id = #{runId}
+                         AND statistics.is_deleted = 0
+                   ) THEN 1 ELSE 0 END AS inventory_statistics_ready
+            FROM dual
+        ) snapshot_state
+    </select>
+    <select id="lockSubmissionGuard" resultType="int">
+        SELECT 1 FROM inventory_sync_mutex
+         FOR UPDATE WAIT 5
+    </select>
+    <select id="countRecentRequests" resultType="int">
+        SELECT COUNT(*) FROM inventory_sync_run
+         WHERE requested_by = #{requestedBy} AND requested_at &gt;= #{since}
+    </select>
+    <select id="selectLastRequestedAt" resultType="java.time.Instant">
+        SELECT MAX(requested_at) FROM inventory_sync_run
+         WHERE requested_by = #{requestedBy}
+    </select>
+    <select id="selectSystemUserId" resultType="long">
+        SELECT user_id FROM app_user
+         WHERE login_id = '__system__' AND active_yn = 'Y'
+         FETCH FIRST 1 ROW ONLY
+    </select>
+
+    <insert id="insertRun" parameterType="com.stockit.backend.feature.inventorysync.vo.InventorySyncRunVO">
+        <selectKey keyProperty="inventorySyncRunId" resultType="long" order="AFTER">
+            SELECT inventory_sync_run_id
+              FROM inventory_sync_run
+             WHERE client_request_id = #{clientRequestId}
+        </selectKey>
+        INSERT INTO inventory_sync_run (
+            client_request_id, request_hash, trigger_type, run_status, active_scope_key,
+            fencing_token, main_attempt_no, requested_by, requested_at,
+            created_at, updated_at
+        ) VALUES (
+            #{clientRequestId}, #{requestHash}, #{triggerType}, 'QUEUED', 'INVENTORY_CANONICAL',
+            1, 0, #{requestedBy}, SYSTIMESTAMP, SYSTIMESTAMP, SYSTIMESTAMP
+        )
+    </insert>
+
+    <update id="markRunning">
+        UPDATE inventory_sync_run
+           SET run_status = 'RUNNING', current_phase = 'READING', main_attempt_no = #{attemptNo},
+               fencing_token = #{fencingToken}, lease_owner_instance_id = #{owner},
+               started_at = COALESCE(started_at, SYSTIMESTAMP), heartbeat_at = SYSTIMESTAMP,
+               lease_expires_at = #{leaseExpiresAt}, updated_at = SYSTIMESTAMP
+         WHERE inventory_sync_run_id = #{runId}
+           AND active_scope_key = 'INVENTORY_CANONICAL'
+           AND fencing_token = #{fencingToken}
+           AND run_status = 'QUEUED'
+    </update>
+    <update id="updatePhase">
+        UPDATE inventory_sync_run
+           SET current_phase = #{phase}, read_count = #{readCount}, mapped_count = #{mappedCount},
+               heartbeat_at = SYSTIMESTAMP, updated_at = SYSTIMESTAMP
+         WHERE inventory_sync_run_id = #{runId} AND main_attempt_no = #{attemptNo}
+           AND fencing_token = #{fencingToken} AND run_status = 'RUNNING'
+    </update>
+    <update id="heartbeat">
+        UPDATE inventory_sync_run
+           SET heartbeat_at = SYSTIMESTAMP, lease_expires_at = #{leaseExpiresAt},
+               lease_owner_instance_id = #{owner}, updated_at = SYSTIMESTAMP
+         WHERE inventory_sync_run_id = #{runId} AND main_attempt_no = #{attemptNo}
+           AND fencing_token = #{fencingToken} AND lease_owner_instance_id = #{owner}
+           AND run_status = 'RUNNING'
+    </update>
+    <update id="complete">
+        UPDATE inventory_sync_run
+           SET run_status = #{status}, current_phase = NULL, changed_count = #{changedCount},
+               error_code = #{errorCode,jdbcType=VARCHAR},
+               error_message = #{errorMessage,jdbcType=VARCHAR}, error_count =
+               CASE WHEN #{errorCode,jdbcType=VARCHAR} IS NULL THEN error_count ELSE error_count + 1 END,
+               active_scope_key = NULL, completed_at = SYSTIMESTAMP, updated_at = SYSTIMESTAMP
+         WHERE inventory_sync_run_id = #{runId} AND main_attempt_no = #{attemptNo}
+           AND fencing_token = #{fencingToken} AND run_status = 'RUNNING'
+    </update>
+    <update id="updateError">
+        UPDATE inventory_sync_run SET error_code = #{errorCode}, error_message = #{errorMessage}, updated_at = SYSTIMESTAMP
+         WHERE inventory_sync_run_id = #{runId}
+    </update>
+    <select id="selectSourceTypes" resultType="string">
+        SELECT source_type FROM inventory_source_state ORDER BY source_type
+    </select>
+    <select id="selectSourceVersion" resultType="long">
+        SELECT current_version FROM inventory_source_state WHERE source_type = #{sourceType}
+    </select>
+    <select id="assertWritable" resultType="int">
+        SELECT COUNT(*) FROM inventory_sync_run
+         WHERE inventory_sync_run_id = #{runId} AND main_attempt_no = #{attemptNo}
+           AND fencing_token = #{fencingToken} AND run_status = 'RUNNING'
+    </select>
+    <update id="advanceRecoveryAttempt">
+        UPDATE inventory_sync_run
+           SET run_status = 'QUEUED', current_phase = NULL,
+               main_attempt_no = main_attempt_no + 1,
+               fencing_token = fencing_token + 1,
+               main_batch_job_execution_id = NULL,
+               lease_owner_instance_id = NULL, lease_expires_at = NULL,
+               heartbeat_at = NULL, updated_at = SYSTIMESTAMP
+         WHERE inventory_sync_run_id = #{runId}
+           AND run_status IN ('INTERRUPTED', 'QUEUED')
+           AND (run_status = 'INTERRUPTED' OR requested_at &lt;= #{now} - INTERVAL '5' MINUTE)
+           AND (lease_expires_at IS NULL OR lease_expires_at &lt;= #{now})
+           AND (lease_owner_instance_id IS NULL OR heartbeat_at IS NULL OR heartbeat_at &lt;= #{now} - INTERVAL '5' MINUTE)
+    </update>
+    <update id="markInterrupted">
+        UPDATE inventory_sync_run
+           SET run_status = 'INTERRUPTED', current_phase = NULL,
+               error_code = 'WORKER_STALE', error_message = 'worker lease가 만료되어 운영자 복구가 필요합니다.',
+               updated_at = SYSTIMESTAMP
+         WHERE inventory_sync_run_id = #{runId} AND run_status = 'RUNNING'
+           AND (lease_expires_at IS NULL OR lease_expires_at &lt;= #{now})
+           AND (heartbeat_at IS NULL OR heartbeat_at &lt;= #{now} - INTERVAL '5' MINUTE)
+    </update>
+    <update id="markLaunchFailed">
+        UPDATE inventory_sync_run
+           SET run_status = 'LAUNCH_FAILED', active_scope_key = NULL,
+               error_code = 'LAUNCH_REJECTED', error_message = #{message},
+               completed_at = SYSTIMESTAMP, updated_at = SYSTIMESTAMP
+         WHERE inventory_sync_run_id = #{runId} AND run_status = 'QUEUED'
+    </update>
+    <update id="setMainBatchExecutionId">
+        UPDATE inventory_sync_run SET main_batch_job_execution_id = #{executionId}, updated_at = SYSTIMESTAMP
+         WHERE inventory_sync_run_id = #{runId}
+    </update>
+    <insert id="insertError">
+        INSERT INTO inventory_sync_error (
+            inventory_sync_run_id, source_type, error_phase, error_code, error_message
+        ) VALUES (#{runId}, #{sourceType}, #{phase}, #{errorCode}, #{errorMessage})
+    </insert>
+</mapper>

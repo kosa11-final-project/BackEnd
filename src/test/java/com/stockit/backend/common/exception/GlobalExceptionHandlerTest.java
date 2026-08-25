@@ -1,5 +1,6 @@
 package com.stockit.backend.common.exception;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.endsWith;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -8,14 +9,25 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.validation.BeanPropertyBindingResult;
+import org.springframework.validation.BindException;
+import org.springframework.validation.FieldError;
+import org.springframework.validation.ObjectError;
+
+import com.stockit.backend.common.api.ApiErrorResponse;
+import com.stockit.backend.common.logging.RequestLoggingFilter;
 
 @WebMvcTest(TestApiController.class)
-@Import(GlobalExceptionHandler.class)
+@AutoConfigureMockMvc(addFilters = false)
+@Import({GlobalExceptionHandler.class, RequestLoggingFilter.class})
 @ActiveProfiles("test")
 class GlobalExceptionHandlerTest {
 
@@ -60,6 +72,24 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
+    void preservesSafeCustomAppExceptionMessage() throws Exception {
+        mockMvc.perform(get("/api/v1/test/app-error-custom"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON-002"))
+                .andExpect(jsonPath("$.message").value("지원하지 않는 테스트 파라미터입니다."))
+                .andExpect(jsonPath("$.path").value("/api/v1/test/app-error-custom"));
+    }
+
+    @Test
+    void hidesDatabaseExceptionDetailsBehindDedicatedErrorCode() throws Exception {
+        mockMvc.perform(get("/api/v1/test/database-error"))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.code").value("DATABASE-001"))
+                .andExpect(jsonPath("$.message").value("데이터베이스 처리 중 오류가 발생했습니다."))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("DB 내부"))));
+    }
+
+    @Test
     void hidesUnexpectedExceptionDetails() throws Exception {
         mockMvc.perform(get("/api/v1/test/unexpected-error"))
                 .andExpect(status().isInternalServerError())
@@ -79,5 +109,34 @@ class GlobalExceptionHandlerTest {
         mockMvc.perform(get("/api/v1/test/validate"))
                 .andExpect(status().isMethodNotAllowed())
                 .andExpect(jsonPath("$.code").value("COMMON-005"));
+    }
+
+    @Test
+    void handlesBindExceptionWithGlobalAndFieldErrors() {
+        GlobalExceptionHandler handler = new GlobalExceptionHandler();
+        BeanPropertyBindingResult bindingResult =
+                new BeanPropertyBindingResult(new Object(), "target");
+        bindingResult.addError(new FieldError("target", "name", "이름은 필수입니다."));
+        bindingResult.addError(new ObjectError("target", "글로벌 검증 오류입니다."));
+        bindingResult.addError(new ObjectError("target", ""));
+
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setRequestURI("/api/v1/test/bind");
+
+        ResponseEntity<ApiErrorResponse> response = handler.handleBindException(
+                new BindException(bindingResult),
+                request
+        );
+
+        assertThat(response.getStatusCode().value()).isEqualTo(400);
+        ApiErrorResponse body = java.util.Objects.requireNonNull(response.getBody());
+        assertThat(body.code()).isEqualTo("COMMON-002");
+        assertThat(body.fieldErrors()).hasSize(3);
+        assertThat(body.fieldErrors().get(0).field()).isEqualTo("name");
+        assertThat(body.fieldErrors().get(0).message()).isEqualTo("이름은 필수입니다.");
+        assertThat(body.fieldErrors().get(1).field()).isEqualTo("_global");
+        assertThat(body.fieldErrors().get(1).message()).isEqualTo("글로벌 검증 오류입니다.");
+        assertThat(body.fieldErrors().get(2).field()).isEqualTo("_global");
+        assertThat(body.fieldErrors().get(2).message()).isEqualTo(ErrorCode.INVALID_PARAMETER.getMessage());
     }
 }

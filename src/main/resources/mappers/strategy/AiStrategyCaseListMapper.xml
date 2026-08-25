@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.stockit.backend.feature.strategy.mapper.AiStrategyCaseListMapper">
+
+    <sql id="caseListFrom">
+        FROM strategy_case strategy_case
+        JOIN sku
+          ON sku.sku_id = strategy_case.sku_id
+        JOIN product
+          ON product.product_id = sku.product_id
+        LEFT JOIN category
+          ON category.category_id = product.category_id
+        LEFT JOIN app_user requester
+          ON requester.user_id = strategy_case.created_by
+    </sql>
+
+    <sql id="visibleCaseFilters">
+        WHERE strategy_case.is_deleted = 0
+          AND (
+              (
+                  strategy_case.case_status = 'GENERATING'
+                  AND strategy_case.created_at &gt; #{visibleFrom}
+              )
+              OR (
+                  strategy_case.case_status = 'GENERATED'
+                  AND strategy_case.result_expires_at &gt; #{visibleAt}
+              )
+              OR (
+                  strategy_case.case_status = 'GENERATION_FAILED'
+                  AND strategy_case.completed_at &gt; #{visibleFrom}
+              )
+          )
+        <if test="query.searchText != null">
+          AND (
+            <if test="query.strategyCaseId != null">
+              strategy_case.strategy_case_id = #{query.strategyCaseId}
+              OR
+            </if>
+              UPPER(strategy_case.case_name) LIKE '%' || UPPER(#{query.searchText}) || '%' ESCAPE '\'
+              OR UPPER(sku.sku_code) LIKE '%' || UPPER(#{query.searchText}) || '%' ESCAPE '\'
+              OR UPPER(sku.sku_name) LIKE '%' || UPPER(#{query.searchText}) || '%' ESCAPE '\'
+              OR UPPER(product.product_name) LIKE '%' || UPPER(#{query.searchText}) || '%' ESCAPE '\'
+          )
+        </if>
+        <if test="query.createdFrom != null">
+          AND strategy_case.created_at &gt;= #{query.createdFrom}
+        </if>
+        <if test="query.createdToExclusive != null">
+          AND strategy_case.created_at &lt; #{query.createdToExclusive}
+        </if>
+    </sql>
+
+    <sql id="selectedStatusFilter">
+        <if test="query.caseStatus != null">
+          AND strategy_case.case_status = #{query.caseStatus}
+        </if>
+    </sql>
+
+    <select id="countCases" resultType="long">
+        SELECT COUNT(*)
+        <include refid="caseListFrom"/>
+        <include refid="visibleCaseFilters"/>
+        <include refid="selectedStatusFilter"/>
+    </select>
+
+    <select id="selectCases" resultType="AiStrategyCaseListVO">
+        SELECT strategy_case.strategy_case_id,
+               strategy_case.case_name,
+               strategy_case.case_status,
+               strategy_case.generation_stage,
+               sku.sku_id,
+               sku.sku_code,
+               sku.sku_name,
+               product.image_url,
+               category.category_id,
+               category.category_name,
+               category.category_level,
+               requester.user_id AS requester_id,
+               requester.user_name AS requester_name,
+               strategy_case.created_at,
+               strategy_case.completed_at,
+               strategy_case.result_expires_at,
+               strategy_case.failure_code,
+               strategy_case.failure_message
+        <include refid="caseListFrom"/>
+        <include refid="visibleCaseFilters"/>
+        <include refid="selectedStatusFilter"/>
+        ORDER BY
+        <choose>
+            <when test="query.sortDirection == 'ASC'">
+                strategy_case.created_at ASC,
+                strategy_case.strategy_case_id ASC
+            </when>
+            <otherwise>
+                strategy_case.created_at DESC,
+                strategy_case.strategy_case_id DESC
+            </otherwise>
+        </choose>
+        OFFSET #{query.offset} ROWS FETCH NEXT #{query.size} ROWS ONLY
+    </select>
+
+    <select id="countCasesByStatus" resultType="AiStrategyCaseStatusCountVO">
+        SELECT strategy_case.case_status,
+               COUNT(*) AS status_count
+        <include refid="caseListFrom"/>
+        <include refid="visibleCaseFilters"/>
+        GROUP BY strategy_case.case_status
+    </select>
+
+</mapper>

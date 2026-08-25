@@ -1,8 +1,6 @@
 spring:
   application:
     name: stockit-backend
-  profiles:
-    default: local
   datasource:
     url: ${DB_URL}
     username: ${DB_USERNAME}
@@ -14,11 +12,172 @@ spring:
     jdbc:
       initialize-schema: never
   flyway:
+    # 이 브랜치는 이미 존재하는 공유 스키마를 읽기 전용으로 확인합니다.
+    # migration 실행은 별도 승인된 작업에서만 명시적으로 켭니다.
     enabled: ${FLYWAY_ENABLED:false}
     locations: classpath:db/migration
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME}
+    password: ${RABBITMQ_PASSWORD}
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      mandatory: true
+    listener:
+      simple:
+        acknowledge-mode: manual
+        concurrency: 1
+        max-concurrency: 1
+        prefetch: 1
+        default-requeue-rejected: false
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      username: ${REDIS_USERNAME:}
+      password: ${REDIS_PASSWORD:}
+      connect-timeout: ${REDIS_CONNECT_TIMEOUT:3s}
+      timeout: ${REDIS_COMMAND_TIMEOUT:3s}
 
 server:
   port: ${SERVER_PORT:8080}
+  servlet:
+    session:
+      timeout: 30m
+      cookie:
+        http-only: true
+        secure: ${SESSION_COOKIE_SECURE:true}
+        same-site: lax
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      show-details: never
+      probes:
+        enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+
+logging:
+  pattern:
+    # 요청 로그와 예외 응답의 requestId를 같은 값으로 연결합니다.
+    level: "%5p [requestId:%X{requestId:-}]"
+
+app:
+  cors:
+    allowed-origins: ${APP_CORS_ALLOWED_ORIGINS:http://localhost:5173}
+  internal-api:
+    key: ${STOCKIT_INTERNAL_API_KEY:}
+    user-id: ${STOCKIT_INTERNAL_API_USER_ID:0}
+    principal-name: ${STOCKIT_INTERNAL_API_PRINCIPAL:ml-service}
+  inventory-sync:
+    batch-enabled: ${INVENTORY_SYNC_BATCH_ENABLED:true}
+    instance-id: ${INVENTORY_SYNC_INSTANCE_ID:local-worker}
+    # Demo-only source adjustment is disabled for every production-like profile by default.
+    demo-enabled: ${INVENTORY_SYNC_DEMO_ENABLED:false}
+    schedule:
+      enabled: ${INVENTORY_SYNC_SCHEDULE_ENABLED:true}
+      cron: ${INVENTORY_SYNC_SCHEDULE_CRON:0 30 0 * * *}
+      zone: ${INVENTORY_SYNC_SCHEDULE_ZONE:Asia/Seoul}
+    snapshot-recovery:
+      enabled: ${INVENTORY_SYNC_SNAPSHOT_RECOVERY_ENABLED:true}
+      initial-delay: ${INVENTORY_SYNC_SNAPSHOT_RECOVERY_INITIAL_DELAY:30s}
+      fixed-delay: ${INVENTORY_SYNC_SNAPSHOT_RECOVERY_FIXED_DELAY:60s}
+  strategy-statistics:
+    schedule:
+      # 재고 동기화(기본 00:30)와 위험등급 재산정이 끝난 뒤 성과를 확정합니다.
+      enabled: ${STRATEGY_STATISTICS_SCHEDULE_ENABLED:true}
+      cron: ${STRATEGY_STATISTICS_SCHEDULE_CRON:0 0 4 * * *}
+      zone: ${STRATEGY_STATISTICS_SCHEDULE_ZONE:Asia/Seoul}
+  statistics:
+    demo-backfill:
+      # 운영 데이터와 혼동하지 않도록 명시적으로 켠 환경에서만 API를 노출합니다.
+      enabled: ${STATISTICS_DEMO_BACKFILL_ENABLED:false}
+      # 로컬 데이터 준비 시 인증 API를 거치지 않고 기동 직후 한 번 실행합니다.
+      run-on-startup: ${STATISTICS_DEMO_BACKFILL_RUN_ON_STARTUP:false}
+    strategy-demo-backfill:
+      # V26 적용 후 AI 전략 성과 데모 이력을 만들 때만 명시적으로 활성화합니다.
+      enabled: ${STATISTICS_STRATEGY_DEMO_BACKFILL_ENABLED:false}
+      run-on-startup: ${STATISTICS_STRATEGY_DEMO_BACKFILL_RUN_ON_STARTUP:false}
+  sales-daily-export:
+    # Path 바인딩이 실패하지 않도록 Backend 프로젝트 기준의 유효한 기본 경로를 사용합니다.
+    output-path: ${SALES_DAILY_EXPORT_PATH:./build/exports/sales_daily.csv}
+    destination: ${SALES_DAILY_EXPORT_DESTINATION:LOCAL}
+    azure:
+      account-url: ${AZURE_STORAGE_ACCOUNT_URL:}
+      container-name: ${AZURE_STORAGE_CONTAINER:}
+      blob-prefix: ${AZURE_STORAGE_BLOB_PREFIX:sales-daily}
+  demand-forecast:
+    orchestration:
+      enabled: ${DEMAND_FORECAST_ORCHESTRATION_ENABLED:false}
+      cron: ${DEMAND_FORECAST_ORCHESTRATION_CRON:0 0 1 * * *}
+      zone: ${DEMAND_FORECAST_ORCHESTRATION_ZONE:Asia/Seoul}
+      poll-interval: ${DEMAND_FORECAST_POLL_INTERVAL:30s}
+      fast-api-base-url: ${DEMAND_FORECAST_FASTAPI_BASE_URL:}
+      fast-api-key: ${DEMAND_FORECAST_FASTAPI_KEY:}
+      submit-path: ${DEMAND_FORECAST_SUBMIT_PATH:/api/v1/demand-forecasts/jobs}
+      status-path: ${DEMAND_FORECAST_STATUS_PATH:/api/v1/demand-forecasts/jobs/{azureJobId}}
+      import-path: ${DEMAND_FORECAST_IMPORT_PATH:/api/v1/demand-forecasts/jobs/{azureJobId}/import}
+      connect-timeout: ${DEMAND_FORECAST_CONNECT_TIMEOUT:3s}
+      read-timeout: ${DEMAND_FORECAST_READ_TIMEOUT:30s}
+      job-timeout: ${DEMAND_FORECAST_JOB_TIMEOUT:2h}
+  ai-strategy:
+    messaging:
+      enabled: ${AI_STRATEGY_MESSAGING_ENABLED:true}
+      max-attempts: ${AI_STRATEGY_MAX_ATTEMPTS:3}
+      retry-delay: ${AI_STRATEGY_RETRY_DELAY:30s}
+      confirm-timeout: ${AI_STRATEGY_CONFIRM_TIMEOUT:5s}
+    teams:
+      enabled: ${AI_STRATEGY_TEAMS_ENABLED:false}
+      webhook-url: ${TEAMS_APPROVAL_WEBHOOK_URL:}
+      connect-timeout: ${TEAMS_APPROVAL_CONNECT_TIMEOUT:3s}
+      read-timeout: ${TEAMS_APPROVAL_READ_TIMEOUT:15s}
+      claim-timeout: ${TEAMS_APPROVAL_CLAIM_TIMEOUT:1m}
+      max-reviewers: ${AI_STRATEGY_TEAMS_MAX_REVIEWERS:10}
+    forecast:
+      base-url: ${ML_FORECAST_BASE_URL:}
+      path: ${ML_FORECAST_PATH:/api/v1/demand-forecasts/daily}
+      connect-timeout: ${ML_FORECAST_CONNECT_TIMEOUT:3s}
+      read-timeout: ${ML_FORECAST_READ_TIMEOUT:60s}
+      result-ttl: ${AI_STRATEGY_FORECAST_TTL:3d}
+      lock-ttl: ${AI_STRATEGY_FORECAST_LOCK_TTL:180s}
+    result:
+      ttl: ${AI_STRATEGY_RESULT_TTL:3d}
+      lock-ttl: ${AI_STRATEGY_RESULT_LOCK_TTL:5m}
+    simulation:
+      discount:
+        # ML 예측은 정상가 유지 기준이며, 할인 기간에만 상수 가격탄력성 수요 배수를 적용합니다.
+        price-elasticity: ${AI_STRATEGY_PRICE_ELASTICITY:1.0}
+        maximum-demand-multiplier: ${AI_STRATEGY_MAX_DEMAND_MULTIPLIER:1.5}
+        department-store-maximum-discount-rate: ${AI_STRATEGY_DEPARTMENT_MAX_DISCOUNT_RATE:0.20}
+        general-maximum-discount-rate: ${AI_STRATEGY_GENERAL_MAX_DISCOUNT_RATE:0.30}
+        # 신규·미분류 판매처는 과도한 할인을 피하도록 백화점과 같은 보수적 상한을 사용합니다.
+        unknown-maximum-discount-rate: ${AI_STRATEGY_UNKNOWN_MAX_DISCOUNT_RATE:0.20}
+        department-store-code-prefixes: [DEPT_]
+        general-code-prefixes: [HMART_]
+        general-exact-codes: [GREETING, MODU_MATJIP]
+
+ai:
+  recommendation:
+    api-key: ${AI_RECOMMENDATION_API_KEY:}
+    model: ${AI_RECOMMENDATION_MODEL:gemini-3.6-flash}
+    base-url: ${AI_RECOMMENDATION_BASE_URL:https://generativelanguage.googleapis.com}
+    path: ${AI_RECOMMENDATION_PATH:/v1beta/interactions}
+    connect-timeout: ${AI_RECOMMENDATION_CONNECT_TIMEOUT:3s}
+    read-timeout: ${AI_RECOMMENDATION_READ_TIMEOUT:120s}
+    max-output-tokens: ${AI_RECOMMENDATION_MAX_OUTPUT_TOKENS:2048}
+    seed: ${AI_RECOMMENDATION_SEED:72}
 
 mybatis:
   mapper-locations: classpath:mappers/**/*.xml
@@ -29,6 +188,24 @@ mybatis:
 
 springdoc:
   api-docs:
+    # 운영 기본값은 비공개이며, local/test처럼 필요한 환경에서만 명시적으로 엽니다.
+    enabled: ${SPRINGDOC_API_DOCS_ENABLED:false}
     path: /v3/api-docs
   swagger-ui:
+    enabled: ${SPRINGDOC_SWAGGER_UI_ENABLED:false}
     path: /swagger-ui.html
+
+---
+spring:
+  config:
+    activate:
+      on-profile: local
+  rabbitmq:
+    username: ${RABBITMQ_USERNAME:stockit_local}
+    password: ${RABBITMQ_PASSWORD:stockit_local}
+
+server:
+  servlet:
+    session:
+      cookie:
+        secure: ${SESSION_COOKIE_SECURE:false}

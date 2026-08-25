@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.stockit.backend.feature.statistics.mapper.StatisticsSnapshotMapper">
+
+    <select id="selectNextSnapshotId" resultType="java.lang.Long">
+        SELECT statistics_snapshot_seq.NEXTVAL
+        FROM dual
+    </select>
+
+    <select id="selectSnapshotIdsBySyncJobId" resultType="java.lang.Long">
+        SELECT statistics_snapshot_id
+        FROM statistics_snapshot
+        WHERE sync_job_id = #{syncJobId}
+          AND is_deleted = 0
+        ORDER BY statistics_snapshot_id
+    </select>
+
+    <insert id="insertSnapshot">
+        INSERT INTO statistics_snapshot (
+            statistics_snapshot_id,
+            sync_job_id,
+            as_of_date,
+            scope_type,
+            warehouse_id,
+            sales_point_id,
+            scope_code,
+            scope_name,
+            payload_version,
+            payload_json,
+            created_by,
+            updated_by
+        ) VALUES (
+            #{snapshotId},
+            #{syncJobId},
+            #{asOfDate,jdbcType=DATE},
+            #{aggregate.scopeType},
+            #{aggregate.warehouseId,jdbcType=NUMERIC},
+            #{aggregate.salesPointId,jdbcType=NUMERIC},
+            #{aggregate.scopeCode},
+            #{aggregate.scopeName},
+            #{payloadVersion},
+            #{payloadJson,jdbcType=CLOB},
+            (SELECT user_id FROM app_user WHERE login_id = '__system__' AND is_deleted = 0),
+            (SELECT user_id FROM app_user WHERE login_id = '__system__' AND is_deleted = 0)
+        )
+    </insert>
+
+    <sql id="snapshotColumns">
+        s.statistics_snapshot_id,
+        s.sync_job_id,
+        s.as_of_date,
+        s.scope_type,
+        s.warehouse_id,
+        s.sales_point_id,
+        s.scope_code,
+        s.scope_name,
+        COALESCE(w.region_code, sp.region_code) AS region_code,
+        s.payload_version,
+        s.payload_json,
+        s.created_at,
+        s.updated_at,
+        s.created_by,
+        s.updated_by,
+        s.is_deleted
+    </sql>
+
+    <select id="selectLatestSnapshots"
+            resultType="com.stockit.backend.feature.statistics.vo.StatisticsSnapshotVO">
+        WITH latest_group AS (
+            SELECT sync_job_id
+            FROM statistics_snapshot
+            WHERE is_deleted = 0
+              AND scope_type = 'NATIONAL'
+              AND scope_code = 'ALL'
+              <if test="toDate != null">
+                  AND as_of_date &lt;= TRUNC(#{toDate,jdbcType=DATE})
+              </if>
+            ORDER BY as_of_date DESC, created_at DESC, statistics_snapshot_id DESC
+            FETCH FIRST 1 ROW ONLY
+        )
+        SELECT <include refid="snapshotColumns"/>
+        FROM statistics_snapshot s
+        JOIN latest_group latest
+          ON latest.sync_job_id = s.sync_job_id
+        LEFT JOIN warehouse w
+          ON w.warehouse_id = s.warehouse_id
+        LEFT JOIN sales_point sp
+          ON sp.sales_point_id = s.sales_point_id
+        WHERE s.is_deleted = 0
+        ORDER BY CASE s.scope_type
+                     WHEN 'NATIONAL' THEN 1
+                     WHEN 'WAREHOUSE' THEN 2
+                     WHEN 'OFFLINE_STORE' THEN 3
+                     WHEN 'ONLINE_STORE' THEN 4
+                     WHEN 'UNASSIGNED' THEN 5
+                     ELSE 6
+                 END,
+                 CASE WHEN s.scope_code = 'ALL' THEN 0 ELSE 1 END,
+                 s.scope_name,
+                 s.statistics_snapshot_id
+    </select>
+
+    <select id="selectTrendSnapshots"
+            resultType="com.stockit.backend.feature.statistics.vo.StatisticsSnapshotVO">
+        SELECT statistics_snapshot_id,
+               sync_job_id,
+               as_of_date,
+               scope_type,
+               warehouse_id,
+               sales_point_id,
+               scope_code,
+               scope_name,
+               payload_version,
+               payload_json,
+               created_at,
+               updated_at,
+               created_by,
+               updated_by,
+               is_deleted
+        FROM (
+            SELECT s.*,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY s.as_of_date
+                       ORDER BY s.created_at DESC, s.statistics_snapshot_id DESC
+                   ) AS row_no
+            FROM statistics_snapshot s
+            WHERE s.is_deleted = 0
+              AND s.scope_type = #{scopeType}
+              AND s.scope_code = #{scopeCode}
+              AND s.as_of_date BETWEEN TRUNC(#{fromDate,jdbcType=DATE})
+                                   AND TRUNC(#{toDate,jdbcType=DATE})
+        )
+        WHERE row_no = 1
+        ORDER BY as_of_date, created_at, statistics_snapshot_id
+    </select>
+</mapper>

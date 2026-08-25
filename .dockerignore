@@ -1,0 +1,16 @@
+.git
+.github
+.gradle
+.idea
+.vscode
+build
+out
+*.iml
+*.log
+.env
+.env.*
+compose*.yml
+monitoring
+infra
+docs
+README.md
