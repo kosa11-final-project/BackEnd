@@ -61,6 +61,10 @@ class GeminiRecommendationProviderTest {
         JsonNode body = objectMapper.readTree(requestBody.get());
         assertThat(body.path("model").asText()).isEqualTo("gemini-3.7-flash");
         assertThat(body.path("store").asBoolean()).isFalse();
+        assertThat(body.path("input").asText())
+                .contains("\"schemaVersion\":\"ai-strategy-recommendation-v2\"")
+                .contains("\"strategyPrioritySource\":\"USER\"")
+                .contains("\"targetPrioritySource\":\"USER\"");
         JsonNode enumValues = body.path("response_format").path("schema")
                 .path("properties").path("recommendations").path("items")
                 .path("properties").path("candidateId").path("enum");
@@ -188,7 +192,7 @@ class GeminiRecommendationProviderTest {
                 BigDecimal.TEN
         );
         return new AiRecommendationRequest(
-                "v1", 1L, 1, 1,
+                "ai-strategy-recommendation-v2", 1L, 1, 1,
                 new AiRecommendationRequest.BaselineInput(
                         BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
                         BigDecimal.ZERO, null, BigDecimal.TEN, BigDecimal.ZERO

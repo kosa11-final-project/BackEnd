@@ -49,6 +49,31 @@ public class DeterministicRecommendationCandidatePreselector
                     DeterministicRecommendationCandidatePreselector::compareNullableDecimal)
             .thenComparing(value -> value.candidate().candidateId());
 
+    private static final Comparator<Long> NULLABLE_LONG_ORDER =
+            Comparator.nullsFirst(Comparator.naturalOrder());
+
+    private static final Comparator<ActionSignature> ACTION_SIGNATURE_ORDER =
+            Comparator.comparing(
+                            ActionSignature::type,
+                            Comparator.comparing(StrategyType::name)
+                    )
+                    .thenComparing(
+                            ActionSignature::sourceWarehouseId,
+                            NULLABLE_LONG_ORDER
+                    )
+                    .thenComparing(
+                            ActionSignature::sourceSalesPointId,
+                            NULLABLE_LONG_ORDER
+                    )
+                    .thenComparing(
+                            ActionSignature::targetWarehouseId,
+                            NULLABLE_LONG_ORDER
+                    )
+                    .thenComparing(
+                            ActionSignature::targetSalesPointId,
+                            NULLABLE_LONG_ORDER
+                    );
+
     @Override
     public RecommendationCandidateSelection select(
             StrategyCandidateEvaluationResult evaluation
@@ -413,7 +438,9 @@ public class DeterministicRecommendationCandidatePreselector
 
     private static RecommendationFamilyKey familyKey(StrategyCandidate candidate) {
         return new RecommendationFamilyKey(
-                candidate.strategyTypes(),
+                candidate.strategyTypes().stream()
+                        .sorted(Comparator.comparing(StrategyType::name))
+                        .toList(),
                 candidate.actions().stream()
                         .map(action -> new ActionSignature(
                                 action.actionType(),
@@ -422,6 +449,7 @@ public class DeterministicRecommendationCandidatePreselector
                                 action.target().warehouseId(),
                                 action.target().salesPointId()
                         ))
+                        .sorted(ACTION_SIGNATURE_ORDER)
                         .toList()
         );
     }

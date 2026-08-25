@@ -8,6 +8,7 @@ import java.time.LocalDate;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.boot.env.YamlPropertySourceLoader;
 import org.springframework.core.env.PropertySource;
@@ -22,6 +23,7 @@ import com.stockit.backend.feature.strategy.messaging.RetryableStrategyGeneratio
  * 기본 Gradle 테스트에서는 실행하지 않으며 API 키를 출력하지 않는다.
  */
 @EnabledIfEnvironmentVariable(named = "GEMINI_LIVE_TEST", matches = "true")
+@Tag("live")
 class GeminiRecommendationLiveSmokeTest {
 
     @Test
