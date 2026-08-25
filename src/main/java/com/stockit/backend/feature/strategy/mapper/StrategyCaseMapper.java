@@ -9,6 +9,7 @@ import com.stockit.backend.feature.strategy.vo.StrategyCaseVO;
 import com.stockit.backend.feature.strategy.vo.StrategyLotReferenceVO;
 import com.stockit.backend.feature.strategy.vo.StrategySkuReferenceVO;
 import com.stockit.backend.feature.strategy.domain.StrategyGenerationStage;
+import java.time.LocalDateTime;
 
 /**
  * AI 전략 생성 요청과 요청 대상 참조 정보를 조회하는 MyBatis Mapper
@@ -27,9 +28,10 @@ public interface StrategyCaseMapper {
     List<Long> selectActiveSalesPointIds(@Param("salesPointIds") List<Long> salesPointIds);
 
     /**
-     * 후보 미지정 수요예측의 기대 범위를 확정하기 위한 전체 활성 판매처 조회
+     * 후보 미지정 수요예측의 기대 범위를 확정하기 위해 해당 SKU의 가용 재고가
+     * 존재하는 활성 판매처를 조회
      */
-    List<Long> selectAllActiveSalesPointIds();
+    List<Long> selectActiveSalesPointIdsBySkuInventory(@Param("skuId") Long skuId);
 
     /**
      * LOT 존재 여부와 대상 SKU 소속 여부를 한 번에 검증하기 위한 조회
@@ -56,6 +58,13 @@ public interface StrategyCaseMapper {
      */
     int markStrategyGeneratingIfForecasting(
             @Param("strategyCaseId") Long strategyCaseId
+    );
+
+    /** 최종 Redis 결과를 가리키며 생성 완료 상태로 조건부 전환 */
+    int markGeneratedIfStrategyGenerating(
+            @Param("strategyCaseId") Long strategyCaseId,
+            @Param("resultCacheKey") String resultCacheKey,
+            @Param("resultExpiresAt") LocalDateTime resultExpiresAt
     );
 
     /**

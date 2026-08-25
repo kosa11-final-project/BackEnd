@@ -29,6 +29,21 @@ public class TargetAdditionalDemandPolicy {
             StrategyCalculationContext context,
             Long targetSalesPointId
     ) {
+        return calculate(
+                context,
+                targetSalesPointId,
+                context.strategyStartDate(),
+                context.strategyEndDate()
+        );
+    }
+
+    /** 지정 전략 기간에 대상 판매처 기존 재고로 충족되지 않는 수요를 계산한다 */
+    public Map<LocalDate, BigDecimal> calculate(
+            StrategyCalculationContext context,
+            Long targetSalesPointId,
+            LocalDate strategyStartDate,
+            LocalDate strategyEndDate
+    ) {
         SalesPoint target = context.salesPoints().get(targetSalesPointId);
         if (target == null) {
             throw new StrategyCalculationException(
@@ -47,8 +62,8 @@ public class TargetAdditionalDemandPolicy {
                 .toList();
         Map<LocalDate, BigDecimal> unmetByDate = new LinkedHashMap<>();
 
-        for (LocalDate date = context.strategyStartDate();
-                !date.isAfter(context.strategyEndDate());
+        for (LocalDate date = strategyStartDate;
+                !date.isAfter(strategyEndDate);
                 date = date.plusDays(1)) {
             BigDecimal forecast = target.dailyForecast().get(date);
             if (forecast == null || forecast.signum() < 0) {

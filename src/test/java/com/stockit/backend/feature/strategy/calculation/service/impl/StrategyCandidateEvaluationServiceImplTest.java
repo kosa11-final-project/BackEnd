@@ -73,8 +73,8 @@ class StrategyCandidateEvaluationServiceImplTest {
                 baseline,
                 SimulationDetailLevel.SUMMARY_ONLY
         )).thenThrow(new CandidateSimulationException(
-                "CANDIDATE_RESERVED_INVENTORY_UNAVAILABLE",
-                "Reserved inventory is unavailable"
+                "CANDIDATE_PROJECTED_INVENTORY_UNAVAILABLE",
+                "Projected inventory is unavailable"
         ));
 
         StrategyCandidateEvaluationResult result = service.evaluate(
@@ -88,7 +88,7 @@ class StrategyCandidateEvaluationServiceImplTest {
         assertThat(result.simulationFailures()).singleElement().satisfies(failure -> {
             assertThat(failure.candidateId()).isEqualTo("CAND-FAIL");
             assertThat(failure.code()).isEqualTo(
-                    "CANDIDATE_RESERVED_INVENTORY_UNAVAILABLE"
+                    "CANDIDATE_PROJECTED_INVENTORY_UNAVAILABLE"
             );
         });
     }
@@ -98,6 +98,7 @@ class StrategyCandidateEvaluationServiceImplTest {
         BaselineSimulation baseline = mock(BaselineSimulation.class);
 
         assertThatThrownBy(() -> new StrategyCandidateEvaluationResult(
+                mock(StrategyCalculationContext.class),
                 baseline,
                 null,
                 List.of(),

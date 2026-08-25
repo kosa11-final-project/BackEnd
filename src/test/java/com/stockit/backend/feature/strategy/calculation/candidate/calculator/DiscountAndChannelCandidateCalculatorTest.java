@@ -30,6 +30,9 @@ import com.stockit.backend.feature.strategy.calculation.candidate.policy.SourceI
 import com.stockit.backend.feature.strategy.calculation.candidate.policy.StrategyPeriodCandidatePolicy;
 import com.stockit.backend.feature.strategy.calculation.candidate.policy.TargetAdditionalDemandPolicy;
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculationContext;
+import com.stockit.backend.feature.strategy.calculation.policy.DiscountSimulationProperties;
+import com.stockit.backend.feature.strategy.calculation.policy.DiscountDemandPolicy;
+import com.stockit.backend.feature.strategy.calculation.policy.SalesPointDiscountPolicy;
 import com.stockit.backend.feature.strategy.domain.StrategyType;
 
 class DiscountAndChannelCandidateCalculatorTest {
@@ -59,12 +62,22 @@ class DiscountAndChannelCandidateCalculatorTest {
                         allocationPolicy,
                         idGenerator
                 );
+        DiscountSimulationProperties discountProperties =
+                new DiscountSimulationProperties();
+        SalesPointDiscountPolicy salesPointDiscountPolicy =
+                new SalesPointDiscountPolicy(discountProperties);
         discountCalculator = new PriceDiscountCandidateCalculator(
-                new DiscountRateCandidatePolicy(),
+                new DiscountRateCandidatePolicy(
+                        salesPointDiscountPolicy
+                ),
                 periodPolicy,
                 capacityPolicy,
                 allocationPolicy,
-                idGenerator
+                idGenerator,
+                new DiscountDemandPolicy(
+                        discountProperties,
+                        salesPointDiscountPolicy
+                )
         );
         expansionCalculator = new ChannelExpansionCandidateCalculator(
                 movementFactory,
@@ -79,7 +92,7 @@ class DiscountAndChannelCandidateCalculatorTest {
     }
 
     @Test
-    void generatesFivePercentDiscountStepsWithoutDemandUplift() {
+    void generatesFivePercentDiscountStepsForSimulation() {
         StrategyCalculationContext context = context(
                 null,
                 List.of(StrategyType.PRICE_DISCOUNT)
@@ -102,12 +115,10 @@ class DiscountAndChannelCandidateCalculatorTest {
                 .isEqualByComparingTo("90");
         assertThat(tenPercentMaximum.evidence())
                 .isInstanceOf(StrategyCandidate.DiscountEvidence.class);
-        assertThat(tenPercentMaximum.assumptions()).containsExactly(
-                CandidateAssumption.DISCOUNT_DEMAND_UPLIFT_NOT_APPLIED
-        );
+        assertThat(tenPercentMaximum.assumptions()).isEmpty();
         assertThat(tenPercentMaximum.actions().get(0).actionQuantity())
-                .isEqualByComparingTo("10");
-        verify(allocationPolicy, times(10)).plan(any(), any(), any(), any());
+                .isEqualByComparingTo("11");
+        verify(allocationPolicy, times(22)).plan(any(), any(), any(), any());
     }
 
     @Test
@@ -132,6 +143,40 @@ class DiscountAndChannelCandidateCalculatorTest {
                         decimal("10.000"), decimal("12.000"), decimal("13.000"),
                         decimal("15.000")
                 );
+    }
+
+    @Test
+    void limitsFutureDiscountQuantityToProjectedRemainingInventory() {
+        StrategyCalculationContext original = context(
+                null,
+                List.of(StrategyType.PRICE_DISCOUNT),
+                "20",
+                "5"
+        );
+        StrategyCalculationContext context = withRequestPeriod(
+                replaceSalesPoint(
+                        original,
+                        salesPoint(
+                                10L,
+                                price(10L, "100", "90"),
+                                forecasts("5", "20"),
+                                List.of(route(10L, 501L))
+                        )
+                ),
+                END,
+                END
+        );
+
+        CandidateGenerationResult result = discountCalculator.generate(context, 1);
+
+        StrategyCandidate maximum = result.candidates().stream()
+                .filter(candidate -> candidate.preference().quantityPercentage() == 100)
+                .findFirst()
+                .orElseThrow();
+        assertThat(maximum.actions().get(0).actionQuantity())
+                .isEqualByComparingTo("15");
+        assertThat(maximum.evidence().maxExecutableQty())
+                .isEqualByComparingTo("15");
     }
 
     @Test
@@ -316,9 +361,16 @@ class DiscountAndChannelCandidateCalculatorTest {
             StrategyCalculationContext original,
             StrategyCalculationContext.SalesPoint target
     ) {
+        return replaceSalesPoint(original, target);
+    }
+
+    private static StrategyCalculationContext replaceSalesPoint(
+            StrategyCalculationContext original,
+            StrategyCalculationContext.SalesPoint salesPoint
+    ) {
         Map<Long, StrategyCalculationContext.SalesPoint> salesPoints =
                 new LinkedHashMap<>(original.salesPoints());
-        salesPoints.put(target.salesPointId(), target);
+        salesPoints.put(salesPoint.salesPointId(), salesPoint);
         return new StrategyCalculationContext(
                 original.strategyCaseId(),
                 original.sourceSalesPointId(),
@@ -332,6 +384,33 @@ class DiscountAndChannelCandidateCalculatorTest {
                 original.referenceInventory(),
                 original.inventoryPolicies(),
                 salesPoints,
+                original.forecastMetadata()
+        );
+    }
+
+    private static StrategyCalculationContext withRequestPeriod(
+            StrategyCalculationContext original,
+            LocalDate preferredStartDate,
+            LocalDate preferredEndDate
+    ) {
+        return new StrategyCalculationContext(
+                original.strategyCaseId(),
+                original.sourceSalesPointId(),
+                original.calculatedAt(),
+                original.forecastStartDate(),
+                original.forecastEndDate(),
+                original.sku(),
+                original.unitCost(),
+                new StrategyCalculationContext.RequestConstraints(
+                        original.requestConstraints().orderedCandidateSalesPointIds(),
+                        original.requestConstraints().orderedStrategyTypes(),
+                        preferredStartDate,
+                        preferredEndDate
+                ),
+                original.evaluationInventory(),
+                original.referenceInventory(),
+                original.inventoryPolicies(),
+                original.salesPoints(),
                 original.forecastMetadata()
         );
     }
@@ -462,6 +541,16 @@ class DiscountAndChannelCandidateCalculatorTest {
         for (LocalDate date = START; !date.isAfter(END); date = date.plusDays(1)) {
             forecasts.put(date, decimal(quantity));
         }
+        return forecasts;
+    }
+
+    private static Map<LocalDate, BigDecimal> forecasts(
+            String first,
+            String second
+    ) {
+        Map<LocalDate, BigDecimal> forecasts = new LinkedHashMap<>();
+        forecasts.put(START, decimal(first));
+        forecasts.put(END, decimal(second));
         return forecasts;
     }
 

@@ -142,7 +142,7 @@ class StrategyCaseServiceImplTest {
                 .isEqualTo("[\"CHANNEL_EXPANSION\",\"PRICE_DISCOUNT\"]");
         assertThat(payload.get("preferredStartDate").asText()).isEqualTo("2026-08-20");
         assertThat(payload.get("preferredEndDate").asText()).isEqualTo("2026-08-27");
-        assertThat(payload.get("forecastStartDate").asText()).isEqualTo("2026-08-20");
+        assertThat(payload.get("forecastStartDate").asText()).isEqualTo("2026-08-17");
         assertThat(payload.get("forecastEndDate").asText()).isEqualTo("2026-08-27");
     }
 
@@ -221,6 +221,20 @@ class StrategyCaseServiceImplTest {
                 List.of(),
                 List.of(),
                 List.of(StrategyType.REPLENISHMENT_REQUEST)
+        );
+
+        assertError(
+                () -> strategyCaseService.createStrategyCase(command, 99L),
+                ErrorCode.AI_STRATEGY_UNSUPPORTED_TYPE
+        );
+    }
+
+    @Test
+    void rejectsChannelConcentrationUntilItsDemandEffectPolicyIsDefined() {
+        CreateStrategyCaseCommand command = command(
+                List.of(),
+                List.of(),
+                List.of(StrategyType.CHANNEL_CONCENTRATION)
         );
 
         assertError(

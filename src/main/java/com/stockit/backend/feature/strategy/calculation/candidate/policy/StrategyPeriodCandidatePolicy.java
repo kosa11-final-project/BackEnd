@@ -17,12 +17,15 @@ import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculati
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculationContext.SalesPoint;
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculationException;
 
-/** 사용자 고정일과 90일 이내 수요·소비기한 경계를 반영한 제한된 기간 후보. */
+/**
+ * 사용자 고정일과 90일 이내 수요·소비기한 경계를 반영해 기간 후보를 제한하는 정책
+ */
 @Component
 public class StrategyPeriodCandidatePolicy {
 
     private static final List<Integer> STANDARD_DAYS = List.of(7, 14, 30);
 
+    /** 사용자 고정 조건을 우선한 뒤 대표 기간과 고수요 기간 후보를 생성한다 */
     public List<StrategyPeriodCandidate> generate(
             StrategyCalculationContext context,
             Long salesPointId
@@ -33,17 +36,23 @@ public class StrategyPeriodCandidatePolicy {
         boolean endFixed = context.requestConstraints().isEndDateFixed();
         Set<StrategyPeriodCandidate> periods = new LinkedHashSet<>();
 
+        // 예측 범위가 오늘부터 시작하더라도 사용자가 고정한 전략 기간은 변경하지 않음
         if (startFixed && endFixed) {
-            return List.of(new StrategyPeriodCandidate(rangeStart, rangeEnd));
+            return List.of(new StrategyPeriodCandidate(
+                    context.requestConstraints().preferredStartDate(),
+                    context.requestConstraints().preferredEndDate()
+            ));
         }
         if (startFixed) {
-            addForwardWindows(periods, rangeStart, rangeEnd);
-            periods.add(new StrategyPeriodCandidate(rangeStart, rangeEnd));
+            LocalDate preferredStart = context.requestConstraints().preferredStartDate();
+            addForwardWindows(periods, preferredStart, rangeEnd);
+            periods.add(new StrategyPeriodCandidate(preferredStart, rangeEnd));
             return List.copyOf(periods);
         }
         if (endFixed) {
-            addBackwardWindows(periods, rangeStart, rangeEnd);
-            periods.add(new StrategyPeriodCandidate(rangeStart, rangeEnd));
+            LocalDate preferredEnd = context.requestConstraints().preferredEndDate();
+            addBackwardWindows(periods, rangeStart, preferredEnd);
+            periods.add(new StrategyPeriodCandidate(rangeStart, preferredEnd));
             return sorted(periods);
         }
 

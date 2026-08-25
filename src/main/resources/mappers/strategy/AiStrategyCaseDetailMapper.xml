@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.stockit.backend.feature.strategy.mapper.AiStrategyCaseDetailMapper">
+
+    <select id="selectCaseDetail" resultType="AiStrategyCaseDetailVO">
+        SELECT strategy_case.strategy_case_id,
+               strategy_case.sku_id,
+               strategy_case.requested_sales_point_id,
+               strategy_case.case_code,
+               strategy_case.case_name,
+               strategy_case.case_status,
+               strategy_case.generation_stage,
+               strategy_case.request_payload_json,
+               strategy_case.result_cache_key,
+               strategy_case.result_expires_at,
+               strategy_case.failure_code,
+               strategy_case.failure_message,
+               strategy_case.completed_at,
+               strategy_case.created_at,
+               strategy_case.updated_at,
+               strategy_case.created_by,
+               strategy_case.updated_by,
+               strategy_case.is_deleted,
+               sku.sku_code,
+               sku.sku_name,
+               product.image_url,
+               category.category_id,
+               category.category_name,
+               category.category_level,
+               requester.user_id AS requester_id,
+               requester.user_name AS requester_name
+        FROM strategy_case strategy_case
+        JOIN sku
+          ON sku.sku_id = strategy_case.sku_id
+        JOIN product
+          ON product.product_id = sku.product_id
+        LEFT JOIN category
+          ON category.category_id = product.category_id
+        LEFT JOIN app_user requester
+          ON requester.user_id = strategy_case.created_by
+        WHERE strategy_case.strategy_case_id = #{strategyCaseId}
+          AND strategy_case.is_deleted = 0
+    </select>
+
+    <select id="selectSalesPoints" resultType="AiStrategySalesPointReferenceVO">
+        SELECT sales_point_id,
+               sales_point_code,
+               sales_point_name
+        FROM sales_point
+        WHERE sales_point_id IN
+        <foreach collection="salesPointIds" item="salesPointId" open="(" separator="," close=")">
+            #{salesPointId}
+        </foreach>
+    </select>
+
+    <select id="selectWarehouses" resultType="AiStrategyWarehouseReferenceVO">
+        SELECT warehouse_id,
+               warehouse_code,
+               warehouse_name
+        FROM warehouse
+        WHERE warehouse_id IN
+        <foreach collection="warehouseIds" item="warehouseId" open="(" separator="," close=")">
+            #{warehouseId}
+        </foreach>
+    </select>
+
+    <select id="selectLots" resultType="AiStrategyLotDisplayVO">
+        SELECT lot_id,
+               lot_no AS lot_code
+        FROM lot
+        WHERE lot_id IN
+        <foreach collection="lotIds" item="lotId" open="(" separator="," close=")">
+            #{lotId}
+        </foreach>
+    </select>
+
+</mapper>

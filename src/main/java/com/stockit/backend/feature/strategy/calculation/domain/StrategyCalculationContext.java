@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 
 import com.stockit.backend.feature.strategy.domain.StrategyType;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 
 /**
  * 하나의 AI 전략 Case를 동일한 입력으로 반복 계산하기 위한 불변 스냅샷.
@@ -72,6 +73,30 @@ public record StrategyCalculationContext(
                 : forecastEndDate;
     }
 
+    /**
+     * 원본 계산 조건은 유지하고 특정 시점으로 투영된 재고만 교체한 계산 문맥을 생성한다
+     */
+    public StrategyCalculationContext withInventory(
+            List<InventoryLot> projectedEvaluationInventory,
+            List<InventoryLot> projectedReferenceInventory
+    ) {
+        return new StrategyCalculationContext(
+                strategyCaseId,
+                sourceSalesPointId,
+                calculatedAt,
+                forecastStartDate,
+                forecastEndDate,
+                sku,
+                unitCost,
+                requestConstraints,
+                projectedEvaluationInventory,
+                projectedReferenceInventory,
+                inventoryPolicies,
+                salesPoints,
+                forecastMetadata
+        );
+    }
+
     /** 사용자 선택 순서와 직접 입력한 기간을 후속 후보·AI 단계까지 보존한다. */
     public record RequestConstraints(
             List<Long> orderedCandidateSalesPointIds,
@@ -84,10 +109,12 @@ public record StrategyCalculationContext(
             orderedStrategyTypes = List.copyOf(orderedStrategyTypes);
         }
 
+        @JsonIgnore
         public boolean isStartDateFixed() {
             return preferredStartDate != null;
         }
 
+        @JsonIgnore
         public boolean isEndDateFixed() {
             return preferredEndDate != null;
         }
@@ -143,6 +170,7 @@ public record StrategyCalculationContext(
                     : allocatedSalesPointId;
         }
 
+        @JsonIgnore
         public boolean isPublicUnassigned() {
             return stockSalesPointId == null && allocatedSalesPointId == null;
         }
@@ -220,6 +248,7 @@ public record StrategyCalculationContext(
                     .toList();
         }
 
+        @JsonIgnore
         public boolean hasCompletePrice() {
             return price != null;
         }

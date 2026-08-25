@@ -42,8 +42,8 @@ class StrategyForecastRequestFactoryTest {
     }
 
     @Test
-    void fillsRequestCandidatesWithAllActivePointsWhenCandidatesAreEmpty() {
-        when(strategyCaseMapper.selectAllActiveSalesPointIds())
+    void fillsRequestCandidatesWithSkuInventoryPointsWhenCandidatesAreEmpty() {
+        when(strategyCaseMapper.selectActiveSalesPointIdsBySkuInventory(1001L))
                 .thenReturn(List.of(30L, 10L, 20L));
 
         StrategyForecastRequestContext context = factory.create(
@@ -109,7 +109,7 @@ class StrategyForecastRequestFactoryTest {
 
     @Test
     void rejectsEmptyActiveSalesPointScope() {
-        when(strategyCaseMapper.selectAllActiveSalesPointIds())
+        when(strategyCaseMapper.selectActiveSalesPointIdsBySkuInventory(1001L))
                 .thenReturn(List.of());
 
         assertThatThrownBy(() -> factory.create(
@@ -123,8 +123,8 @@ class StrategyForecastRequestFactoryTest {
     }
 
     @Test
-    void rejectsSourceMissingFromAllActiveSalesPoints() {
-        when(strategyCaseMapper.selectAllActiveSalesPointIds())
+    void rejectsSourceMissingFromSkuInventorySalesPoints() {
+        when(strategyCaseMapper.selectActiveSalesPointIdsBySkuInventory(1001L))
                 .thenReturn(List.of(20L));
 
         assertThatThrownBy(() -> factory.create(

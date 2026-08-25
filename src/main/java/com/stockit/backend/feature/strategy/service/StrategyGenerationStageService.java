@@ -1,5 +1,7 @@
 package com.stockit.backend.feature.strategy.service;
 
+import java.time.LocalDateTime;
+
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,6 +38,18 @@ public class StrategyGenerationStageService {
     public boolean completeForecasting(Long strategyCaseId) {
         return strategyCaseMapper.markStrategyGeneratingIfForecasting(
                 strategyCaseId
+        ) == 1;
+    }
+
+    /** Redis 최종 결과가 확정된 Case만 생성 완료로 전환한다. */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public boolean completeStrategyGeneration(
+            Long strategyCaseId,
+            String resultCacheKey,
+            LocalDateTime resultExpiresAt
+    ) {
+        return strategyCaseMapper.markGeneratedIfStrategyGenerating(
+                strategyCaseId, resultCacheKey, resultExpiresAt
         ) == 1;
     }
 }

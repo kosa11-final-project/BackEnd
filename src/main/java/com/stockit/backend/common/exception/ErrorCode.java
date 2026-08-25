@@ -24,6 +24,7 @@ public enum ErrorCode {
     AI_STRATEGY_UNSUPPORTED_TYPE(HttpStatus.BAD_REQUEST, "아직 지원하지 않는 AI 전략 유형입니다.", "AI_STRATEGY-004"),
     AI_STRATEGY_DATE_OUT_OF_RANGE(HttpStatus.BAD_REQUEST, "AI 전략 희망 기간이 허용 범위를 벗어났습니다.", "AI_STRATEGY-005"),
     AI_STRATEGY_START_AFTER_END(HttpStatus.BAD_REQUEST, "AI 전략 희망 시작일은 종료일보다 늦을 수 없습니다.", "AI_STRATEGY-006"),
+    AI_STRATEGY_SIMULATION_INVALID(HttpStatus.BAD_REQUEST, "AI 전략 조정 조건이 실행 가능 범위를 벗어났습니다.", "AI_STRATEGY-012"),
 
     // ==============================
     // 401 UNAUTHORIZED
@@ -64,6 +65,14 @@ public enum ErrorCode {
     AI_STRATEGY_LOT_NOT_FOUND(HttpStatus.NOT_FOUND, "AI 전략 대상 LOT를 찾을 수 없거나 사용할 수 없습니다.", "AI_STRATEGY-008"),
     AI_STRATEGY_SALES_POINT_NOT_FOUND(HttpStatus.NOT_FOUND, "AI 전략 대상 판매처를 찾을 수 없습니다.", "AI_STRATEGY-009"),
     AI_STRATEGY_EXECUTION_NOT_FOUND(HttpStatus.NOT_FOUND, "AI 전략 실행 정보를 찾을 수 없습니다.", "AI_STRATEGY-010"),
+    AI_STRATEGY_CASE_NOT_FOUND(HttpStatus.NOT_FOUND, "AI 전략 생성 요청을 찾을 수 없습니다.", "AI_STRATEGY-011"),
+    AI_STRATEGY_CANDIDATE_NOT_FOUND(HttpStatus.NOT_FOUND, "AI 전략 후보를 찾을 수 없습니다.", "AI_STRATEGY-013"),
+
+    // ==============================
+    // 410 GONE
+    // ==============================
+
+    AI_STRATEGY_RESULT_EXPIRED(HttpStatus.GONE, "AI 전략 계산 결과의 보관 기간이 만료되었습니다.", "AI_STRATEGY-014"),
 
     // ==============================
     // 405 METHOD_NOT_ALLOWED

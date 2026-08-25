@@ -33,8 +33,10 @@ class StrategyCaseMapperTest {
         assertThat(strategyCaseMapper.selectActiveSku(102L)).isNull();
         assertThat(strategyCaseMapper.selectActiveSalesPointIds(List.of(10L, 20L, 30L)))
                 .containsExactlyInAnyOrder(10L, 20L);
-        assertThat(strategyCaseMapper.selectAllActiveSalesPointIds())
+        assertThat(strategyCaseMapper.selectActiveSalesPointIdsBySkuInventory(101L))
                 .containsExactly(10L, 20L);
+        assertThat(strategyCaseMapper.selectActiveSalesPointIdsBySkuInventory(102L))
+                .isEmpty();
 
         List<StrategyLotReferenceVO> lots = strategyCaseMapper.selectLotReferences(
                 List.of(1001L, 1002L, 1003L)
