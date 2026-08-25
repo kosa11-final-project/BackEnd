@@ -26,6 +26,8 @@ public enum ErrorCode {
     AI_STRATEGY_START_AFTER_END(HttpStatus.BAD_REQUEST, "AI 전략 희망 시작일은 종료일보다 늦을 수 없습니다.", "AI_STRATEGY-006"),
     AI_STRATEGY_SIMULATION_INVALID(HttpStatus.BAD_REQUEST, "AI 전략 조정 조건이 실행 가능 범위를 벗어났습니다.", "AI_STRATEGY-012"),
     AI_STRATEGY_INVALID_REVIEWERS(HttpStatus.BAD_REQUEST, "AI 전략 검토자 선택이 올바르지 않습니다.", "AI_STRATEGY-015"),
+    AI_STRATEGY_PERIOD_STALE(HttpStatus.BAD_REQUEST, "AI 전략 시작일이 현재 실행 가능한 날짜보다 과거입니다.", "AI_STRATEGY-018"),
+    AI_STRATEGY_SELLABLE_END_EXCEEDED(HttpStatus.BAD_REQUEST, "AI 전략 종료일이 재고의 판매 가능 기간을 초과했습니다.", "AI_STRATEGY-019"),
 
     // ==============================
     // 401 UNAUTHORIZED
@@ -98,6 +100,7 @@ public enum ErrorCode {
     // AI STRATEGY
     AI_STRATEGY_DUPLICATE_INPUT(HttpStatus.CONFLICT, "AI 전략 생성 요청에 중복된 값이 포함되어 있습니다.", "AI_STRATEGY-002"),
     AI_STRATEGY_SELECTION_CONFLICT(HttpStatus.CONFLICT, "이미 확정된 AI 전략과 요청이 충돌합니다.", "AI_STRATEGY-017"),
+    AI_STRATEGY_CASE_NOT_READY(HttpStatus.CONFLICT, "AI 전략 생성 결과가 아직 조정 가능한 상태가 아닙니다.", "AI_STRATEGY-020"),
 
     // TMP - 구조 확인 후 실제 기능과 함께 제거
     TMP_CONFLICT(HttpStatus.CONFLICT, "테스트 요청이 충돌했습니다.", "TMP-001"),

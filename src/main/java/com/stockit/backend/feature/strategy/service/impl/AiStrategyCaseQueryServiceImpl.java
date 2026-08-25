@@ -1,5 +1,6 @@
 package com.stockit.backend.feature.strategy.service.impl;
 
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -13,10 +14,15 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.stockit.backend.common.exception.AppException;
 import com.stockit.backend.common.exception.ErrorCode;
+import com.stockit.backend.feature.strategy.calculation.candidate.policy.StrategyPeriodEligibilityPolicy;
+import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculationContext;
 import com.stockit.backend.feature.strategy.domain.StrategyCaseStatus;
 import com.stockit.backend.feature.strategy.dto.StrategyCaseRequestPayload;
 import com.stockit.backend.feature.strategy.dto.response.AiStrategyCaseResponse;
 import com.stockit.backend.feature.strategy.dto.response.AiStrategyGenerationResultResponse;
+import com.stockit.backend.feature.strategy.dto.response.AiStrategyGenerationResultResponse.OptionPeriodPresentation;
+import com.stockit.backend.feature.strategy.dto.response.AiStrategyChartRangeResponse;
+import com.stockit.backend.feature.strategy.dto.response.AiStrategyPeriodConstraintsResponse;
 import com.stockit.backend.feature.strategy.mapper.AiStrategyCaseDetailMapper;
 import com.stockit.backend.feature.strategy.result.InvalidStrategyResultException;
 import com.stockit.backend.feature.strategy.result.StrategyGenerationResult;
@@ -26,6 +32,7 @@ import com.stockit.backend.feature.strategy.service.AiStrategyCaseQueryService;
 import com.stockit.backend.feature.strategy.service.StrategyCasePayloadException;
 import com.stockit.backend.feature.strategy.service.StrategyCaseRequestPayloadSerializer;
 import com.stockit.backend.feature.strategy.service.StrategyDateTimeProvider;
+import com.stockit.backend.feature.strategy.simulation.StrategySimulationContextStore;
 import com.stockit.backend.feature.strategy.vo.AiStrategyCaseDetailVO;
 import com.stockit.backend.feature.strategy.vo.AiStrategyLotDisplayVO;
 import com.stockit.backend.feature.strategy.vo.AiStrategySalesPointReferenceVO;
@@ -45,17 +52,23 @@ public class AiStrategyCaseQueryServiceImpl implements AiStrategyCaseQueryServic
     private final StrategyResultStore resultStore;
     private final StrategyCaseRequestPayloadSerializer payloadSerializer;
     private final StrategyDateTimeProvider dateTimeProvider;
+    private final StrategySimulationContextStore contextStore;
+    private final StrategyPeriodEligibilityPolicy periodEligibilityPolicy;
 
     public AiStrategyCaseQueryServiceImpl(
             AiStrategyCaseDetailMapper detailMapper,
             StrategyResultStore resultStore,
             StrategyCaseRequestPayloadSerializer payloadSerializer,
-            StrategyDateTimeProvider dateTimeProvider
+            StrategyDateTimeProvider dateTimeProvider,
+            StrategySimulationContextStore contextStore,
+            StrategyPeriodEligibilityPolicy periodEligibilityPolicy
     ) {
         this.detailMapper = detailMapper;
         this.resultStore = resultStore;
         this.payloadSerializer = payloadSerializer;
         this.dateTimeProvider = dateTimeProvider;
+        this.contextStore = contextStore;
+        this.periodEligibilityPolicy = periodEligibilityPolicy;
     }
 
     /**
@@ -79,6 +92,9 @@ public class AiStrategyCaseQueryServiceImpl implements AiStrategyCaseQueryServic
 
         StrategyGenerationResult result = loadResult(strategyCase);
         StrategyCaseRequestPayload payload = deserializePayload(strategyCase);
+        StrategyCalculationContext context = result == null
+                ? null
+                : loadContext(strategyCase.getStrategyCaseId());
         ReferenceIds referenceIds = collectReferenceIds(strategyCase, payload, result);
 
         Map<Long, AiStrategySalesPointReferenceVO> salesPoints = salesPoints(
@@ -89,13 +105,93 @@ public class AiStrategyCaseQueryServiceImpl implements AiStrategyCaseQueryServic
         );
         Map<Long, AiStrategyLotDisplayVO> lots = lots(referenceIds.lotIds());
 
-        AiStrategyGenerationResultResponse resultResponse =
-                AiStrategyGenerationResultResponse.from(
-                        result, salesPoints, warehouses, lots
-                );
+        AiStrategyGenerationResultResponse resultResponse = resultResponse(
+                result,
+                payload,
+                context,
+                salesPoints,
+                warehouses,
+                lots
+        );
         return AiStrategyCaseResponse.from(
                 strategyCase, payload, salesPoints, lots, resultResponse
         );
+    }
+
+    private StrategyCalculationContext loadContext(Long strategyCaseId) {
+        try {
+            return contextStore.find(strategyCaseId).orElseThrow(() ->
+                    new AppException(ErrorCode.AI_STRATEGY_RESULT_EXPIRED));
+        } catch (InvalidStrategyResultException exception) {
+            throw new AppException(ErrorCode.AI_STRATEGY_RESULT_EXPIRED);
+        } catch (StrategyResultStoreException exception) {
+            throw exception;
+        }
+    }
+
+    private AiStrategyGenerationResultResponse resultResponse(
+            StrategyGenerationResult result,
+            StrategyCaseRequestPayload payload,
+            StrategyCalculationContext context,
+            Map<Long, AiStrategySalesPointReferenceVO> salesPoints,
+            Map<Long, AiStrategyWarehouseReferenceVO> warehouses,
+            Map<Long, AiStrategyLotDisplayVO> lots
+    ) {
+        try {
+            return AiStrategyGenerationResultResponse.from(
+                    result,
+                    salesPoints,
+                    warehouses,
+                    lots,
+                    periodPresentations(result, payload, context)
+            );
+        } catch (IllegalArgumentException | IllegalStateException exception) {
+            throw new AppException(ErrorCode.AI_STRATEGY_RESULT_EXPIRED);
+        } catch (AppException exception) {
+            if (exception.getErrorCode() == ErrorCode.AI_STRATEGY_RESULT_EXPIRED) {
+                throw exception;
+            }
+            throw new AppException(ErrorCode.AI_STRATEGY_RESULT_EXPIRED);
+        }
+    }
+
+    private Map<String, OptionPeriodPresentation> periodPresentations(
+            StrategyGenerationResult result,
+            StrategyCaseRequestPayload payload,
+            StrategyCalculationContext context
+    ) {
+        if (result == null) {
+            return Map.of();
+        }
+        return result.options().stream().collect(Collectors.toUnmodifiableMap(
+                option -> option.candidate().candidateId(),
+                option -> {
+                    StrategyGenerationResult.Candidate candidate = option.candidate();
+                    LocalDate endDate = candidate.endDate() == null
+                            ? payload.forecastEndDate()
+                            : candidate.endDate();
+                    List<Long> allocatedIds = candidate.actions().stream()
+                            .flatMap(action -> action.lotAllocations().stream())
+                            .map(StrategyGenerationResult.LotAllocation::inventoryBalanceId)
+                            .distinct()
+                            .toList();
+                    return new OptionPeriodPresentation(
+                            AiStrategyPeriodConstraintsResponse.from(
+                                    periodEligibilityPolicy.constraints(
+                                            context,
+                                            candidate.startDate(),
+                                            endDate,
+                                            allocatedIds,
+                                            dateTimeProvider.now().toLocalDate()
+                                    )
+                            ),
+                            new AiStrategyChartRangeResponse(
+                                    candidate.startDate(),
+                                    endDate
+                            )
+                    );
+                }
+        ));
     }
 
     private StrategyCaseRequestPayload deserializePayload(
@@ -134,7 +230,9 @@ public class AiStrategyCaseQueryServiceImpl implements AiStrategyCaseQueryServic
                 throw new AppException(ErrorCode.AI_STRATEGY_RESULT_EXPIRED);
             }
             return result;
-        } catch (InvalidStrategyResultException | StrategyResultStoreException exception) {
+        } catch (InvalidStrategyResultException exception) {
+            throw new AppException(ErrorCode.AI_STRATEGY_RESULT_EXPIRED);
+        } catch (StrategyResultStoreException exception) {
             throw exception;
         }
     }

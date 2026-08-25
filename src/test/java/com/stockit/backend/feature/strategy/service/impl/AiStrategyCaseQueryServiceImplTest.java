@@ -9,7 +9,11 @@ import static org.mockito.Mockito.when;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.LongStream;
 
@@ -21,7 +25,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import com.stockit.backend.common.exception.AppException;
 import com.stockit.backend.common.exception.ErrorCode;
+import com.stockit.backend.feature.strategy.calculation.candidate.policy.StrategyPeriodEligibilityPolicy;
 import com.stockit.backend.feature.strategy.calculation.domain.BaselineSimulation;
+import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculationContext;
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCandidateSimulation;
 import com.stockit.backend.feature.strategy.domain.StrategyCaseStatus;
 import com.stockit.backend.feature.strategy.domain.StrategyGenerationStage;
@@ -29,10 +35,13 @@ import com.stockit.backend.feature.strategy.domain.StrategyType;
 import com.stockit.backend.feature.strategy.dto.StrategyCaseRequestPayload;
 import com.stockit.backend.feature.strategy.dto.response.AiStrategyCaseResponse;
 import com.stockit.backend.feature.strategy.mapper.AiStrategyCaseDetailMapper;
+import com.stockit.backend.feature.strategy.result.InvalidStrategyResultException;
 import com.stockit.backend.feature.strategy.result.StrategyGenerationResult;
 import com.stockit.backend.feature.strategy.result.StrategyResultStore;
+import com.stockit.backend.feature.strategy.result.StrategyResultStoreException;
 import com.stockit.backend.feature.strategy.service.StrategyCaseRequestPayloadSerializer;
 import com.stockit.backend.feature.strategy.service.StrategyDateTimeProvider;
+import com.stockit.backend.feature.strategy.simulation.StrategySimulationContextStore;
 import com.stockit.backend.feature.strategy.vo.AiStrategyCaseDetailVO;
 import com.stockit.backend.feature.strategy.vo.AiStrategyLotDisplayVO;
 import com.stockit.backend.feature.strategy.vo.AiStrategySalesPointReferenceVO;
@@ -47,6 +56,7 @@ class AiStrategyCaseQueryServiceImplTest {
     @Mock private StrategyResultStore resultStore;
     @Mock private StrategyCaseRequestPayloadSerializer payloadSerializer;
     @Mock private StrategyDateTimeProvider dateTimeProvider;
+    @Mock private StrategySimulationContextStore contextStore;
     @Mock private BaselineSimulation baselineSimulation;
     @Mock private StrategyCandidateSimulation candidateSimulation;
 
@@ -55,7 +65,12 @@ class AiStrategyCaseQueryServiceImplTest {
     @BeforeEach
     void setUp() {
         service = new AiStrategyCaseQueryServiceImpl(
-                detailMapper, resultStore, payloadSerializer, dateTimeProvider
+                detailMapper,
+                resultStore,
+                payloadSerializer,
+                dateTimeProvider,
+                contextStore,
+                new StrategyPeriodEligibilityPolicy()
         );
     }
 
@@ -63,12 +78,14 @@ class AiStrategyCaseQueryServiceImplTest {
     void enrichesHeaderRequestConditionsAndCandidateActionsFromMasterData() {
         AiStrategyCaseDetailVO detail = generatedCase(NOW.plusDays(3));
         StrategyCaseRequestPayload payload = payload();
+        when(candidateSimulation.candidateId()).thenReturn("CAND-1");
         StrategyGenerationResult result = result();
         when(detailMapper.selectCaseDetail(123L)).thenReturn(detail);
         when(payloadSerializer.deserialize(detail.getRequestPayloadJson()))
                 .thenReturn(payload);
         when(dateTimeProvider.now()).thenReturn(NOW);
         when(resultStore.find(123L)).thenReturn(Optional.of(result));
+        when(contextStore.find(123L)).thenReturn(Optional.of(context()));
         when(detailMapper.selectSalesPoints(List.of(10L, 20L)))
                 .thenReturn(List.of(salesPoint(10L, "DEPT_MOKDONG", "목동점"),
                         salesPoint(20L, "DEPT_PANGYO", "판교점")));
@@ -113,6 +130,16 @@ class AiStrategyCaseQueryServiceImplTest {
                         assertThat(allocation.lotCode()).isEqualTo("LOT-260801-A");
                         assertThat(allocation.quantity()).isEqualByComparingTo("10");
                     });
+            assertThat(option.adjustmentConstraints().minimumStartDate())
+                    .isEqualTo(LocalDate.of(2026, 8, 24));
+            assertThat(option.adjustmentConstraints().latestSelectableEndDate())
+                    .isEqualTo(LocalDate.of(2026, 8, 27));
+            assertThat(option.adjustmentConstraints().requiresPeriodAdjustment())
+                    .isTrue();
+            assertThat(option.chartRange().startDate())
+                    .isEqualTo(LocalDate.of(2026, 8, 20));
+            assertThat(option.chartRange().endDate())
+                    .isEqualTo(LocalDate.of(2026, 8, 27));
         });
     }
 
@@ -122,6 +149,55 @@ class AiStrategyCaseQueryServiceImplTest {
         when(detailMapper.selectCaseDetail(123L)).thenReturn(detail);
         when(dateTimeProvider.now()).thenReturn(NOW);
         when(resultStore.find(123L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.find(123L))
+                .isInstanceOfSatisfying(AppException.class, exception ->
+                        assertThat(exception.getErrorCode())
+                                .isEqualTo(ErrorCode.AI_STRATEGY_RESULT_EXPIRED)
+                );
+    }
+
+    @Test
+    void returnsGoneWhenRedisResultFailsIntegrityValidation() {
+        AiStrategyCaseDetailVO detail = generatedCase(NOW.plusDays(3));
+        when(detailMapper.selectCaseDetail(123L)).thenReturn(detail);
+        when(dateTimeProvider.now()).thenReturn(NOW);
+        when(resultStore.find(123L)).thenThrow(
+                new InvalidStrategyResultException("invalid result", null)
+        );
+
+        assertThatThrownBy(() -> service.find(123L))
+                .isInstanceOfSatisfying(AppException.class, exception ->
+                        assertThat(exception.getErrorCode())
+                                .isEqualTo(ErrorCode.AI_STRATEGY_RESULT_EXPIRED)
+                );
+    }
+
+    @Test
+    void keepsRedisAvailabilityFailureAsServerError() {
+        AiStrategyCaseDetailVO detail = generatedCase(NOW.plusDays(3));
+        StrategyResultStoreException failure = new StrategyResultStoreException(
+                "redis unavailable",
+                new RuntimeException("connection refused")
+        );
+        when(detailMapper.selectCaseDetail(123L)).thenReturn(detail);
+        when(dateTimeProvider.now()).thenReturn(NOW);
+        when(resultStore.find(123L)).thenThrow(failure);
+
+        assertThatThrownBy(() -> service.find(123L)).isSameAs(failure);
+    }
+
+    @Test
+    void returnsGoneWhenGeneratedCalculationContextIsMissingFromRedis() {
+        AiStrategyCaseDetailVO detail = generatedCase(NOW.plusDays(3));
+        when(detailMapper.selectCaseDetail(123L)).thenReturn(detail);
+        when(payloadSerializer.deserialize(detail.getRequestPayloadJson()))
+                .thenReturn(payload());
+        when(dateTimeProvider.now()).thenReturn(NOW);
+        when(candidateSimulation.candidateId()).thenReturn("CAND-1");
+        StrategyGenerationResult storedResult = result();
+        when(resultStore.find(123L)).thenReturn(Optional.of(storedResult));
+        when(contextStore.find(123L)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.find(123L))
                 .isInstanceOfSatisfying(AppException.class, exception ->
@@ -223,6 +299,57 @@ class AiStrategyCaseQueryServiceImplTest {
                 LocalDate.of(2026, 8, 27),
                 LocalDate.of(2026, 8, 20),
                 LocalDate.of(2026, 8, 27)
+        );
+    }
+
+    private static StrategyCalculationContext context() {
+        LocalDate start = LocalDate.of(2026, 8, 20);
+        LocalDate end = LocalDate.of(2026, 8, 27);
+        Map<LocalDate, BigDecimal> forecasts = new LinkedHashMap<>();
+        for (LocalDate date = start; !date.isAfter(end); date = date.plusDays(1)) {
+            forecasts.put(date, decimal("2"));
+        }
+        StrategyCalculationContext.Price price =
+                new StrategyCalculationContext.Price(
+                        1L, decimal("120"), decimal("100"), decimal("70"),
+                        decimal("5"), decimal("10")
+                );
+        StrategyCalculationContext.SalesPoint salesPoint =
+                new StrategyCalculationContext.SalesPoint(
+                        10L, "DEPT_MOKDONG", "목동점", BigDecimal.ZERO,
+                        true, price, forecasts, List.of()
+                );
+        StrategyCalculationContext.InventoryLot lot =
+                new StrategyCalculationContext.InventoryLot(
+                        9001L, 501L, 500L, 10L, 10L, decimal("10"),
+                        BigDecimal.ZERO, null, start.minusDays(10),
+                        end, null, "AVAILABLE"
+                );
+        return new StrategyCalculationContext(
+                123L, 10L, NOW.minusMinutes(2), start, end,
+                new StrategyCalculationContext.Sku(
+                        6032L, "GF-SOUP-MSH-06", "버섯 들깨탕 6팩",
+                        "EA", BigDecimal.ONE
+                ),
+                decimal("70"),
+                new StrategyCalculationContext.RequestConstraints(
+                        List.of(20L),
+                        List.of(StrategyType.RT_TRANSFER),
+                        start,
+                        end
+                ),
+                List.of(lot),
+                List.of(lot),
+                List.of(),
+                Map.of(10L, salesPoint),
+                new StrategyCalculationContext.ForecastMetadata(
+                        "forecast-1",
+                        1L,
+                        OffsetDateTime.of(
+                                2026, 8, 20, 8, 0, 0, 0,
+                                ZoneOffset.ofHours(9)
+                        )
+                )
         );
     }
 

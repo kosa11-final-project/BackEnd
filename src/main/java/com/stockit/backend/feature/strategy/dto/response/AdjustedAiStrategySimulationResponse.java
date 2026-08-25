@@ -10,6 +10,8 @@ public record AdjustedAiStrategySimulationResponse(
         Long strategyCaseId,
         String candidateId,
         AdjustedConditions adjustedConditions,
+        AiStrategyPeriodConstraintsResponse adjustmentConstraints,
+        AiStrategyChartRangeResponse chartRange,
         StrategyCandidateSimulation simulation
 ) {
     public record AdjustedConditions(
