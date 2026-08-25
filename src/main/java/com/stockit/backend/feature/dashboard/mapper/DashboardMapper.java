@@ -29,4 +29,6 @@ public interface DashboardMapper {
     List<RiskSalesPointVO> selectRiskSalesPointsTop10(@Param("asOfDate") LocalDate asOfDate);
 
     List<UrgentSkuVO> selectUrgentSkusTop5(@Param("asOfDate") LocalDate asOfDate);
+
+    List<UrgentSkuVO> selectUrgentSkusBySalesPoint(@Param("asOfDate") LocalDate asOfDate);
 }

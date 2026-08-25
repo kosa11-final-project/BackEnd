@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -56,6 +57,8 @@ class DashboardControllerTest {
                 .andExpect(jsonPath("$.data.urgentSkusTop5[0].stockLocationName")
                         .value("성남 스마트푸드센터"))
                 .andExpect(jsonPath("$.data.urgentSkusTop5[0].allocatedSalesPointCode")
+                        .value("GREETING"))
+                .andExpect(jsonPath("$.data.urgentSkusBySalesPoint['1'][0].allocatedSalesPointCode")
                         .value("GREETING"))
                 .andExpect(jsonPath("$.data.urgentSkusTop5[0].riskScore").doesNotExist())
                 .andExpect(jsonPath("$.data.calculatedAt").value("2026-08-15T01:05:00Z"))
@@ -181,6 +184,7 @@ class DashboardControllerTest {
                 List.of(store),
                 List.of(riskPoint),
                 List.of(urgentSku),
+                Map.of(1L, List.of(urgentSku)),
                 Instant.parse("2026-08-15T01:05:00Z")
         );
     }

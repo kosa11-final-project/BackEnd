@@ -40,4 +40,25 @@ class SalesPointResponseTest {
 
         assertThat(withPrice.priceStatus()).isEqualTo("AVAILABLE");
     }
+
+    @Test
+    void carriesThePerSalesPointSafetyStockShortageFlag() {
+        SalesPointResponse point = new SalesPointResponse(
+                77L,
+                "GREETING",
+                "그리팅",
+                "GREETING",
+                BigDecimal.TEN,
+                BigDecimal.ONE,
+                BigDecimal.ZERO,
+                "SAFE",
+                "Y",
+                null,
+                null,
+                "OWNED",
+                "NOT_LOADED"
+        );
+
+        assertThat(point.shortageYn()).isEqualTo("Y");
+    }
 }

@@ -22,6 +22,40 @@ import com.stockit.backend.feature.inventorysync.risk.InventorySyncRiskWriter;
 
 class InventorySyncRiskWriterTest {
     @Test
+    void persistsRiskFromSellableLotsAndRecordsExcludedLotQuantity() {
+        InventorySyncRiskMapper mapper = Mockito.mock(InventorySyncRiskMapper.class);
+        InventorySyncRiskWriter writer = new InventorySyncRiskWriter(new RiskRuleEngine(), mapper);
+        LocalDate baseDate = LocalDate.of(2026, 8, 20);
+        RiskAssessmentInput.LotRiskItem expired = new RiskAssessmentInput.LotRiskItem(
+                "1", "LOT-EXPIRED", baseDate.minusDays(1), null, baseDate.minusDays(30),
+                BigDecimal.valueOf(40), "EXPIRED"
+        );
+        RiskAssessmentInput.LotRiskItem sellable = new RiskAssessmentInput.LotRiskItem(
+                "2", "LOT-SELLABLE", baseDate.plusDays(365), null, baseDate.minusDays(3),
+                BigDecimal.valueOf(60), "AVAILABLE"
+        );
+        RiskAssessmentInput input = new RiskAssessmentInput(
+                "SKU-1", "GREETING", BigDecimal.valueOf(100), BigDecimal.TEN,
+                BigDecimal.valueOf(40), BigDecimal.valueOf(30), baseDate,
+                List.of(expired, sellable), true, false, baseDate
+        );
+
+        var records = writer.evaluateAndPersist(10L, 7L, Set.of("1:GREETING"), scopes -> List.of(
+                new InventorySyncRiskWriter.RiskScopeSnapshot(100L, 200L, input)
+        ));
+
+        var record = records.get(0);
+        assertEquals("GOOD", record.riskGrade());
+        assertEquals("N", record.shortageYn());
+        assertEquals(0, record.stockDays().compareTo(new BigDecimal("45.00")));
+        org.junit.jupiter.api.Assertions.assertTrue(record.reasonMessage()
+                .contains("판매가능재고=on_hand_qty(100)-판매제외LOT(40)=60"));
+        org.junit.jupiter.api.Assertions.assertTrue(record.reasonMessage()
+                .contains("판매 제외 LOT=40"));
+        verify(mapper).mergeRiskAssessments(anyList());
+    }
+
+    @Test
     void ruleGradeAndDeterministicFormulaArePersistedFromSetBasedSnapshot() {
         InventorySyncRiskMapper mapper = Mockito.mock(InventorySyncRiskMapper.class);
         InventorySyncRiskWriter writer = new InventorySyncRiskWriter(new RiskRuleEngine(), mapper);
@@ -82,7 +116,7 @@ class InventorySyncRiskWriterTest {
     }
 
     @Test
-    void persistsACompletedServerRuleAssessmentWithoutForecast() {
+    void persistsACompletedServerRuleAssessmentWithoutForecastWhenSafetyPolicyExists() {
         InventorySyncRiskMapper mapper = Mockito.mock(InventorySyncRiskMapper.class);
         InventorySyncRiskWriter writer = new InventorySyncRiskWriter(new RiskRuleEngine(), mapper);
         RiskAssessmentInput input = new RiskAssessmentInput(
@@ -94,7 +128,7 @@ class InventorySyncRiskWriterTest {
                 new InventorySyncRiskWriter.RiskScopeSnapshot(100L, null, input)
         ));
 
-        assertEquals("NORMAL", records.get(0).riskGrade());
+        assertEquals("GOOD", records.get(0).riskGrade());
         assertEquals("N", records.get(0).shortageYn());
         org.junit.jupiter.api.Assertions.assertNull(records.get(0).stockDays());
         org.junit.jupiter.api.Assertions.assertTrue(records.get(0).reasonMessage().contains("수요예측이 없어"));
@@ -116,6 +150,22 @@ class InventorySyncRiskWriterTest {
 
         assertEquals("N", records.get(0).shortageYn());
         assertEquals("NORMAL", records.get(0).riskGrade());
+    }
+
+    @Test
+    void doesNotMarkShortageWhenThereIsNoCurrentSafetyStockPolicy() {
+        InventorySyncRiskMapper mapper = Mockito.mock(InventorySyncRiskMapper.class);
+        InventorySyncRiskWriter writer = new InventorySyncRiskWriter(new RiskRuleEngine(), mapper);
+        RiskAssessmentInput input = new RiskAssessmentInput(
+                "SKU-1", "UNASSIGNED", BigDecimal.ZERO, null, null, null,
+                LocalDate.of(2026, 8, 20), List.of(), false, false
+        );
+
+        var records = writer.evaluateAndPersist(10L, 7L, Set.of("1:UNASSIGNED"), scopes -> List.of(
+                new InventorySyncRiskWriter.RiskScopeSnapshot(100L, null, input)
+        ));
+
+        assertEquals("N", records.get(0).shortageYn());
     }
 
     @Test

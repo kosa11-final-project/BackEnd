@@ -2,6 +2,7 @@ package com.stockit.backend.feature.dashboard.dto.response;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 
@@ -19,6 +20,8 @@ public record DashboardResponse(
         List<RiskSalesPointResponse> riskSalesPointsTop10,
         @Schema(description = "긴급 처리 대상 SKU와 실제 재고 위치 TOP 5")
         List<UrgentSkuResponse> urgentSkusTop5,
+        @Schema(description = "판매처별 긴급 처리 대상 SKU TOP 5")
+        Map<Long, List<UrgentSkuResponse>> urgentSkusBySalesPoint,
         @Schema(description = "대시보드 스냅샷 집계 기준 시각", example = "2026-08-15T01:05:00Z")
         Instant calculatedAt
 ) {

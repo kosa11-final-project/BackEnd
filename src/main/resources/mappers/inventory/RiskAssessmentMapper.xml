@@ -37,7 +37,7 @@
               AND (ip.effective_from IS NULL OR ip.effective_from &lt;= #{asOfDate})
               AND (ip.effective_to IS NULL OR ip.effective_to &gt;= #{asOfDate})
             ORDER BY CASE WHEN sp.sales_point_code = #{salesPointCode} THEN 0 ELSE 1 END,
-                     ip.effective_from DESC,
+                     ip.effective_from DESC NULLS LAST,
                      ip.inventory_policy_id DESC
         )
         WHERE ROWNUM = 1
@@ -89,14 +89,7 @@
                   OR (#{salesPointCode} = 'UNASSIGNED'
                       AND ib.allocated_sales_point_id IS NULL)
               )
-            ORDER BY CASE ra.risk_grade
-                         WHEN 'CRITICAL' THEN 1
-                         WHEN 'WARNING' THEN 2
-                         WHEN 'NORMAL' THEN 3
-                         WHEN 'GOOD' THEN 4
-                         ELSE 5
-                     END,
-                     ra.updated_at DESC,
+            ORDER BY ra.updated_at DESC,
                      ra.risk_assessment_id DESC
         )
         WHERE ROWNUM = 1

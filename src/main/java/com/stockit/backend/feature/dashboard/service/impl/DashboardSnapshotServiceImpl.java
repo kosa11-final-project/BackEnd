@@ -17,7 +17,7 @@ import com.stockit.backend.feature.dashboard.service.DashboardSnapshotService;
 @Service
 public class DashboardSnapshotServiceImpl implements DashboardSnapshotService {
 
-    private static final int PAYLOAD_VERSION = 2;
+    private static final int PAYLOAD_VERSION = 3;
 
     private final DashboardService dashboardService;
     private final DashboardSnapshotMapper snapshotMapper;

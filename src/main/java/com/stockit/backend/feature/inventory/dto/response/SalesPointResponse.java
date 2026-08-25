@@ -30,6 +30,9 @@ public record SalesPointResponse(
         @Schema(description = "위험등급", example = "SAFE")
         String riskGrade,
 
+        @Schema(description = "안전재고 미달 여부 (Y, N)", example = "Y")
+        String shortageYn,
+
         @Schema(description = "판매처 행에서는 노출하지 않음(null). 미할당 재고의 보관 위치는 unassignedInventory.locations에서 제공합니다.", example = "")
         String warehouseName,
 
@@ -53,7 +56,7 @@ public record SalesPointResponse(
             String warehouseName
     ) {
         this(null, salesPointCode, salesPointName, channelType, currentQuantity, availableQuantity, reservedQuantity,
-                riskGrade, warehouseName, null, "OWNED", "NOT_LOADED");
+                riskGrade, null, warehouseName, null, "OWNED", "NOT_LOADED");
     }
 
     public SalesPointResponse(
@@ -68,7 +71,7 @@ public record SalesPointResponse(
             BigDecimal sellingPrice
     ) {
         this(null, salesPointCode, salesPointName, channelType, currentQuantity, availableQuantity, reservedQuantity,
-                riskGrade, warehouseName, sellingPrice, "OWNED", sellingPrice == null ? "NOT_LOADED" : "AVAILABLE");
+                riskGrade, null, warehouseName, sellingPrice, "OWNED", sellingPrice == null ? "NOT_LOADED" : "AVAILABLE");
     }
 
     public SalesPointResponse(
@@ -83,7 +86,7 @@ public record SalesPointResponse(
             String warehouseName
     ) {
         this(salesPointId, salesPointCode, salesPointName, channelType, currentQuantity, availableQuantity, reservedQuantity,
-                riskGrade, warehouseName, null, "OWNED", "NOT_LOADED");
+                riskGrade, null, warehouseName, null, "OWNED", "NOT_LOADED");
     }
 
     public SalesPointResponse(
@@ -99,6 +102,6 @@ public record SalesPointResponse(
             BigDecimal sellingPrice
     ) {
         this(salesPointId, salesPointCode, salesPointName, channelType, currentQuantity, availableQuantity, reservedQuantity,
-                riskGrade, warehouseName, sellingPrice, "OWNED", sellingPrice == null ? "NOT_LOADED" : "AVAILABLE");
+                riskGrade, null, warehouseName, sellingPrice, "OWNED", sellingPrice == null ? "NOT_LOADED" : "AVAILABLE");
     }
 }
