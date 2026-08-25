@@ -112,7 +112,7 @@ class GeminiRecommendationLiveSmokeTest {
 
     private static AiRecommendationRequest request() {
         return new AiRecommendationRequest(
-                "ai-strategy-recommendation-v1",
+                "ai-strategy-recommendation-v2",
                 999999L,
                 3,
                 3,
@@ -184,7 +184,11 @@ class GeminiRecommendationLiveSmokeTest {
                 ),
                 List.of("DISCOUNT_DEMAND_UPLIFT_NOT_APPLIED"),
                 new AiRecommendationRequest.PreferenceInput(
-                        strategyPriority, targetPriority, 50
+                        strategyPriority,
+                        AiRecommendationRequest.PrioritySource.USER,
+                        targetPriority,
+                        AiRecommendationRequest.PrioritySource.USER,
+                        50
                 ),
                 decimal("50")
         );

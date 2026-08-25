@@ -181,7 +181,10 @@ class GeminiRecommendationProviderTest {
                 new AiRecommendationRequest.ComparisonInput(
                         BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ONE,
                         BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ONE
-                ), List.of(), new AiRecommendationRequest.PreferenceInput(1, 1, 100),
+                ), List.of(), new AiRecommendationRequest.PreferenceInput(
+                        1, AiRecommendationRequest.PrioritySource.USER,
+                        1, AiRecommendationRequest.PrioritySource.USER, 100
+                ),
                 BigDecimal.TEN
         );
         return new AiRecommendationRequest(

@@ -94,9 +94,30 @@ public record AiRecommendationRequest(
     }
 
     public record PreferenceInput(
-            int strategyPriority,
-            int targetPriority,
+            Integer strategyPriority,
+            PrioritySource strategyPrioritySource,
+            Integer targetPriority,
+            PrioritySource targetPrioritySource,
             int quantityPercentage
     ) {
+        public PreferenceInput {
+            if (strategyPrioritySource == null || targetPrioritySource == null
+                    || (strategyPrioritySource == PrioritySource.USER
+                    && (strategyPriority == null || strategyPriority <= 0))
+                    || (strategyPrioritySource == PrioritySource.AI_DEFAULT
+                    && strategyPriority != null)
+                    || (targetPrioritySource == PrioritySource.USER
+                    && (targetPriority == null || targetPriority <= 0))
+                    || (targetPrioritySource == PrioritySource.AI_DEFAULT
+                    && targetPriority != null)
+                    || quantityPercentage <= 0 || quantityPercentage > 100) {
+                throw new IllegalArgumentException("candidate preference input is invalid");
+            }
+        }
+    }
+
+    public enum PrioritySource {
+        USER,
+        AI_DEFAULT
     }
 }
