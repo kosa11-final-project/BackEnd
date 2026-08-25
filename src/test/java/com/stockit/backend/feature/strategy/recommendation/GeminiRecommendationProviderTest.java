@@ -62,7 +62,7 @@ class GeminiRecommendationProviderTest {
         assertThat(body.path("model").asText()).isEqualTo("gemini-3.7-flash");
         assertThat(body.path("store").asBoolean()).isFalse();
         assertThat(body.path("input").asText())
-                .contains("\"schemaVersion\":\"ai-strategy-recommendation-v3\"")
+                .contains("\"schemaVersion\":\"ai-strategy-recommendation-v4\"")
                 .contains("\"strategyFamilyId\":\"PRICE_DISCOUNT|")
                 .contains("\"strategyPrioritySource\":\"USER\"")
                 .contains("\"targetPrioritySource\":\"USER\"");
@@ -194,7 +194,7 @@ class GeminiRecommendationProviderTest {
                 BigDecimal.TEN
         );
         return new AiRecommendationRequest(
-                "ai-strategy-recommendation-v3", 1L, 1, 1,
+                "ai-strategy-recommendation-v4", 1L, 1, 1,
                 new AiRecommendationRequest.BaselineInput(
                         BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
                         BigDecimal.ZERO, null, BigDecimal.TEN, BigDecimal.ZERO

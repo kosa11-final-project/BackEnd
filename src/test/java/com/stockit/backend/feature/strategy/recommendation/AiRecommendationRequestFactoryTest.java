@@ -33,7 +33,7 @@ class AiRecommendationRequestFactoryTest {
 
         AiRecommendationRequest.PreferenceInput preference =
                 request.candidates().get(0).preference();
-        assertThat(request.schemaVersion()).isEqualTo("ai-strategy-recommendation-v3");
+        assertThat(request.schemaVersion()).isEqualTo("ai-strategy-recommendation-v4");
         assertThat(request.minimumRecommendationCount()).isEqualTo(1);
         assertThat(request.maximumRecommendationCount()).isEqualTo(1);
         assertThat(preference.strategyPriority()).isNull();

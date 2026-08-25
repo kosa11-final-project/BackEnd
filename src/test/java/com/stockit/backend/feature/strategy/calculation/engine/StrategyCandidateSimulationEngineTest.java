@@ -134,6 +134,118 @@ class StrategyCandidateSimulationEngineTest {
     }
 
     @Test
+    void includesAvoidedDisposalAndHoldingCostInTransferNetEffect() {
+        StrategyCalculationContext context = withInventoryPolicies(
+                context(
+                        lot("10", START),
+                        forecasts("0", "0", "0"),
+                        forecasts("10", "10", "10"),
+                        price(10L, "100", "70"),
+                        price(20L, "110", "70"),
+                        true
+                ),
+                List.of(new StrategyCalculationContext.InventoryPolicy(
+                        1L, 501L, 10L, 10L, BigDecimal.ZERO, null,
+                        new BigDecimal("2"), new BigDecimal("30")
+                ))
+        );
+        StrategyCandidate.Action action = new StrategyCandidate.Action(
+                StrategyType.RT_TRANSFER,
+                new StrategyCandidate.Location(501L, 10L),
+                new StrategyCandidate.Location(502L, 20L),
+                decimal("10"),
+                decimal("100"),
+                List.of(allocation("10"))
+        );
+        StrategyCandidate candidate = new StrategyCandidate(
+                "CAND-RT-ECONOMIC",
+                List.of(StrategyType.RT_TRANSFER),
+                START,
+                null,
+                List.of(action),
+                List.of(),
+                preference(),
+                new StrategyCandidate.MovementEvidence(
+                        decimal("10"), decimal("10"), decimal("30"), decimal("10")
+                )
+        );
+        BaselineSimulation baseline = baselineEngine.simulate(context);
+
+        StrategyCandidateSimulation result = engine.simulate(
+                context,
+                candidate,
+                baseline,
+                SimulationDetailLevel.SUMMARY_ONLY
+        );
+
+        assertThat(baseline.summary().expectedDisposalCost())
+                .isEqualByComparingTo("300");
+        assertThat(baseline.summary().expectedHoldingCost())
+                .isEqualByComparingTo("20");
+        assertThat(result.comparisonToBaseline().avoidedDisposalCost())
+                .isEqualByComparingTo("300");
+        assertThat(result.comparisonToBaseline().avoidedHoldingCost())
+                .isEqualByComparingTo("20");
+        assertThat(result.comparisonToBaseline().contributionMarginDelta())
+                .isEqualByComparingTo("450");
+        assertThat(result.summary().estimatedActionCost())
+                .isEqualByComparingTo("100");
+        assertThat(result.summary().netEffect()).isEqualByComparingTo("670");
+    }
+
+    @Test
+    void directSalesPointTransferClearsSourceWarehouseForHoldingCostPolicy() {
+        StrategyCalculationContext context = withInventoryPolicies(
+                context(
+                        lot("10", null),
+                        forecasts("0", "0", "0"),
+                        forecasts("0", "0", "0"),
+                        price(10L, "100", "70"),
+                        price(20L, "110", "70"),
+                        true
+                ),
+                List.of(
+                        new StrategyCalculationContext.InventoryPolicy(
+                                1L, 501L, 10L, 10L, BigDecimal.ZERO, null,
+                                decimal("10"), BigDecimal.ZERO
+                        ),
+                        new StrategyCalculationContext.InventoryPolicy(
+                                2L, null, 20L, 20L, BigDecimal.ZERO, null,
+                                decimal("1"), BigDecimal.ZERO
+                        )
+                )
+        );
+        StrategyCandidate.Action action = new StrategyCandidate.Action(
+                StrategyType.RT_TRANSFER,
+                new StrategyCandidate.Location(501L, 10L),
+                new StrategyCandidate.Location(null, 20L),
+                decimal("10"),
+                BigDecimal.ZERO,
+                List.of(allocation("10"))
+        );
+        StrategyCandidate candidate = new StrategyCandidate(
+                "CAND-RT-DIRECT",
+                List.of(StrategyType.RT_TRANSFER), START, null,
+                List.of(action), List.of(), preference(),
+                new StrategyCandidate.MovementEvidence(
+                        decimal("10"), decimal("10"), BigDecimal.ZERO, BigDecimal.ZERO
+                )
+        );
+
+        BaselineSimulation baseline = baselineEngine.simulate(context);
+        StrategyCandidateSimulation result = engine.simulate(
+                context, candidate, baseline, SimulationDetailLevel.SUMMARY_ONLY
+        );
+
+        assertThat(baseline.summary().expectedHoldingCost())
+                .isEqualByComparingTo("300");
+        assertThat(result.summary().expectedHoldingCost())
+                .isEqualByComparingTo("30");
+        assertThat(result.comparisonToBaseline().avoidedHoldingCost())
+                .isEqualByComparingTo("270");
+    }
+
+    @Test
     void fillsTargetDemandOutsideRequestedStrategyPeriodWithZero() {
         StrategyCalculationContext original = context(
                 lot("10", null),
@@ -653,6 +765,29 @@ class StrategyCandidateSimulationEngineTest {
                 original.inventoryPolicies(),
                 original.salesPoints(),
                 original.forecastMetadata()
+        );
+    }
+
+    private static StrategyCalculationContext withInventoryPolicies(
+            StrategyCalculationContext original,
+            List<StrategyCalculationContext.InventoryPolicy> policies
+    ) {
+        return new StrategyCalculationContext(
+                original.strategyCaseId(),
+                original.sourceSalesPointId(),
+                original.calculatedAt(),
+                original.forecastStartDate(),
+                original.forecastEndDate(),
+                original.sku(),
+                original.unitCost(),
+                original.requestConstraints(),
+                original.evaluationInventory(),
+                original.referenceInventory(),
+                policies,
+                original.salesPoints(),
+                original.forecastMetadata(),
+                original.transferRoutes(),
+                original.transferCostPolicies()
         );
     }
 
