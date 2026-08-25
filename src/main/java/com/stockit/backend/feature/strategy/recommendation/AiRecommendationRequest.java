@@ -40,6 +40,7 @@ public record AiRecommendationRequest(
 
     public record CandidateInput(
             String candidateId,
+            String strategyFamilyId,
             List<StrategyType> strategyTypes,
             LocalDate startDate,
             LocalDate endDate,
@@ -51,6 +52,10 @@ public record AiRecommendationRequest(
             BigDecimal maxExecutableQty
     ) {
         public CandidateInput {
+            if (candidateId == null || candidateId.isBlank()
+                    || strategyFamilyId == null || strategyFamilyId.isBlank()) {
+                throw new IllegalArgumentException("AI recommendation candidate is invalid");
+            }
             strategyTypes = List.copyOf(strategyTypes);
             actions = List.copyOf(actions);
             assumptions = List.copyOf(assumptions);

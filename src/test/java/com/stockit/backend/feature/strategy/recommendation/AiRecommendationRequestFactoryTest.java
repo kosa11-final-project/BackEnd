@@ -33,7 +33,7 @@ class AiRecommendationRequestFactoryTest {
 
         AiRecommendationRequest.PreferenceInput preference =
                 request.candidates().get(0).preference();
-        assertThat(request.schemaVersion()).isEqualTo("ai-strategy-recommendation-v2");
+        assertThat(request.schemaVersion()).isEqualTo("ai-strategy-recommendation-v3");
         assertThat(request.minimumRecommendationCount()).isEqualTo(1);
         assertThat(request.maximumRecommendationCount()).isEqualTo(1);
         assertThat(preference.strategyPriority()).isNull();
@@ -42,6 +42,7 @@ class AiRecommendationRequestFactoryTest {
         assertThat(preference.targetPriority()).isNull();
         assertThat(preference.targetPrioritySource())
                 .isEqualTo(AiRecommendationRequest.PrioritySource.AI_DEFAULT);
+        assertThat(request.candidates().get(0).strategyFamilyId()).isNotBlank();
     }
 
     @Test
@@ -68,9 +69,51 @@ class AiRecommendationRequestFactoryTest {
                 .isEqualTo(AiRecommendationRequest.PrioritySource.USER);
     }
 
+    @Test
+    void asksAiForThreeToFourRecommendationsBasedOnDistinctFamilies() {
+        StrategyCandidate first = candidate("A", 20L, 100);
+        StrategyCandidate firstVariant = candidate("A-VARIANT", 20L, 80);
+        StrategyCandidate second = candidate("B", 30L, 100);
+        StrategyCandidate third = candidate("C", 40L, 100);
+        StrategyCandidate fourth = candidate("D", 50L, 100);
+
+        AiRecommendationRequest request = factory.create(
+                1L,
+                baseline(),
+                selection(first, firstVariant, second, third, fourth),
+                new StrategyCalculationContext.RequestConstraints(
+                        List.of(), List.of(), null, null
+                )
+        );
+
+        assertThat(request.candidates()).hasSize(5);
+        assertThat(request.candidates())
+                .extracting(AiRecommendationRequest.CandidateInput::strategyFamilyId)
+                .hasSize(5);
+        assertThat(request.candidates().stream()
+                .map(AiRecommendationRequest.CandidateInput::strategyFamilyId)
+                .distinct()).hasSize(4);
+        assertThat(request.minimumRecommendationCount()).isEqualTo(3);
+        assertThat(request.maximumRecommendationCount()).isEqualTo(4);
+    }
+
     private static RecommendationCandidateSelection selection() {
-        StrategyCandidate candidate = candidate();
-        StrategyCandidateSimulation simulation = new StrategyCandidateSimulation(
+        return selection(candidate());
+    }
+
+    private static RecommendationCandidateSelection selection(
+            StrategyCandidate... candidates
+    ) {
+        return new RecommendationCandidateSelection(java.util.Arrays.stream(candidates)
+                .map(candidate -> new StrategyCandidateEvaluationResult.EvaluatedCandidate(
+                        candidate,
+                        simulation(candidate)
+                ))
+                .toList());
+    }
+
+    private static StrategyCandidateSimulation simulation(StrategyCandidate candidate) {
+        return new StrategyCandidateSimulation(
                 candidate.candidateId(),
                 new StrategyCandidateSimulation.Summary(
                         BigDecimal.TEN, new BigDecimal("1000"),
@@ -86,17 +129,22 @@ class AiRecommendationRequestFactoryTest {
                 List.of(),
                 List.of()
         );
-        return new RecommendationCandidateSelection(List.of(
-                new StrategyCandidateEvaluationResult.EvaluatedCandidate(
-                        candidate, simulation
-                )
-        ));
     }
 
     private static StrategyCandidate candidate() {
+        return candidate("CAND-1", 20L, 100);
+    }
+
+    private static StrategyCandidate candidate(
+            String candidateId,
+            Long targetSalesPointId,
+            int quantityPercentage
+    ) {
         BigDecimal quantity = BigDecimal.TEN;
         StrategyCandidate.Location source = new StrategyCandidate.Location(1L, 10L);
-        StrategyCandidate.Location target = new StrategyCandidate.Location(1L, 20L);
+        StrategyCandidate.Location target = new StrategyCandidate.Location(
+                1L, targetSalesPointId
+        );
         StrategyCandidate.Action action = new StrategyCandidate.Action(
                 StrategyType.REALLOCATION,
                 source,
@@ -104,17 +152,17 @@ class AiRecommendationRequestFactoryTest {
                 quantity,
                 BigDecimal.ZERO,
                 List.of(new StrategyCandidate.LotAllocation(
-                        1L, 1L, quantity, 1
+                        targetSalesPointId, targetSalesPointId, quantity, 1
                 ))
         );
         return new StrategyCandidate(
-                "CAND-1",
+                candidateId,
                 List.of(StrategyType.REALLOCATION),
                 LocalDate.of(2026, 8, 25),
                 null,
                 List.of(action),
                 List.of(),
-                new StrategyCandidate.Preference(1, 1, 100),
+                new StrategyCandidate.Preference(1, 1, quantityPercentage),
                 new StrategyCandidate.MovementEvidence(
                         quantity, quantity, quantity, quantity
                 )

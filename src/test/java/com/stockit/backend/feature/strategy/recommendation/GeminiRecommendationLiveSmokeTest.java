@@ -114,7 +114,7 @@ class GeminiRecommendationLiveSmokeTest {
 
     private static AiRecommendationRequest request() {
         return new AiRecommendationRequest(
-                "ai-strategy-recommendation-v2",
+                "ai-strategy-recommendation-v3",
                 999999L,
                 3,
                 3,
@@ -163,6 +163,9 @@ class GeminiRecommendationLiveSmokeTest {
         BigDecimal strategyPrice = discountRate == null ? null : decimal("9000");
         return new AiRecommendationRequest.CandidateInput(
                 id,
+                type.name() + "|" + type.name()
+                        + ":W1:S" + sourceSalesPointId
+                        + ">W1:S" + targetSalesPointId,
                 List.of(type),
                 LocalDate.of(2026, 8, 24),
                 LocalDate.of(2026, 9, 6),

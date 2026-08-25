@@ -20,15 +20,13 @@ import com.stockit.backend.feature.strategy.calculation.domain.StrategyCandidate
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCandidateSimulation;
 import com.stockit.backend.feature.strategy.domain.StrategyType;
 
-/**
- * 사용자 우선순위와 전략·판매처 다양성을 보존하면서 LLM 입력 후보를 최종 노출 개수로 축약한다.
- * 수량·할인율·기간만 다른 동일 실행 구조는 한 전략군으로 묶고 대표 후보 하나만 유지한다.
- */
+/** 사용자 우선순위와 전략군 다양성을 보존하면서 LLM이 비교할 계산 후보를 축약한다. */
 @Component
 public class DeterministicRecommendationCandidatePreselector
         implements RecommendationCandidatePreselector {
 
-    static final int MAX_CANDIDATES = 4;
+    static final int MAX_CANDIDATES = 20;
+    static final int MAX_CANDIDATES_PER_FAMILY = 3;
 
     private static final Comparator<StrategyCandidateEvaluationResult.EvaluatedCandidate>
             METRIC_ORDER = Comparator
@@ -48,31 +46,6 @@ public class DeterministicRecommendationCandidatePreselector
             .thenComparing(value -> value.simulation().summary().estimatedActionCost(),
                     DeterministicRecommendationCandidatePreselector::compareNullableDecimal)
             .thenComparing(value -> value.candidate().candidateId());
-
-    private static final Comparator<Long> NULLABLE_LONG_ORDER =
-            Comparator.nullsFirst(Comparator.naturalOrder());
-
-    private static final Comparator<ActionSignature> ACTION_SIGNATURE_ORDER =
-            Comparator.comparing(
-                            ActionSignature::type,
-                            Comparator.comparing(StrategyType::name)
-                    )
-                    .thenComparing(
-                            ActionSignature::sourceWarehouseId,
-                            NULLABLE_LONG_ORDER
-                    )
-                    .thenComparing(
-                            ActionSignature::sourceSalesPointId,
-                            NULLABLE_LONG_ORDER
-                    )
-                    .thenComparing(
-                            ActionSignature::targetWarehouseId,
-                            NULLABLE_LONG_ORDER
-                    )
-                    .thenComparing(
-                            ActionSignature::targetSalesPointId,
-                            NULLABLE_LONG_ORDER
-                    );
 
     @Override
     public RecommendationCandidateSelection select(
@@ -94,10 +67,11 @@ public class DeterministicRecommendationCandidatePreselector
                 removeRedundantEquivalentCandidates(unique, candidateOrder);
         List<StrategyCandidateEvaluationResult.EvaluatedCandidate> pareto =
                 removeDominatedCandidates(nonRedundant, candidateOrder);
-        List<StrategyCandidateEvaluationResult.EvaluatedCandidate> representatives =
-                selectFamilyRepresentatives(pareto, candidateOrder);
         List<StrategyCandidateEvaluationResult.EvaluatedCandidate> selected =
-                takeDiverseCandidates(representatives, MAX_CANDIDATES, candidateOrder);
+                takeDiverseFamilyVariants(
+                        pareto, MAX_CANDIDATES, MAX_CANDIDATES_PER_FAMILY,
+                        candidateOrder
+                );
         return new RecommendationCandidateSelection(selected);
     }
 
@@ -286,23 +260,58 @@ public class DeterministicRecommendationCandidatePreselector
     }
 
     /**
-     * 시뮬레이션 화면에서 다시 조정할 수 있는 수량·할인율·기간 차이는 전략 대안으로
-     * 중복 노출하지 않는다. 전략 타입과 출발·도착 실행 경로가 같은 후보 중 정량 결과가
-     * 가장 나은 대표 후보 하나만 LLM에 전달한다.
+     * 같은 실행 구조에서도 AI가 수량·할인율·기간의 세부 값을 비교할 수 있게 상위 변형을
+     * 유지한다. 먼저 서로 다른 전략군을 한 번씩 배치한 뒤 두 번째·세 번째 변형을 순환
+     * 추가하여 한 전략군이 LLM 입력을 독점하지 못하게 한다.
      */
     private static List<StrategyCandidateEvaluationResult.EvaluatedCandidate>
-            selectFamilyRepresentatives(
+            takeDiverseFamilyVariants(
             List<StrategyCandidateEvaluationResult.EvaluatedCandidate> candidates,
+            int limit,
+            int perFamilyLimit,
             Comparator<StrategyCandidateEvaluationResult.EvaluatedCandidate> candidateOrder
     ) {
         Map<RecommendationFamilyKey,
-                StrategyCandidateEvaluationResult.EvaluatedCandidate> representatives =
+                List<StrategyCandidateEvaluationResult.EvaluatedCandidate>> byFamily =
                 new LinkedHashMap<>();
-        candidates.stream().sorted(candidateOrder).forEach(candidate ->
-                representatives.putIfAbsent(
-                        familyKey(candidate.candidate()), candidate
-                ));
-        return List.copyOf(representatives.values());
+        candidates.stream().sorted(candidateOrder).forEach(candidate -> {
+            List<StrategyCandidateEvaluationResult.EvaluatedCandidate> familyCandidates =
+                    byFamily.computeIfAbsent(
+                            RecommendationFamilyKey.from(candidate.candidate()),
+                            ignored -> new ArrayList<>()
+                    );
+            if (familyCandidates.size() < perFamilyLimit) {
+                familyCandidates.add(candidate);
+            }
+        });
+
+        List<StrategyCandidateEvaluationResult.EvaluatedCandidate> representatives =
+                byFamily.values().stream().map(values -> values.get(0)).toList();
+        List<StrategyCandidateEvaluationResult.EvaluatedCandidate> familyOrder =
+                takeDiverseCandidates(
+                        representatives, representatives.size(), candidateOrder
+                );
+
+        List<StrategyCandidateEvaluationResult.EvaluatedCandidate> selected =
+                new ArrayList<>();
+        for (int variantIndex = 0;
+                variantIndex < perFamilyLimit && selected.size() < limit;
+                variantIndex++) {
+            for (StrategyCandidateEvaluationResult.EvaluatedCandidate representative
+                    : familyOrder) {
+                List<StrategyCandidateEvaluationResult.EvaluatedCandidate> variants =
+                        byFamily.get(RecommendationFamilyKey.from(
+                                representative.candidate()
+                        ));
+                if (variantIndex < variants.size()) {
+                    selected.add(variants.get(variantIndex));
+                }
+                if (selected.size() >= limit) {
+                    break;
+                }
+            }
+        }
+        return List.copyOf(selected);
     }
 
     private static boolean dominates(
@@ -436,24 +445,6 @@ public class DeterministicRecommendationCandidatePreselector
                 .orElse("NONE");
     }
 
-    private static RecommendationFamilyKey familyKey(StrategyCandidate candidate) {
-        return new RecommendationFamilyKey(
-                candidate.strategyTypes().stream()
-                        .sorted(Comparator.comparing(StrategyType::name))
-                        .toList(),
-                candidate.actions().stream()
-                        .map(action -> new ActionSignature(
-                                action.actionType(),
-                                action.source().warehouseId(),
-                                action.source().salesPointId(),
-                                action.target().warehouseId(),
-                                action.target().salesPointId()
-                        ))
-                        .sorted(ACTION_SIGNATURE_ORDER)
-                        .toList()
-        );
-    }
-
     private static int compareNullableDecimal(BigDecimal left, BigDecimal right) {
         return Comparator.nullsLast(BigDecimal::compareTo).compare(left, right);
     }
@@ -498,16 +489,6 @@ public class DeterministicRecommendationCandidatePreselector
             List<ActionSignature> actions
     ) {
         private CandidateSignature {
-            types = List.copyOf(types);
-            actions = List.copyOf(actions);
-        }
-    }
-
-    private record RecommendationFamilyKey(
-            List<StrategyType> types,
-            List<ActionSignature> actions
-    ) {
-        private RecommendationFamilyKey {
             types = List.copyOf(types);
             actions = List.copyOf(actions);
         }

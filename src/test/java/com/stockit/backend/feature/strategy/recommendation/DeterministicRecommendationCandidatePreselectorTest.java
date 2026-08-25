@@ -3,6 +3,7 @@ package com.stockit.backend.feature.strategy.recommendation;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -16,6 +17,7 @@ import com.stockit.backend.feature.strategy.calculation.candidate.domain.Strateg
 import com.stockit.backend.feature.strategy.calculation.domain.BaselineSimulation;
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCandidateEvaluationResult;
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCandidateSimulation;
+import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculationContext;
 import com.stockit.backend.feature.strategy.domain.StrategyType;
 
 class DeterministicRecommendationCandidatePreselectorTest {
@@ -71,14 +73,14 @@ class DeterministicRecommendationCandidatePreselectorTest {
     }
 
     @Test
-    void capsAtFourWhilePreservingDiversityAndInputOrderIndependence() {
+    void capsAtTwentyWhilePreservingDiversityAndInputOrderIndependence() {
         List<StrategyCandidateEvaluationResult.EvaluatedCandidate> candidates =
                 new ArrayList<>();
         for (int index = 0; index < 24; index++) {
-            StrategyType type = index % 2 == 0
+            StrategyType type = (index / 4) % 2 == 0
                     ? StrategyType.REALLOCATION
                     : StrategyType.RT_TRANSFER;
-            Long targetSalesPointId = 20L + index % 3;
+            Long targetSalesPointId = 20L + index % 4;
             candidates.add(evaluatedForDiversity(
                     "CAND-" + index,
                     type,
@@ -106,11 +108,11 @@ class DeterministicRecommendationCandidatePreselectorTest {
         assertThat(selection.candidates())
                 .extracting(value -> value.candidate().actions().get(0)
                         .target().salesPointId())
-                .contains(20L, 21L, 22L);
+                .contains(20L, 21L, 22L, 23L);
     }
 
     @Test
-    void keepsOnlyBestEconomicRepresentativeWhenQuantityOnlyDiffers() {
+    void keepsMultipleEconomicVariantsWhenQuantityOnlyDiffers() {
         var fullQuantity = evaluatedForDiversity(
                 "FULL", StrategyType.REALLOCATION, 20L, 100, "100"
         );
@@ -124,7 +126,7 @@ class DeterministicRecommendationCandidatePreselectorTest {
 
         assertThat(result.candidates())
                 .extracting(value -> value.candidate().candidateId())
-                .containsExactly("FULL");
+                .containsExactly("FULL", "PARTIAL");
     }
 
     @Test
@@ -142,11 +144,35 @@ class DeterministicRecommendationCandidatePreselectorTest {
 
         assertThat(result.candidates())
                 .extracting(value -> value.candidate().candidateId())
-                .containsExactly("PARTIAL");
+                .containsExactly("PARTIAL", "FULL");
     }
 
     @Test
-    void returnsOneRepresentativePerStrategyAndTargetFamily() {
+    void limitsQuantityVariantsToThreePerFamily() {
+        var full = evaluatedForDiversity(
+                "FULL", StrategyType.REALLOCATION, 20L, 100, "100"
+        );
+        var eighty = evaluatedForDiversity(
+                "EIGHTY", StrategyType.REALLOCATION, 20L, 80, "80"
+        );
+        var sixty = evaluatedForDiversity(
+                "SIXTY", StrategyType.REALLOCATION, 20L, 60, "60"
+        );
+        var forty = evaluatedForDiversity(
+                "FORTY", StrategyType.REALLOCATION, 20L, 40, "40"
+        );
+
+        RecommendationCandidateSelection result = preselector.select(evaluation(
+                List.of(forty, sixty, eighty, full)
+        ));
+
+        assertThat(result.candidates())
+                .extracting(value -> value.candidate().candidateId())
+                .containsExactly("FULL", "EIGHTY", "SIXTY");
+    }
+
+    @Test
+    void returnsAtLeastOneCandidatePerStrategyAndTargetFamilyBeforeVariants() {
         var reallocationA = evaluatedForDiversity(
                 "REALLOC-A", StrategyType.REALLOCATION, 20L, 100, "100"
         );
@@ -167,6 +193,32 @@ class DeterministicRecommendationCandidatePreselectorTest {
     }
 
     @Test
+    void honorsUserStrategyAndTargetPriorityBeforeMetrics() {
+        var preferredStrategyAndTarget = evaluatedForDiversity(
+                "PREFERRED", StrategyType.REALLOCATION, 20L, 100, "10"
+        );
+        var betterMetricButSecondStrategy = evaluatedForDiversity(
+                "BETTER-METRIC", StrategyType.RT_TRANSFER, 20L, 100, "1000"
+        );
+        StrategyCalculationContext.RequestConstraints constraints =
+                new StrategyCalculationContext.RequestConstraints(
+                        List.of(20L),
+                        List.of(StrategyType.REALLOCATION, StrategyType.RT_TRANSFER),
+                        null,
+                        null
+                );
+
+        RecommendationCandidateSelection result = preselector.select(evaluation(
+                List.of(betterMetricButSecondStrategy, preferredStrategyAndTarget),
+                constraints
+        ));
+
+        assertThat(result.candidates())
+                .extracting(value -> value.candidate().candidateId())
+                .containsExactly("PREFERRED", "BETTER-METRIC");
+    }
+
+    @Test
     void groupsCompositeCandidatesIndependentlyOfStrategyAndActionOrder() {
         var lowerEffect = evaluatedComposite(
                 "LOWER", false, "100"
@@ -181,15 +233,23 @@ class DeterministicRecommendationCandidatePreselectorTest {
 
         assertThat(result.candidates())
                 .extracting(value -> value.candidate().candidateId())
-                .containsExactly("HIGHER");
+                .containsExactly("HIGHER", "LOWER");
     }
 
     private static StrategyCandidateEvaluationResult evaluation(
             List<StrategyCandidateEvaluationResult.EvaluatedCandidate> candidates
     ) {
+        return evaluation(candidates, null);
+    }
+
+    private static StrategyCandidateEvaluationResult evaluation(
+            List<StrategyCandidateEvaluationResult.EvaluatedCandidate> candidates,
+            StrategyCalculationContext.RequestConstraints constraints
+    ) {
+        StrategyCalculationContext context = mock(StrategyCalculationContext.class);
+        when(context.requestConstraints()).thenReturn(constraints);
         return new StrategyCandidateEvaluationResult(
-                mock(com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculationContext.class),
-                mock(BaselineSimulation.class), candidates, List.of(), List.of()
+                context, mock(BaselineSimulation.class), candidates, List.of(), List.of()
         );
     }
 
