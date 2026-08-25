@@ -99,7 +99,7 @@ public class StrategyGenerationResultFactory {
         }
     }
 
-    private static StrategyGenerationResult.Candidate toCandidate(
+    public static StrategyGenerationResult.Candidate toCandidate(
             StrategyCandidate candidate
     ) {
         return new StrategyGenerationResult.Candidate(

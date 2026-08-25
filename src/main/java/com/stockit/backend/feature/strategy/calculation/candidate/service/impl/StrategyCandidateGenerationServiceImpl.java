@@ -5,15 +5,19 @@ import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 import org.springframework.stereotype.Service;
 
+import com.stockit.backend.common.exception.AppException;
+import com.stockit.backend.common.exception.ErrorCode;
 import com.stockit.backend.feature.strategy.calculation.candidate.calculator.StrategyCandidateCalculator;
 import com.stockit.backend.feature.strategy.calculation.candidate.domain.CandidateExclusion;
 import com.stockit.backend.feature.strategy.calculation.candidate.domain.CandidateExclusionReason;
 import com.stockit.backend.feature.strategy.calculation.candidate.domain.CandidateGenerationResult;
 import com.stockit.backend.feature.strategy.calculation.candidate.domain.StrategyCandidate;
 import com.stockit.backend.feature.strategy.calculation.candidate.service.StrategyCandidateGenerationService;
+import com.stockit.backend.feature.strategy.calculation.candidate.policy.StrategyPeriodEligibilityPolicy;
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculationContext;
 import com.stockit.backend.feature.strategy.domain.StrategyType;
 
@@ -29,9 +33,11 @@ public class StrategyCandidateGenerationServiceImpl
     );
 
     private final Map<StrategyType, StrategyCandidateCalculator> calculators;
+    private final StrategyPeriodEligibilityPolicy periodEligibilityPolicy;
 
     public StrategyCandidateGenerationServiceImpl(
-            List<StrategyCandidateCalculator> calculators
+            List<StrategyCandidateCalculator> calculators,
+            StrategyPeriodEligibilityPolicy periodEligibilityPolicy
     ) {
         Map<StrategyType, StrategyCandidateCalculator> registry = new EnumMap<>(
                 StrategyType.class
@@ -49,6 +55,7 @@ public class StrategyCandidateGenerationServiceImpl
             }
         }
         this.calculators = Map.copyOf(registry);
+        this.periodEligibilityPolicy = periodEligibilityPolicy;
     }
 
     @Override
@@ -75,6 +82,14 @@ public class StrategyCandidateGenerationServiceImpl
             }
             CandidateGenerationResult result = calculator.generate(context, index + 1);
             for (StrategyCandidate candidate : result.candidates()) {
+                if (!hasEligibleAllocatedPeriod(
+                        context,
+                        strategyType,
+                        candidate,
+                        exclusions
+                )) {
+                    continue;
+                }
                 StrategyCandidate existing = uniqueCandidates.putIfAbsent(
                         candidate.candidateId(),
                         candidate
@@ -94,6 +109,51 @@ public class StrategyCandidateGenerationServiceImpl
                 List.copyOf(uniqueCandidates.values()),
                 exclusions
         );
+    }
+
+    private boolean hasEligibleAllocatedPeriod(
+            StrategyCalculationContext context,
+            StrategyType strategyType,
+            StrategyCandidate candidate,
+            List<CandidateExclusion> exclusions
+    ) {
+        if (candidate.endDate() == null) {
+            return true;
+        }
+        List<Long> allocatedIds = candidate.actions().stream()
+                .flatMap(action -> action.lotAllocations().stream())
+                .map(StrategyCandidate.LotAllocation::inventoryBalanceId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        if (allocatedIds.isEmpty()) {
+            return true;
+        }
+        try {
+            periodEligibilityPolicy.validateAllocatedPeriod(
+                    context,
+                    candidate.endDate(),
+                    allocatedIds
+            );
+            return true;
+        } catch (AppException exception) {
+            if (exception.getErrorCode()
+                    != ErrorCode.AI_STRATEGY_SELLABLE_END_EXCEEDED) {
+                throw exception;
+            }
+            Long targetSalesPointId = candidate.actions().stream()
+                    .map(action -> action.target().salesPointId())
+                    .filter(Objects::nonNull)
+                    .findFirst()
+                    .orElse(null);
+            exclusions.add(new CandidateExclusion(
+                    strategyType,
+                    targetSalesPointId,
+                    CandidateExclusionReason.LOT_NOT_SELLABLE_IN_PERIOD,
+                    exception.getMessage()
+            ));
+            return false;
+        }
     }
 
     private List<StrategyType> requestedOrDefaultTypes(

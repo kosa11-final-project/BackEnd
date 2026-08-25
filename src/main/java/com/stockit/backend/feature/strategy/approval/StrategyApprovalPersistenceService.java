@@ -3,10 +3,7 @@ package com.stockit.backend.feature.strategy.approval;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.LocalDate;
-import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -25,6 +22,7 @@ import com.stockit.backend.common.exception.ErrorCode;
 import com.stockit.backend.feature.strategy.approval.StrategyApprovalRecords.ActionWrite;
 import com.stockit.backend.feature.strategy.approval.StrategyApprovalRecords.CaseRecord;
 import com.stockit.backend.feature.strategy.approval.StrategyApprovalRecords.ExistingSelectionRecord;
+import com.stockit.backend.feature.strategy.approval.StrategyApprovalRecords.ExecutionResultWrite;
 import com.stockit.backend.feature.strategy.approval.StrategyApprovalRecords.FinalSelectionWrite;
 import com.stockit.backend.feature.strategy.approval.StrategyApprovalRecords.ForecastSnapshotWrite;
 import com.stockit.backend.feature.strategy.approval.StrategyApprovalRecords.InventorySnapshotWrite;
@@ -37,9 +35,11 @@ import com.stockit.backend.feature.strategy.approval.StrategyApprovalRecords.Sim
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculationContext;
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCandidateSimulation;
 import com.stockit.backend.feature.strategy.domain.StrategyCaseStatus;
+import com.stockit.backend.feature.strategy.domain.StrategyGenerationStage;
 import com.stockit.backend.feature.strategy.domain.StrategyType;
 import com.stockit.backend.feature.strategy.mapper.StrategyApprovalMapper;
 import com.stockit.backend.feature.strategy.result.StrategyGenerationResult;
+import com.stockit.backend.feature.strategy.service.StrategyDateTimeProvider;
 import com.stockit.backend.feature.strategy.vo.AiStrategyReviewerVO;
 
 /** Redis의 선택 후보와 계산 스냅샷을 승인 요청 시점에 DB로 확정한다. */
@@ -49,16 +49,23 @@ public class StrategyApprovalPersistenceService {
     private static final int OPTION_NAME_BYTE_LIMIT = 200;
     private static final int OPTION_TEXT_BYTE_LIMIT = 2_000;
     private static final String CANDIDATE_ID_PREFIX = "candidateId=";
+    private static final String FINGERPRINT_PREFIX = "selectionFingerprint=";
 
     private final StrategyApprovalMapper approvalMapper;
     private final ObjectMapper objectMapper;
+    private final StrategySelectionExecutabilityValidator executabilityValidator;
+    private final StrategyDateTimeProvider dateTimeProvider;
 
     public StrategyApprovalPersistenceService(
             StrategyApprovalMapper approvalMapper,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            StrategySelectionExecutabilityValidator executabilityValidator,
+            StrategyDateTimeProvider dateTimeProvider
     ) {
         this.approvalMapper = approvalMapper;
         this.objectMapper = objectMapper;
+        this.executabilityValidator = executabilityValidator;
+        this.dateTimeProvider = dateTimeProvider;
     }
 
     @Transactional
@@ -66,10 +73,11 @@ public class StrategyApprovalPersistenceService {
             Long strategyCaseId,
             Long actorId,
             Long organizationId,
-            StrategyGenerationResult.Option option,
-            StrategyCalculationContext context,
+            ResolvedStrategySelection resolved,
             List<AiStrategyReviewerVO> reviewers
     ) {
+        StrategyGenerationResult.Option option = resolved.option();
+        StrategyCalculationContext context = resolved.calculationContext();
         CaseRecord strategyCase = approvalMapper.selectCaseForUpdate(strategyCaseId);
         if (strategyCase == null) {
             throw new AppException(ErrorCode.AI_STRATEGY_CASE_NOT_FOUND);
@@ -83,6 +91,15 @@ public class StrategyApprovalPersistenceService {
                 && strategyCase.getCaseStatus() != StrategyCaseStatus.READY_TO_EXECUTE) {
             throw new AppException(ErrorCode.AI_STRATEGY_SELECTION_CONFLICT);
         }
+        if (strategyCase.getCaseStatus() == StrategyCaseStatus.GENERATED
+                && (strategyCase.getGenerationStage()
+                != StrategyGenerationStage.COMPARISON_READY
+                || strategyCase.getResultExpiresAt() == null
+                || !strategyCase.getResultExpiresAt().isAfter(
+                        dateTimeProvider.now()
+                ) || strategyCase.getResultCacheKey() == null)) {
+            throw new AppException(ErrorCode.AI_STRATEGY_RESULT_EXPIRED);
+        }
         if (!Objects.equals(strategyCaseId, context.strategyCaseId())) {
             throw new AppException(ErrorCode.AI_STRATEGY_SELECTION_CONFLICT);
         }
@@ -94,15 +111,26 @@ public class StrategyApprovalPersistenceService {
             if (strategyCase.getCaseStatus() != StrategyCaseStatus.GENERATED) {
                 throw new AppException(ErrorCode.AI_STRATEGY_SELECTION_CONFLICT);
             }
+            executabilityValidator.validate(resolved, resolved.businessDate());
             selectionIds = persistSelection(
-                    strategyCase, actorId, option, context
+                    strategyCase, actorId, resolved
             );
         } else {
+            String existingFingerprint = selectionFingerprint(
+                    existing.getConstraintText()
+            );
             if (!Objects.equals(existing.getOptionRank(), option.rank())
                     || !Objects.equals(
                             candidateId(existing.getConstraintText()),
                             option.candidate().candidateId()
-                    )) {
+                    ) || (existingFingerprint == null
+                    && resolved.inputSource()
+                    == StrategySelectionInputSource.USER_SELECT)
+                    || (existingFingerprint != null
+                    && !Objects.equals(
+                            existingFingerprint,
+                            resolved.selectionFingerprint()
+                    ))) {
                 throw new AppException(ErrorCode.AI_STRATEGY_SELECTION_CONFLICT);
             }
             selectionIds = new SelectionIds(
@@ -114,6 +142,16 @@ public class StrategyApprovalPersistenceService {
         List<Long> reviewerIds = reviewers.stream()
                 .map(AiStrategyReviewerVO::getReviewerId)
                 .toList();
+        if (existing != null) {
+            Set<Long> persistedReviewerIds = approvalMapper
+                    .selectAllReviewRequests(selectionIds.strategyOptionId())
+                    .stream()
+                    .map(ReviewRequestRecord::getReviewerId)
+                    .collect(Collectors.toSet());
+            if (!persistedReviewerIds.equals(Set.copyOf(reviewerIds))) {
+                throw new AppException(ErrorCode.AI_STRATEGY_SELECTION_CONFLICT);
+            }
+        }
         Map<Long, ReviewRequestRecord> existingRequests = approvalMapper
                 .selectReviewRequests(selectionIds.strategyOptionId(), reviewerIds)
                 .stream()
@@ -149,8 +187,7 @@ public class StrategyApprovalPersistenceService {
                 selectionIds.strategyOptionId(),
                 strategyCase.getCaseStatus(),
                 strategyCase.getCaseName(),
-                option,
-                context,
+                resolved,
                 reviewRequests
         );
     }
@@ -158,14 +195,15 @@ public class StrategyApprovalPersistenceService {
     private SelectionIds persistSelection(
             CaseRecord strategyCase,
             Long actorId,
-            StrategyGenerationResult.Option option,
-            StrategyCalculationContext context
+            ResolvedStrategySelection resolved
     ) {
-        OptionWrite optionWrite = optionWrite(strategyCase, actorId, option);
+        StrategyGenerationResult.Option option = resolved.option();
+        StrategyCalculationContext context = resolved.calculationContext();
+        OptionWrite optionWrite = optionWrite(strategyCase, actorId, resolved);
         approvalMapper.insertOption(optionWrite);
 
         approvalMapper.insertSimulation(simulationWrite(
-                optionWrite.getStrategyOptionId(), actorId, option
+                optionWrite.getStrategyOptionId(), actorId, resolved
         ));
         persistActions(optionWrite.getStrategyOptionId(), actorId, option);
         persistInventorySnapshots(strategyCase, actorId, option, context);
@@ -178,8 +216,11 @@ public class StrategyApprovalPersistenceService {
         approvalMapper.insertFinalSelection(finalSelection);
 
         persistForecastSnapshots(
-                finalSelection.getFinalSelectionId(), actorId, option, context
+                finalSelection.getFinalSelectionId(), actorId, resolved
         );
+        approvalMapper.insertExecutionResult(executionResultWrite(
+                finalSelection.getFinalSelectionId(), actorId, resolved
+        ));
         return new SelectionIds(
                 finalSelection.getFinalSelectionId(),
                 optionWrite.getStrategyOptionId()
@@ -189,8 +230,9 @@ public class StrategyApprovalPersistenceService {
     private OptionWrite optionWrite(
             CaseRecord strategyCase,
             Long actorId,
-            StrategyGenerationResult.Option option
+            ResolvedStrategySelection resolved
     ) {
+        StrategyGenerationResult.Option option = resolved.option();
         OptionWrite write = new OptionWrite();
         write.setStrategyCaseId(strategyCase.getStrategyCaseId());
         write.setOptionRank(option.rank());
@@ -207,7 +249,7 @@ public class StrategyApprovalPersistenceService {
                 option.caution(), OPTION_TEXT_BYTE_LIMIT
         ));
         write.setConstraintText(truncateUtf8(
-                constraintText(option), OPTION_TEXT_BYTE_LIMIT
+                constraintText(resolved), OPTION_TEXT_BYTE_LIMIT
         ));
         audit(write, actorId);
         return write;
@@ -216,13 +258,14 @@ public class StrategyApprovalPersistenceService {
     private SimulationWrite simulationWrite(
             Long strategyOptionId,
             Long actorId,
-            StrategyGenerationResult.Option option
+            ResolvedStrategySelection resolved
     ) {
+        StrategyGenerationResult.Option option = resolved.option();
         StrategyCandidateSimulation.Summary summary = option.simulation().summary();
         SimulationWrite write = new SimulationWrite();
         write.setStrategyOptionId(strategyOptionId);
-        write.setInputSourceType("AI_RECOMMENDED");
-        write.setTargetQuantity(option.candidate().maxExecutableQty());
+        write.setInputSourceType(resolved.inputSource().name());
+        write.setTargetQuantity(resolved.targetQuantity());
         write.setStrategyPrice(firstNonNullStrategyPrice(option.candidate()));
         write.setMovementCost(option.candidate().actions().stream()
                 .filter(action -> action.actionType() == StrategyType.REALLOCATION
@@ -337,9 +380,6 @@ public class StrategyApprovalPersistenceService {
             write.setPaymentFee(price.paymentFee());
             write.setLogisticsCost(price.logisticsCost());
             write.setUnitVariableCost(unitVariableCost);
-            write.setBaselineUnitContributionMargin(
-                    price.actualPrice().subtract(unitVariableCost)
-            );
             audit(write, actorId);
             approvalMapper.insertPriceSnapshot(write);
         }
@@ -348,13 +388,14 @@ public class StrategyApprovalPersistenceService {
     private void persistForecastSnapshots(
             Long finalSelectionId,
             Long actorId,
-            StrategyGenerationResult.Option option,
-            StrategyCalculationContext context
+            ResolvedStrategySelection resolved
     ) {
+        StrategyGenerationResult.Option option = resolved.option();
+        StrategyCalculationContext context = resolved.calculationContext();
         Map<String, Set<Long>> roles = new LinkedHashMap<>();
         roles.put("SOURCE", sourceSalesPointIds(option, context));
         roles.put("TARGET", targetSalesPointIds(option));
-        LocalDate periodEnd = periodEnd(option, context);
+        LocalDate periodEnd = resolved.evaluationEndDate();
 
         for (Map.Entry<String, Set<Long>> role : roles.entrySet()) {
             for (Long salesPointId : role.getValue()) {
@@ -383,10 +424,12 @@ public class StrategyApprovalPersistenceService {
                 write.setForecast90dQty(horizonForecast(context, salesPoint, 90));
                 write.setForecast180dQty(horizonForecast(context, salesPoint, 180));
                 write.setDailyForecastJson(dailyJson);
-                write.setInputDataHash(sha256(
-                        context.forecastMetadata().forecastRunId()
-                                + ":" + salesPointId + ":" + dailyJson
-                ));
+                write.setInputDataHash(resolved.forecastRequestHash() == null
+                        ? legacyForecastPayloadHash(
+                                context.forecastMetadata().forecastRunId(),
+                                salesPointId,
+                                dailyJson
+                        ) : resolved.forecastRequestHash());
                 write.setForecastGeneratedAt(
                         context.forecastMetadata().forecastGeneratedAt().toLocalDateTime()
                 );
@@ -565,22 +608,24 @@ public class StrategyApprovalPersistenceService {
         return numerator.divide(denominator, 2, RoundingMode.HALF_UP);
     }
 
-    private static String sha256(String value) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            return HexFormat.of().formatHex(
-                    digest.digest(value.getBytes(StandardCharsets.UTF_8))
-            );
-        } catch (NoSuchAlgorithmException exception) {
-            throw new IllegalStateException("SHA-256 is unavailable", exception);
-        }
+    private static String legacyForecastPayloadHash(
+            String forecastRunId,
+            Long salesPointId,
+            String dailyJson
+    ) {
+        return StrategySelectionFingerprintFactoryHash.sha256(
+                forecastRunId + ":" + salesPointId + ":" + dailyJson
+        );
     }
 
-    private static String constraintText(StrategyGenerationResult.Option option) {
+    private static String constraintText(ResolvedStrategySelection resolved) {
+        StrategyGenerationResult.Option option = resolved.option();
         String assumptions = option.candidate().assumptions().stream()
                 .map(Enum::name)
                 .collect(Collectors.joining(","));
         return CANDIDATE_ID_PREFIX + option.candidate().candidateId()
+                + "\n" + FINGERPRINT_PREFIX + resolved.selectionFingerprint()
+                + "\nrecommendationSource=" + resolved.recommendationSource().name()
                 + "\nassumptions=" + assumptions;
     }
 
@@ -594,6 +639,47 @@ public class StrategyApprovalPersistenceService {
                 CANDIDATE_ID_PREFIX.length(),
                 end < 0 ? constraintText.length() : end
         );
+    }
+
+    private static String selectionFingerprint(String constraintText) {
+        return metadataValue(constraintText, FINGERPRINT_PREFIX);
+    }
+
+    private static String metadataValue(String text, String prefix) {
+        if (text == null) return null;
+        for (String line : text.split("\\n")) {
+            if (line.startsWith(prefix)) {
+                return line.substring(prefix.length());
+            }
+        }
+        return null;
+    }
+
+    private static ExecutionResultWrite executionResultWrite(
+            Long finalSelectionId,
+            Long actorId,
+            ResolvedStrategySelection resolved
+    ) {
+        ExecutionResultWrite write = new ExecutionResultWrite();
+        write.setFinalSelectionId(finalSelectionId);
+        write.setResultStatus("RUNNING");
+        write.setPlannedStartDate(resolved.option().candidate().startDate());
+        write.setPlannedEndDate(resolved.evaluationEndDate());
+        write.setGoalMetricCode("SALES_QTY");
+        write.setGoalTargetValue(
+                resolved.option().simulation().summary().expectedSalesQty()
+        );
+        write.setStartRiskStockQty(resolved.calculationContext()
+                .evaluationInventory().stream()
+                .map(StrategyCalculationContext.InventoryLot::availableQty)
+                .reduce(BigDecimal.ZERO, BigDecimal::add));
+        write.setStartExpectedDisposalQty(
+                resolved.baselineSimulation().summary().expectedDisposalQty()
+        );
+        write.setStartUnitCost(resolved.calculationContext().unitCost());
+        write.setCalculationVersion("SALES_ONLY_V1");
+        audit(write, actorId);
+        return write;
     }
 
     static String truncateUtf8(String value, int maximumBytes) {

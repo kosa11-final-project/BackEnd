@@ -21,6 +21,7 @@ import com.stockit.backend.feature.strategy.calculation.domain.BaselineSimulatio
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculationContext;
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCandidateEvaluationResult;
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCandidateSimulation;
+import com.stockit.backend.feature.strategy.messaging.PermanentStrategyGenerationException;
 
 @ExtendWith(MockitoExtension.class)
 class StrategyRecommendationServiceTest {
@@ -30,6 +31,7 @@ class StrategyRecommendationServiceTest {
     @Mock private AiRecommendationRequestFactory requestFactory;
     @Mock private AiRecommendationProvider provider;
     @Mock private StrategyRecommendationResponseValidator validator;
+    @Mock private DeterministicRecommendationFallback fallback;
 
     private StrategyRecommendationService service;
 
@@ -40,7 +42,8 @@ class StrategyRecommendationServiceTest {
                 preselector,
                 requestFactory,
                 provider,
-                validator
+                validator,
+                fallback
         );
     }
 
@@ -63,7 +66,7 @@ class StrategyRecommendationServiceTest {
                 .isEqualTo("CURRENT_STATE_PREFERRED");
         assertThat(result.providerMetadata()).isNull();
         verify(preselector, never()).select(any());
-        verify(requestFactory, never()).create(any(), any(), any());
+        verify(requestFactory, never()).create(any(), any(), any(), any());
         verify(provider, never()).recommend(any());
         verify(validator, never()).validateAndMap(any(), any(), any(), any(), any(), any());
     }
@@ -85,6 +88,45 @@ class StrategyRecommendationServiceTest {
 
         verify(baselineImprovementFilter, never()).filter(any());
         verify(provider, never()).recommend(any());
+    }
+
+    @Test
+    void usesDeterministicFallbackWhenLlmResponseIsInvalid() {
+        StrategyCalculationContext context = mock(StrategyCalculationContext.class);
+        when(context.requestConstraints()).thenReturn(
+                mock(StrategyCalculationContext.RequestConstraints.class)
+        );
+        BaselineSimulation baseline = mock(BaselineSimulation.class);
+        var evaluated = evaluated("CAND-1");
+        StrategyCandidateEvaluationResult evaluation =
+                new StrategyCandidateEvaluationResult(
+                        context, baseline, List.of(evaluated), List.of(), List.of()
+                );
+        RecommendationCandidateSelection selection =
+                new RecommendationCandidateSelection(List.of(evaluated));
+        AiRecommendationRequest request = mock(AiRecommendationRequest.class);
+        AiRecommendationProviderResponse response =
+                mock(AiRecommendationProviderResponse.class);
+        AiRecommendationProviderResponse fallbackResponse =
+                mock(AiRecommendationProviderResponse.class);
+        StrategyRecommendationResult expected = mock(StrategyRecommendationResult.class);
+
+        when(baselineImprovementFilter.filter(evaluation.evaluatedCandidates()))
+                .thenReturn(List.of(evaluated));
+        when(preselector.select(any())).thenReturn(selection);
+        when(requestFactory.create(any(), any(), any(), any())).thenReturn(request);
+        when(provider.recommend(request)).thenReturn(response);
+        when(validator.validateAndMap(
+                any(), any(), any(), any(), any(), any()
+        )).thenThrow(new PermanentStrategyGenerationException(
+                "LLM_RESPONSE_INVALID", "duplicate strategy families"
+        )).thenReturn(expected);
+        when(fallback.create(selection, request)).thenReturn(fallbackResponse);
+
+        StrategyRecommendationResult result = service.recommend(1L, evaluation);
+
+        assertThat(result).isSameAs(expected);
+        verify(fallback).create(selection, request);
     }
 
     private static StrategyCandidateEvaluationResult.EvaluatedCandidate evaluated(

@@ -35,7 +35,8 @@ public record AiStrategyGenerationResultResponse(
             StrategyGenerationResult result,
             Map<Long, AiStrategySalesPointReferenceVO> salesPoints,
             Map<Long, AiStrategyWarehouseReferenceVO> warehouses,
-            Map<Long, AiStrategyLotDisplayVO> lots
+            Map<Long, AiStrategyLotDisplayVO> lots,
+            Map<String, OptionPeriodPresentation> periodPresentations
     ) {
         if (result == null) {
             return null;
@@ -47,7 +48,10 @@ public record AiStrategyGenerationResultResponse(
                 result.baselineSimulation(),
                 result.options().stream()
                         .map(option -> Option.from(
-                                option, salesPoints, warehouses, lots
+                                option, salesPoints, warehouses, lots,
+                                periodPresentations.get(
+                                        option.candidate().candidateId()
+                                )
                         ))
                         .toList(),
                 result.noRecommendation(),
@@ -62,14 +66,22 @@ public record AiStrategyGenerationResultResponse(
             String advantage,
             String caution,
             Candidate candidate,
+            AiStrategyPeriodConstraintsResponse adjustmentConstraints,
+            AiStrategyChartRangeResponse chartRange,
             StrategyCandidateSimulation simulation
     ) {
         private static Option from(
                 StrategyGenerationResult.Option option,
                 Map<Long, AiStrategySalesPointReferenceVO> salesPoints,
                 Map<Long, AiStrategyWarehouseReferenceVO> warehouses,
-                Map<Long, AiStrategyLotDisplayVO> lots
+                Map<Long, AiStrategyLotDisplayVO> lots,
+                OptionPeriodPresentation periodPresentation
         ) {
+            if (periodPresentation == null) {
+                throw new IllegalArgumentException(
+                        "option period presentation is missing"
+                );
+            }
             return new Option(
                     option.rank(),
                     option.optionName(),
@@ -77,8 +89,23 @@ public record AiStrategyGenerationResultResponse(
                     option.advantage(),
                     option.caution(),
                     Candidate.from(option.candidate(), salesPoints, warehouses, lots),
+                    periodPresentation.adjustmentConstraints(),
+                    periodPresentation.chartRange(),
                     option.simulation()
             );
+        }
+    }
+
+    public record OptionPeriodPresentation(
+            AiStrategyPeriodConstraintsResponse adjustmentConstraints,
+            AiStrategyChartRangeResponse chartRange
+    ) {
+        public OptionPeriodPresentation {
+            if (adjustmentConstraints == null || chartRange == null) {
+                throw new IllegalArgumentException(
+                        "option period presentation is invalid"
+                );
+            }
         }
     }
 

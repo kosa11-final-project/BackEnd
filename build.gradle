@@ -64,6 +64,29 @@ tasks.named('test') {
     useJUnitPlatform()
 }
 
+sourceSets {
+    geminiLiveTest {
+        java.srcDir 'src/geminiLiveTest/java'
+        resources.srcDir 'src/geminiLiveTest/resources'
+        compileClasspath += sourceSets.main.output
+        runtimeClasspath += output + compileClasspath
+    }
+}
+
+configurations {
+    geminiLiveTestImplementation.extendsFrom testImplementation
+    geminiLiveTestRuntimeOnly.extendsFrom testRuntimeOnly
+}
+
+tasks.register('geminiLiveTest', Test) {
+    group = 'verification'
+    description = 'Runs the opt-in Gemini recommendation live smoke test.'
+    testClassesDirs = sourceSets.geminiLiveTest.output.classesDirs
+    classpath = sourceSets.geminiLiveTest.runtimeClasspath
+    useJUnitPlatform()
+    shouldRunAfter test
+}
+
 tasks.register('generateBcrypt', JavaExec) {
     group = 'authentication'
     description = 'Generates a BCrypt hash from a password read through standard input.'

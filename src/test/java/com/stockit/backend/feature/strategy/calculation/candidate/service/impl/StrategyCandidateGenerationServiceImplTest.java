@@ -23,6 +23,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import com.stockit.backend.feature.strategy.calculation.candidate.calculator.StrategyCandidateCalculator;
 import com.stockit.backend.feature.strategy.calculation.candidate.domain.CandidateExclusionReason;
 import com.stockit.backend.feature.strategy.calculation.candidate.domain.CandidateGenerationResult;
+import com.stockit.backend.feature.strategy.calculation.candidate.domain.StrategyCandidate;
+import com.stockit.backend.feature.strategy.calculation.candidate.policy.StrategyPeriodEligibilityPolicy;
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculationContext;
 import com.stockit.backend.feature.strategy.domain.StrategyType;
 
@@ -48,7 +50,7 @@ class StrategyCandidateGenerationServiceImplTest {
                 new StrategyCandidateGenerationServiceImpl(List.of(
                         reallocationCalculator,
                         transferCalculator
-                ));
+                ), new StrategyPeriodEligibilityPolicy());
         StrategyCalculationContext context = context(List.of(
                 StrategyType.PRICE_DISCOUNT,
                 StrategyType.RT_TRANSFER
@@ -80,7 +82,7 @@ class StrategyCandidateGenerationServiceImplTest {
                         discountCalculator,
                         expansionCalculator,
                         concentrationCalculator
-                ));
+                ), new StrategyPeriodEligibilityPolicy());
         StrategyCalculationContext context = context(List.of());
         CandidateGenerationResult empty = new CandidateGenerationResult(
                 List.of(), List.of()
@@ -127,7 +129,7 @@ class StrategyCandidateGenerationServiceImplTest {
                 new StrategyCandidateGenerationServiceImpl(List.of(
                         reallocationCalculator,
                         transferCalculator
-                ));
+                ), new StrategyPeriodEligibilityPolicy());
         StrategyCalculationContext context = context(
                 List.of(StrategyType.RT_TRANSFER),
                 null
@@ -144,6 +146,39 @@ class StrategyCandidateGenerationServiceImplTest {
         });
         verify(transferCalculator, never()).generate(context, 1);
         verify(reallocationCalculator, never()).generate(context, 1);
+    }
+
+    @Test
+    void excludesCandidateWhoseAllocatedLotsCannotBeSoldThroughItsEndDate() {
+        when(discountCalculator.supportedType()).thenReturn(
+                StrategyType.PRICE_DISCOUNT
+        );
+        StrategyCandidateGenerationServiceImpl service =
+                new StrategyCandidateGenerationServiceImpl(
+                        List.of(discountCalculator),
+                        new StrategyPeriodEligibilityPolicy()
+                );
+        StrategyCalculationContext context = context(
+                List.of(StrategyType.PRICE_DISCOUNT),
+                10L,
+                LocalDate.of(2026, 8, 20)
+        );
+        StrategyCandidate candidate = discountCandidate(
+                LocalDate.of(2026, 8, 21)
+        );
+        when(discountCalculator.generate(context, 1)).thenReturn(
+                new CandidateGenerationResult(List.of(candidate), List.of())
+        );
+
+        CandidateGenerationResult result = service.generate(context);
+
+        assertThat(result.candidates()).isEmpty();
+        assertThat(result.exclusions()).singleElement().satisfies(exclusion -> {
+            assertThat(exclusion.reason()).isEqualTo(
+                    CandidateExclusionReason.LOT_NOT_SELLABLE_IN_PERIOD
+            );
+            assertThat(exclusion.targetSalesPointId()).isEqualTo(10L);
+        });
     }
 
     private void stubAllSupportedTypes() {
@@ -163,7 +198,7 @@ class StrategyCandidateGenerationServiceImplTest {
                 discountCalculator,
                 expansionCalculator,
                 concentrationCalculator
-        ));
+        ), new StrategyPeriodEligibilityPolicy());
     }
 
     private static StrategyCalculationContext context(List<StrategyType> types) {
@@ -173,6 +208,14 @@ class StrategyCandidateGenerationServiceImplTest {
     private static StrategyCalculationContext context(
             List<StrategyType> types,
             Long sourceSalesPointId
+    ) {
+        return context(types, sourceSalesPointId, null);
+    }
+
+    private static StrategyCalculationContext context(
+            List<StrategyType> types,
+            Long sourceSalesPointId,
+            LocalDate expiryDate
     ) {
         StrategyCalculationContext.InventoryLot inventory =
                 new StrategyCalculationContext.InventoryLot(
@@ -185,7 +228,7 @@ class StrategyCandidateGenerationServiceImplTest {
                         BigDecimal.ZERO,
                         null,
                         LocalDate.of(2026, 8, 1),
-                        null,
+                        expiryDate,
                         null,
                         "AVAILABLE"
                 );
@@ -216,6 +259,36 @@ class StrategyCandidateGenerationServiceImplTest {
                                 2026, 8, 20, 9, 0, 0, 0,
                                 ZoneOffset.ofHours(9)
                         )
+                )
+        );
+    }
+
+    private static StrategyCandidate discountCandidate(LocalDate endDate) {
+        StrategyCandidate.Location location = new StrategyCandidate.Location(
+                501L, 10L
+        );
+        return new StrategyCandidate(
+                "PRICE-DISCOUNT-1",
+                List.of(StrategyType.PRICE_DISCOUNT),
+                LocalDate.of(2026, 8, 20),
+                endDate,
+                List.of(new StrategyCandidate.Action(
+                        StrategyType.PRICE_DISCOUNT,
+                        location,
+                        location,
+                        decimal("10"),
+                        BigDecimal.ZERO,
+                        decimal("90"),
+                        decimal("0.10"),
+                        List.of(new StrategyCandidate.LotAllocation(
+                                1L, 1001L, decimal("10"), 1
+                        ))
+                )),
+                List.of(),
+                new StrategyCandidate.Preference(1, 1, 100),
+                new StrategyCandidate.DiscountEvidence(
+                        decimal("10"), decimal("10"), decimal("10"),
+                        decimal("10"), decimal("100"), decimal("70")
                 )
         );
     }

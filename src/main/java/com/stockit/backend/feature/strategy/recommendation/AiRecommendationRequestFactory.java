@@ -8,21 +8,31 @@ import com.stockit.backend.feature.strategy.calculation.candidate.domain.Strateg
 import com.stockit.backend.feature.strategy.calculation.domain.BaselineSimulation;
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCandidateEvaluationResult;
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCandidateSimulation;
+import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculationContext;
 
 /** 서버 계산 결과에서 수치의 출처를 유지한 채 compact LLM 입력을 만든다. */
 @Component
 public class AiRecommendationRequestFactory {
 
-    private static final String SCHEMA_VERSION = "ai-strategy-recommendation-v1";
+    private static final String SCHEMA_VERSION = "ai-strategy-recommendation-v3";
+    private static final int MIN_RECOMMENDATIONS = 3;
+    private static final int MAX_RECOMMENDATIONS = 4;
 
     public AiRecommendationRequest create(
             Long strategyCaseId,
             BaselineSimulation baseline,
-            RecommendationCandidateSelection selection
+            RecommendationCandidateSelection selection,
+            StrategyCalculationContext.RequestConstraints requestConstraints
     ) {
-        int candidateCount = selection.candidates().size();
-        int minimum = Math.min(candidateCount, 3);
-        int maximum = Math.min(candidateCount, 4);
+        if (requestConstraints == null) {
+            throw new IllegalArgumentException("request constraints must not be null");
+        }
+        int familyCount = Math.toIntExact(selection.candidates().stream()
+                .map(value -> RecommendationFamilyKey.from(value.candidate()))
+                .distinct()
+                .count());
+        int maximum = Math.min(MAX_RECOMMENDATIONS, familyCount);
+        int minimum = Math.min(MIN_RECOMMENDATIONS, maximum);
         BaselineSimulation.Summary summary = baseline.summary();
         return new AiRecommendationRequest(
                 SCHEMA_VERSION,
@@ -35,12 +45,15 @@ public class AiRecommendationRequestFactory {
                         summary.expectedSellThroughDays(), summary.expectedRemainingQty(),
                         summary.expectedDisposalQty()
                 ),
-                selection.candidates().stream().map(this::mapCandidate).toList()
+                selection.candidates().stream()
+                        .map(candidate -> mapCandidate(candidate, requestConstraints))
+                        .toList()
         );
     }
 
     private AiRecommendationRequest.CandidateInput mapCandidate(
-            StrategyCandidateEvaluationResult.EvaluatedCandidate evaluated
+            StrategyCandidateEvaluationResult.EvaluatedCandidate evaluated,
+            StrategyCalculationContext.RequestConstraints requestConstraints
     ) {
         StrategyCandidate candidate = evaluated.candidate();
         StrategyCandidateSimulation simulation = evaluated.simulation();
@@ -56,7 +69,9 @@ public class AiRecommendationRequestFactory {
                         action.discountRate()
                 )).toList();
         return new AiRecommendationRequest.CandidateInput(
-                candidate.candidateId(), candidate.strategyTypes(), candidate.startDate(),
+                candidate.candidateId(),
+                RecommendationFamilyKey.from(candidate).externalId(),
+                candidate.strategyTypes(), candidate.startDate(),
                 candidate.endDate(), actions,
                 new AiRecommendationRequest.SummaryInput(
                         summary.expectedSalesQty(), summary.expectedRevenue(),
@@ -73,11 +88,33 @@ public class AiRecommendationRequestFactory {
                 ),
                 candidate.assumptions().stream().map(Enum::name).toList(),
                 new AiRecommendationRequest.PreferenceInput(
-                        candidate.preference().strategyPriority(),
-                        candidate.preference().targetPriority(),
+                        userPriority(
+                                requestConstraints.orderedStrategyTypes(),
+                                candidate.preference().strategyPriority()
+                        ),
+                        prioritySource(requestConstraints.orderedStrategyTypes()),
+                        userPriority(
+                                requestConstraints.orderedCandidateSalesPointIds(),
+                                candidate.preference().targetPriority()
+                        ),
+                        prioritySource(
+                                requestConstraints.orderedCandidateSalesPointIds()
+                        ),
                         candidate.preference().quantityPercentage()
                 ),
                 candidate.evidence().maxExecutableQty()
         );
+    }
+
+    private static Integer userPriority(List<?> orderedUserValues, int priority) {
+        return orderedUserValues.isEmpty() ? null : priority;
+    }
+
+    private static AiRecommendationRequest.PrioritySource prioritySource(
+            List<?> orderedUserValues
+    ) {
+        return orderedUserValues.isEmpty()
+                ? AiRecommendationRequest.PrioritySource.AI_DEFAULT
+                : AiRecommendationRequest.PrioritySource.USER;
     }
 }

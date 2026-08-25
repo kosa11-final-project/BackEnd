@@ -16,6 +16,7 @@ import com.stockit.backend.feature.strategy.forecast.ForecastCheckpointStore;
 import com.stockit.backend.feature.strategy.forecast.ForecastLock;
 import com.stockit.backend.feature.strategy.forecast.ForecastLockAccessException;
 import com.stockit.backend.feature.strategy.forecast.ForecastLockManager;
+import com.stockit.backend.feature.strategy.forecast.ForecastModelVersionResolver;
 import com.stockit.backend.feature.strategy.forecast.ForecastProvider;
 import com.stockit.backend.feature.strategy.forecast.InvalidForecastCheckpointException;
 import com.stockit.backend.feature.strategy.forecast.StrategyForecastRequestContext;
@@ -59,6 +60,7 @@ public class StrategyGenerationJobHandlerImpl implements StrategyGenerationJobHa
     private final ForecastLockManager lockManager;
     private final ForecastProvider forecastProvider;
     private final StrategyForecastResponseValidator responseValidator;
+    private final ForecastModelVersionResolver modelVersionResolver;
     private final StrategyGenerationStageService stageService;
     private final StrategyRecommendationStageProcessor recommendationStageProcessor;
 
@@ -70,6 +72,7 @@ public class StrategyGenerationJobHandlerImpl implements StrategyGenerationJobHa
             ForecastLockManager lockManager,
             ForecastProvider forecastProvider,
             StrategyForecastResponseValidator responseValidator,
+            ForecastModelVersionResolver modelVersionResolver,
             StrategyGenerationStageService stageService,
             StrategyRecommendationStageProcessor recommendationStageProcessor
     ) {
@@ -80,6 +83,7 @@ public class StrategyGenerationJobHandlerImpl implements StrategyGenerationJobHa
         this.lockManager = lockManager;
         this.forecastProvider = forecastProvider;
         this.responseValidator = responseValidator;
+        this.modelVersionResolver = modelVersionResolver;
         this.stageService = stageService;
         this.recommendationStageProcessor = recommendationStageProcessor;
     }
@@ -156,8 +160,14 @@ public class StrategyGenerationJobHandlerImpl implements StrategyGenerationJobHa
                     context.request()
             );
             responseValidator.validate(context, response);
+            Long modelVersionId = modelVersionResolver.resolve(response);
             // Redis 저장 후 DB 단계를 전환해 중단 시 체크포인트로 전환만 재개할 수 있도록 구성
-            saveCheckpoint(ForecastCheckpoint.create(context, response, Instant.now()));
+            saveCheckpoint(ForecastCheckpoint.create(
+                    context,
+                    response,
+                    modelVersionId,
+                    Instant.now()
+            ));
             completeForecasting(strategyCaseId);
         } catch (PermanentStrategyGenerationException
                  | RetryableStrategyGenerationException

@@ -4,9 +4,10 @@ on:
   pull_request:
     branches:
       - develop
+      - main
   push:
     branches:
-      - develop
+      - main
   workflow_dispatch:
 
 concurrency:
@@ -44,7 +45,7 @@ jobs:
   push-image:
     name: Build and push image
     needs: test
-    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/develop'
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -64,10 +65,13 @@ jobs:
         id: image
         shell: bash
         run: |
-          if aws ecr batch-get-image \
+          image_count="$(aws ecr batch-get-image \
             --repository-name "$ECR_REPOSITORY" \
             --image-ids "imageTag=$GITHUB_SHA" \
-            >/dev/null 2>&1; then
+            --query 'length(images)' \
+            --output text)"
+
+          if [ "$image_count" -gt 0 ]; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"

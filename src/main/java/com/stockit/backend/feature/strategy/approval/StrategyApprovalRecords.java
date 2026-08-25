@@ -6,6 +6,7 @@ import java.time.LocalDateTime;
 
 import com.stockit.backend.common.persistence.BaseEntity;
 import com.stockit.backend.feature.strategy.domain.StrategyCaseStatus;
+import com.stockit.backend.feature.strategy.domain.StrategyGenerationStage;
 import com.stockit.backend.feature.strategy.domain.StrategyType;
 
 import lombok.Getter;
@@ -24,6 +25,9 @@ public final class StrategyApprovalRecords {
         private Long skuId;
         private String caseName;
         private StrategyCaseStatus caseStatus;
+        private StrategyGenerationStage generationStage;
+        private LocalDateTime resultExpiresAt;
+        private String resultCacheKey;
         private Long requesterId;
         private String requesterName;
         private Long requesterOrganizationId;
@@ -36,6 +40,42 @@ public final class StrategyApprovalRecords {
         private Long strategyOptionId;
         private Integer optionRank;
         private String constraintText;
+    }
+
+    @Getter
+    @Setter
+    public static class PersistedApprovalHeader {
+        private Long strategyCaseId;
+        private Long requesterOrganizationId;
+        private StrategyCaseStatus caseStatus;
+        private Long finalSelectionId;
+        private Long strategyOptionId;
+        private String constraintText;
+        private String caseName;
+        private String skuCode;
+        private String skuName;
+        private String requesterName;
+        private String optionName;
+        private String recommendationReason;
+        private BigDecimal targetQuantity;
+        private BigDecimal strategyPrice;
+        private BigDecimal expectedSalesQty;
+        private BigDecimal expectedRevenue;
+        private BigDecimal totalContributionMargin;
+        private BigDecimal expectedRemainingQty;
+        private LocalDate plannedStartDate;
+        private LocalDate plannedEndDate;
+    }
+
+    @Getter
+    @Setter
+    public static class PersistedApprovalAction {
+        private StrategyType actionType;
+        private Long targetSalesPointId;
+        private String targetSalesPointName;
+        private BigDecimal strategyPrice;
+        private BigDecimal discountRate;
+        private Integer actionOrder;
     }
 
     @Getter
@@ -127,7 +167,6 @@ public final class StrategyApprovalRecords {
         private BigDecimal paymentFee;
         private BigDecimal logisticsCost;
         private BigDecimal unitVariableCost;
-        private BigDecimal baselineUnitContributionMargin;
     }
 
     @Getter
@@ -158,6 +197,22 @@ public final class StrategyApprovalRecords {
 
     @Getter
     @Setter
+    public static class ExecutionResultWrite extends BaseEntity {
+        private Long strategyExecutionResultId;
+        private Long finalSelectionId;
+        private String resultStatus;
+        private LocalDate plannedStartDate;
+        private LocalDate plannedEndDate;
+        private String goalMetricCode;
+        private BigDecimal goalTargetValue;
+        private BigDecimal startRiskStockQty;
+        private BigDecimal startExpectedDisposalQty;
+        private BigDecimal startUnitCost;
+        private String calculationVersion;
+    }
+
+    @Getter
+    @Setter
     public static class ReviewRequestWrite extends BaseEntity {
         private Long reviewRequestId;
         private Long strategyOptionId;
@@ -174,5 +229,11 @@ public final class StrategyApprovalRecords {
         private Long reviewRequestId;
         private Long reviewerId;
         private StrategyReviewStatus reviewStatus;
+        private String reviewerName;
+        private String reviewerEmail;
+        private String reviewerActiveYn;
+        private Boolean reviewerIsDeleted;
+        private String requesterName;
+        private LocalDateTime updatedAt;
     }
 }

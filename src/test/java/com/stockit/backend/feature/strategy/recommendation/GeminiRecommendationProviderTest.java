@@ -61,6 +61,11 @@ class GeminiRecommendationProviderTest {
         JsonNode body = objectMapper.readTree(requestBody.get());
         assertThat(body.path("model").asText()).isEqualTo("gemini-3.7-flash");
         assertThat(body.path("store").asBoolean()).isFalse();
+        assertThat(body.path("input").asText())
+                .contains("\"schemaVersion\":\"ai-strategy-recommendation-v3\"")
+                .contains("\"strategyFamilyId\":\"PRICE_DISCOUNT|")
+                .contains("\"strategyPrioritySource\":\"USER\"")
+                .contains("\"targetPrioritySource\":\"USER\"");
         JsonNode enumValues = body.path("response_format").path("schema")
                 .path("properties").path("recommendations").path("items")
                 .path("properties").path("candidateId").path("enum");
@@ -170,7 +175,8 @@ class GeminiRecommendationProviderTest {
                 new BigDecimal("0.10")
         );
         var candidate = new AiRecommendationRequest.CandidateInput(
-                "CAND-1", List.of(StrategyType.PRICE_DISCOUNT),
+                "CAND-1", "PRICE_DISCOUNT|PRICE_DISCOUNT:W1:S10>W1:S10",
+                List.of(StrategyType.PRICE_DISCOUNT),
                 LocalDate.of(2026, 8, 24), LocalDate.of(2026, 8, 31),
                 List.of(action),
                 new AiRecommendationRequest.SummaryInput(
@@ -181,11 +187,14 @@ class GeminiRecommendationProviderTest {
                 new AiRecommendationRequest.ComparisonInput(
                         BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ONE,
                         BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ONE
-                ), List.of(), new AiRecommendationRequest.PreferenceInput(1, 1, 100),
+                ), List.of(), new AiRecommendationRequest.PreferenceInput(
+                        1, AiRecommendationRequest.PrioritySource.USER,
+                        1, AiRecommendationRequest.PrioritySource.USER, 100
+                ),
                 BigDecimal.TEN
         );
         return new AiRecommendationRequest(
-                "v1", 1L, 1, 1,
+                "ai-strategy-recommendation-v3", 1L, 1, 1,
                 new AiRecommendationRequest.BaselineInput(
                         BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
                         BigDecimal.ZERO, null, BigDecimal.TEN, BigDecimal.ZERO

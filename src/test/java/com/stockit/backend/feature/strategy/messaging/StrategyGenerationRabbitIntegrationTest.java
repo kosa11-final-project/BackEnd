@@ -46,6 +46,7 @@ import com.stockit.backend.feature.strategy.domain.StrategyType;
 import com.stockit.backend.feature.strategy.mapper.StrategyCaseMapper;
 import com.stockit.backend.feature.strategy.forecast.DailyForecastPrediction;
 import com.stockit.backend.feature.strategy.forecast.ForecastProvider;
+import com.stockit.backend.feature.strategy.forecast.ForecastModelVersionResolver;
 import com.stockit.backend.feature.strategy.forecast.RedisForecastCheckpointStore;
 import com.stockit.backend.feature.strategy.forecast.SalesPointForecast;
 import com.stockit.backend.feature.strategy.forecast.StrategyForecastRequest;
@@ -111,11 +112,15 @@ class StrategyGenerationRabbitIntegrationTest {
     @MockitoBean
     private ForecastProvider forecastProvider;
 
+    @MockitoBean
+    private ForecastModelVersionResolver modelVersionResolver;
+
     @Test
     void commitsCaseThenForecastsCachesAndMovesToStrategyGenerating() {
         when(forecastProvider.forecast(any())).thenAnswer(invocation ->
                 responseFor(invocation.getArgument(0))
         );
+        when(modelVersionResolver.resolve(any())).thenReturn(81L);
         StrategyCaseCreated created = strategyCaseService.createStrategyCase(
                 new CreateStrategyCaseCommand(
                         "RabbitMQ 통합 테스트 전략",
@@ -155,6 +160,7 @@ class StrategyGenerationRabbitIntegrationTest {
             }
             return responseFor(invocation.getArgument(0));
         });
+        when(modelVersionResolver.resolve(any())).thenReturn(81L);
 
         StrategyCaseCreated created = strategyCaseService.createStrategyCase(
                 new CreateStrategyCaseCommand(
@@ -357,7 +363,8 @@ class StrategyGenerationRabbitIntegrationTest {
                 request.forecastEndDate(),
                 dates.size(),
                 "integration-forecast-run",
-                1L,
+                "stockit-demand-lightgbm",
+                "3",
                 OffsetDateTime.parse("2026-08-20T10:15:30+09:00"),
                 forecasts
         );

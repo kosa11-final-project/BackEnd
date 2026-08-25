@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
@@ -32,6 +33,7 @@ import com.stockit.backend.feature.strategy.forecast.ForecastCheckpoint;
 import com.stockit.backend.feature.strategy.forecast.ForecastCheckpointStore;
 import com.stockit.backend.feature.strategy.forecast.ForecastLock;
 import com.stockit.backend.feature.strategy.forecast.ForecastLockManager;
+import com.stockit.backend.feature.strategy.forecast.ForecastModelVersionResolver;
 import com.stockit.backend.feature.strategy.forecast.ForecastProvider;
 import com.stockit.backend.feature.strategy.forecast.SalesPointForecast;
 import com.stockit.backend.feature.strategy.forecast.StrategyForecastRequest;
@@ -68,6 +70,8 @@ class StrategyGenerationJobHandlerImplTest {
     @Mock
     private StrategyForecastResponseValidator responseValidator;
     @Mock
+    private ForecastModelVersionResolver modelVersionResolver;
+    @Mock
     private StrategyGenerationStageService stageService;
     @Mock
     private StrategyRecommendationStageProcessor recommendationStageProcessor;
@@ -84,6 +88,7 @@ class StrategyGenerationJobHandlerImplTest {
                 lockManager,
                 forecastProvider,
                 responseValidator,
+                modelVersionResolver,
                 stageService,
                 recommendationStageProcessor
         );
@@ -100,12 +105,16 @@ class StrategyGenerationJobHandlerImplTest {
         when(lockManager.tryAcquire(12345L)).thenReturn(Optional.of(lock()));
         when(stageService.enterForecasting(12345L)).thenReturn(true);
         when(forecastProvider.forecast(context().request())).thenReturn(response());
+        when(modelVersionResolver.resolve(response())).thenReturn(81L);
         when(stageService.completeForecasting(12345L)).thenReturn(true);
 
         handler.handle(message());
 
         verify(forecastProvider).forecast(context().request());
-        verify(checkpointStore).save(any(ForecastCheckpoint.class));
+        verify(checkpointStore).save(argThat(checkpoint ->
+                checkpoint.modelVersionId().equals(81L)
+                        && checkpoint.forecastResponse().equals(response())
+        ));
         verify(stageService).completeForecasting(12345L);
         verify(lockManager).release(lock());
     }
@@ -120,6 +129,7 @@ class StrategyGenerationJobHandlerImplTest {
                 .thenReturn(Optional.empty());
         when(lockManager.tryAcquire(12345L)).thenReturn(Optional.of(lock()));
         when(forecastProvider.forecast(context().request())).thenReturn(response());
+        when(modelVersionResolver.resolve(response())).thenReturn(81L);
         when(stageService.completeForecasting(12345L)).thenReturn(true);
 
         handler.handle(message());
@@ -134,6 +144,7 @@ class StrategyGenerationJobHandlerImplTest {
         ForecastCheckpoint checkpoint = ForecastCheckpoint.create(
                 context(),
                 response(),
+                81L,
                 Instant.parse("2026-08-20T00:00:00Z")
         );
         givenContextFor(forecasting);
@@ -156,6 +167,7 @@ class StrategyGenerationJobHandlerImplTest {
         ForecastCheckpoint checkpoint = ForecastCheckpoint.create(
                 context(),
                 response(),
+                81L,
                 Instant.parse("2026-08-20T00:00:00Z")
         );
         givenContextFor(forecasting);
@@ -169,6 +181,7 @@ class StrategyGenerationJobHandlerImplTest {
                 );
         when(lockManager.tryAcquire(12345L)).thenReturn(Optional.of(lock()));
         when(forecastProvider.forecast(context().request())).thenReturn(response());
+        when(modelVersionResolver.resolve(response())).thenReturn(81L);
         when(stageService.completeForecasting(12345L)).thenReturn(false, true);
 
         assertThatThrownBy(() -> handler.handle(message()))
@@ -285,6 +298,7 @@ class StrategyGenerationJobHandlerImplTest {
         ForecastCheckpoint checkpoint = ForecastCheckpoint.create(
                 context(),
                 response(),
+                81L,
                 Instant.parse("2026-08-20T00:00:00Z")
         );
         IllegalStateException cause = new IllegalStateException("unexpected validation failure");
@@ -342,6 +356,7 @@ class StrategyGenerationJobHandlerImplTest {
         ForecastCheckpoint checkpoint = ForecastCheckpoint.create(
                 context(),
                 response(),
+                81L,
                 Instant.parse("2026-08-20T00:00:00Z")
         );
         IllegalStateException cause = new IllegalStateException("unexpected validation failure");
@@ -473,7 +488,8 @@ class StrategyGenerationJobHandlerImplTest {
                 LocalDate.of(2026, 8, 20),
                 1,
                 "forecast-run-1",
-                3L,
+                "stockit-demand-lightgbm",
+                "3",
                 OffsetDateTime.parse("2026-08-20T10:15:30+09:00"),
                 List.of(new SalesPointForecast(
                         10L,

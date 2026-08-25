@@ -107,7 +107,9 @@ public class StrategyCalculationContextLoaderImpl
                 strategyCase,
                 payload,
                 checkpoint.forecastResponse(),
+                checkpoint.modelVersionId(),
                 forecastContext.expectedSalesPointIds(),
+                forecastContext.requestHash(),
                 calculatedAt
         );
     }
@@ -173,7 +175,9 @@ public class StrategyCalculationContextLoaderImpl
             StrategyCaseVO strategyCase,
             StrategyCaseRequestPayload payload,
             StrategyForecastResponse forecast,
+            Long modelVersionId,
             List<Long> expectedSalesPointIds,
+            String forecastRequestHash,
             LocalDateTime calculatedAt
     ) {
         LocalDate asOfDate = calculatedAt.toLocalDate();
@@ -313,8 +317,9 @@ public class StrategyCalculationContextLoaderImpl
                 salesPoints,
                 new StrategyCalculationContext.ForecastMetadata(
                         forecast.forecastRunId(),
-                        forecast.modelVersionId(),
-                        forecast.forecastGeneratedAt()
+                        modelVersionId,
+                        forecast.forecastGeneratedAt(),
+                        forecastRequestHash
                 )
         );
     }

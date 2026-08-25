@@ -6,41 +6,31 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
-import java.util.stream.Collectors;
-
 import org.springframework.stereotype.Component;
-
-import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculationContext;
-import com.stockit.backend.feature.strategy.result.StrategyGenerationResult;
 
 /** 선택된 전략을 Teams Adaptive Card 웹후크 계약으로 변환한다. */
 @Component
 public class TeamsApprovalCardFactory {
 
     TeamsWebhookRequest create(TeamsApprovalMessage message) {
-        StrategyGenerationResult.Option option = message.option();
-        StrategyGenerationResult.Candidate candidate = option.candidate();
+        TeamsApprovalCardData card = message.cardData();
         List<Map<String, String>> facts = new ArrayList<>();
-        addFact(facts, "Case", message.caseName());
-        addFact(facts, "대상 상품", message.skuName() + " (" + message.skuCode() + ")");
-        addFact(facts, "전략", option.optionName());
-        addFact(facts, "전략 타입", candidate.strategyTypes().stream()
-                .map(Enum::name)
-                .collect(Collectors.joining(", ")));
-        addFact(facts, "대상 판매처", targetSalesPoints(candidate, message.calculationContext()));
-        addFact(facts, "판매 기간", period(candidate.startDate(), candidate.endDate()));
-        addFact(facts, "적용 수량", quantity(totalActionQuantity(candidate)));
-        addFact(facts, "할인율", discountRates(candidate));
-        addFact(facts, "예상 판매량", quantity(option.simulation().summary().expectedSalesQty()));
-        addFact(facts, "예상 매출", money(option.simulation().summary().expectedRevenue()));
-        addFact(facts, "예상 공헌이익", money(
-                option.simulation().summary().totalContributionMargin()
-        ));
+        addFact(facts, "Case", card.caseName());
+        addFact(facts, "대상 상품", card.skuName() + " (" + card.skuCode() + ")");
+        addFact(facts, "전략", card.optionName());
+        addFact(facts, "전략 타입", String.join(", ", card.strategyTypes()));
+        addFact(facts, "대상 판매처", String.join(", ", card.targetSalesPointNames()));
+        addFact(facts, "판매 기간", period(card.startDate(), card.endDate()));
+        addFact(facts, "적용 수량", quantity(card.targetQuantity()));
+        addFact(facts, "할인율", discountRates(card.discountRates()));
+        addFact(facts, "전략 판매가", money(card.strategyPrice()));
+        addFact(facts, "예상 판매량", quantity(card.expectedSalesQty()));
+        addFact(facts, "예상 매출", money(card.expectedRevenue()));
+        addFact(facts, "예상 공헌이익", money(card.totalContributionMargin()));
         addFact(facts, "행사 후 예상 잔여 재고", quantity(
-                option.simulation().summary().expectedRemainingQty()
+                card.expectedRemainingQty()
         ));
-        addFact(facts, "요청자", message.requesterName());
+        addFact(facts, "요청자", card.requesterName());
 
         Map<String, Object> content = new LinkedHashMap<>();
         content.put("$schema", "http://adaptivecards.io/schemas/adaptive-card.json");
@@ -60,9 +50,9 @@ public class TeamsApprovalCardFactory {
                 ),
                 Map.of(
                         "type", "TextBlock",
-                        "text", option.recommendationReason() == null
+                        "text", card.recommendationReason() == null
                                 ? "선택된 AI 추천 전략입니다."
-                                : option.recommendationReason(),
+                                : card.recommendationReason(),
                         "wrap", true,
                         "spacing", "Medium"
                 )
@@ -70,6 +60,7 @@ public class TeamsApprovalCardFactory {
 
         return new TeamsWebhookRequest(
                 "message",
+                message.deliveryKey(),
                 message.recipientEmail(),
                 List.of(new Attachment(
                         "application/vnd.microsoft.card.adaptive",
@@ -89,41 +80,13 @@ public class TeamsApprovalCardFactory {
         }
     }
 
-    private static String targetSalesPoints(
-            StrategyGenerationResult.Candidate candidate,
-            StrategyCalculationContext context
-    ) {
-        return candidate.actions().stream()
-                .map(StrategyGenerationResult.Action::targetSalesPointId)
-                .filter(Objects::nonNull)
-                .distinct()
-                .map(id -> {
-                    StrategyCalculationContext.SalesPoint point =
-                            context.salesPoints().get(id);
-                    return point == null ? String.valueOf(id) : point.salesPointName();
-                })
-                .collect(Collectors.joining(", "));
-    }
-
-    private static BigDecimal totalActionQuantity(
-            StrategyGenerationResult.Candidate candidate
-    ) {
-        return candidate.actions().stream()
-                .map(StrategyGenerationResult.Action::actionQuantity)
-                .filter(Objects::nonNull)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-    }
-
     private static String discountRates(
-            StrategyGenerationResult.Candidate candidate
+            List<BigDecimal> discountRates
     ) {
-        String rates = candidate.actions().stream()
-                .map(StrategyGenerationResult.Action::discountRate)
-                .filter(Objects::nonNull)
-                .distinct()
+        String rates = discountRates.stream()
                 .map(rate -> rate.multiply(BigDecimal.valueOf(100))
                         .stripTrailingZeros().toPlainString() + "%")
-                .collect(Collectors.joining(", "));
+                .collect(java.util.stream.Collectors.joining(", "));
         return rates.isBlank() ? "해당 없음" : rates;
     }
 
@@ -145,6 +108,7 @@ public class TeamsApprovalCardFactory {
 
     record TeamsWebhookRequest(
             String type,
+            String deliveryKey,
             String recipientEmail,
             List<Attachment> attachments
     ) {

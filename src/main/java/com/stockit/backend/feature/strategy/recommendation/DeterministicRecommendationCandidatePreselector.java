@@ -20,21 +20,19 @@ import com.stockit.backend.feature.strategy.calculation.domain.StrategyCandidate
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCandidateSimulation;
 import com.stockit.backend.feature.strategy.domain.StrategyType;
 
-/**
- * 사용자 우선순위와 전략·판매처 다양성을 보존하면서 LLM 입력 후보를 최대 20개로 축약한다.
- * 수치가 모두 불리한 동일 실행 구조만 Pareto 제거하며, 후보 ID를 마지막 tie-breaker로 사용한다.
- */
+/** 사용자 우선순위와 전략군 다양성을 보존하면서 LLM이 비교할 계산 후보를 축약한다. */
 @Component
 public class DeterministicRecommendationCandidatePreselector
         implements RecommendationCandidatePreselector {
 
     static final int MAX_CANDIDATES = 20;
+    static final int MAX_CANDIDATES_PER_FAMILY = 3;
 
     private static final Comparator<StrategyCandidateEvaluationResult.EvaluatedCandidate>
-            CANDIDATE_ORDER = Comparator
-            .comparingInt((StrategyCandidateEvaluationResult.EvaluatedCandidate value) ->
-                    value.candidate().preference().strategyPriority())
-            .thenComparingInt(value -> value.candidate().preference().targetPriority())
+            METRIC_ORDER = Comparator
+            .comparing((StrategyCandidateEvaluationResult.EvaluatedCandidate value) ->
+                            value.simulation().comparisonToBaseline().netEffect(),
+                    Comparator.nullsLast(Comparator.reverseOrder()))
             .thenComparing(value -> value.simulation().summary().expectedRemainingQty(),
                     DeterministicRecommendationCandidatePreselector::compareNullableDecimal)
             .thenComparing(value -> value.simulation().summary().expectedDisposalQty(),
@@ -48,12 +46,6 @@ public class DeterministicRecommendationCandidatePreselector
             .thenComparing(value -> value.simulation().summary().estimatedActionCost(),
                     DeterministicRecommendationCandidatePreselector::compareNullableDecimal)
             .thenComparing(value -> value.candidate().candidateId());
-
-    private static final Comparator<StrategyCandidateEvaluationResult.EvaluatedCandidate>
-            SIMPLE_EXECUTION_FIRST = Comparator
-            .comparingInt((StrategyCandidateEvaluationResult.EvaluatedCandidate value) ->
-                    value.candidate().actions().size())
-            .thenComparing(CANDIDATE_ORDER);
 
     @Override
     public RecommendationCandidateSelection select(
@@ -69,13 +61,39 @@ public class DeterministicRecommendationCandidatePreselector
             throw new IllegalArgumentException("no evaluated candidate is available");
         }
 
+        Comparator<StrategyCandidateEvaluationResult.EvaluatedCandidate> candidateOrder =
+                candidateOrder(evaluation);
         List<StrategyCandidateEvaluationResult.EvaluatedCandidate> nonRedundant =
-                removeRedundantEquivalentCandidates(unique);
+                removeRedundantEquivalentCandidates(unique, candidateOrder);
         List<StrategyCandidateEvaluationResult.EvaluatedCandidate> pareto =
-                removeDominatedCandidates(nonRedundant);
+                removeDominatedCandidates(nonRedundant, candidateOrder);
         List<StrategyCandidateEvaluationResult.EvaluatedCandidate> selected =
-                takeDiverseCandidates(pareto, MAX_CANDIDATES);
+                takeDiverseFamilyVariants(
+                        pareto, MAX_CANDIDATES, MAX_CANDIDATES_PER_FAMILY,
+                        candidateOrder
+                );
         return new RecommendationCandidateSelection(selected);
+    }
+
+    private static Comparator<StrategyCandidateEvaluationResult.EvaluatedCandidate>
+            candidateOrder(StrategyCandidateEvaluationResult evaluation) {
+        boolean userStrategyPriority = evaluation.calculationContext() != null
+                && evaluation.calculationContext().requestConstraints() != null
+                && !evaluation.calculationContext().requestConstraints()
+                .orderedStrategyTypes().isEmpty();
+        boolean userTargetPriority = evaluation.calculationContext() != null
+                && evaluation.calculationContext().requestConstraints() != null
+                && !evaluation.calculationContext().requestConstraints()
+                .orderedCandidateSalesPointIds().isEmpty();
+        return Comparator
+                .comparingInt((StrategyCandidateEvaluationResult.EvaluatedCandidate value) ->
+                        userStrategyPriority
+                                ? value.candidate().preference().strategyPriority()
+                                : 0)
+                .thenComparingInt(value -> userTargetPriority
+                        ? value.candidate().preference().targetPriority()
+                        : 0)
+                .thenComparing(METRIC_ORDER);
     }
 
     private static List<StrategyCandidateEvaluationResult.EvaluatedCandidate>
@@ -96,11 +114,15 @@ public class DeterministicRecommendationCandidatePreselector
      */
     private static List<StrategyCandidateEvaluationResult.EvaluatedCandidate>
             removeRedundantEquivalentCandidates(
-            List<StrategyCandidateEvaluationResult.EvaluatedCandidate> candidates
+            List<StrategyCandidateEvaluationResult.EvaluatedCandidate> candidates,
+            Comparator<StrategyCandidateEvaluationResult.EvaluatedCandidate> candidateOrder
     ) {
         List<StrategyCandidateEvaluationResult.EvaluatedCandidate> retained =
                 new ArrayList<>();
-        candidates.stream().sorted(SIMPLE_EXECUTION_FIRST).forEach(candidate -> {
+        candidates.stream().sorted(Comparator
+                .comparingInt((StrategyCandidateEvaluationResult.EvaluatedCandidate value) ->
+                        value.candidate().actions().size())
+                .thenComparing(candidateOrder)).forEach(candidate -> {
             boolean redundant = retained.stream().anyMatch(existing ->
                     sameSimulationOutcome(existing.simulation(), candidate.simulation())
                             && executionContainedIn(
@@ -209,12 +231,13 @@ public class DeterministicRecommendationCandidatePreselector
 
     private static List<StrategyCandidateEvaluationResult.EvaluatedCandidate>
             removeDominatedCandidates(
-            List<StrategyCandidateEvaluationResult.EvaluatedCandidate> candidates
+            List<StrategyCandidateEvaluationResult.EvaluatedCandidate> candidates,
+            Comparator<StrategyCandidateEvaluationResult.EvaluatedCandidate> candidateOrder
     ) {
         Map<CandidateSignature, List<StrategyCandidateEvaluationResult.EvaluatedCandidate>>
                 comparableGroups = new LinkedHashMap<>();
         candidates.stream()
-                .sorted(CANDIDATE_ORDER)
+                .sorted(candidateOrder)
                 .forEach(candidate -> comparableGroups
                         .computeIfAbsent(signature(candidate.candidate()), ignored ->
                                 new ArrayList<>())
@@ -234,6 +257,61 @@ public class DeterministicRecommendationCandidatePreselector
             }
         }
         return result;
+    }
+
+    /**
+     * 같은 실행 구조에서도 AI가 수량·할인율·기간의 세부 값을 비교할 수 있게 상위 변형을
+     * 유지한다. 먼저 서로 다른 전략군을 한 번씩 배치한 뒤 두 번째·세 번째 변형을 순환
+     * 추가하여 한 전략군이 LLM 입력을 독점하지 못하게 한다.
+     */
+    private static List<StrategyCandidateEvaluationResult.EvaluatedCandidate>
+            takeDiverseFamilyVariants(
+            List<StrategyCandidateEvaluationResult.EvaluatedCandidate> candidates,
+            int limit,
+            int perFamilyLimit,
+            Comparator<StrategyCandidateEvaluationResult.EvaluatedCandidate> candidateOrder
+    ) {
+        Map<RecommendationFamilyKey,
+                List<StrategyCandidateEvaluationResult.EvaluatedCandidate>> byFamily =
+                new LinkedHashMap<>();
+        candidates.stream().sorted(candidateOrder).forEach(candidate -> {
+            List<StrategyCandidateEvaluationResult.EvaluatedCandidate> familyCandidates =
+                    byFamily.computeIfAbsent(
+                            RecommendationFamilyKey.from(candidate.candidate()),
+                            ignored -> new ArrayList<>()
+                    );
+            if (familyCandidates.size() < perFamilyLimit) {
+                familyCandidates.add(candidate);
+            }
+        });
+
+        List<StrategyCandidateEvaluationResult.EvaluatedCandidate> representatives =
+                byFamily.values().stream().map(values -> values.get(0)).toList();
+        List<StrategyCandidateEvaluationResult.EvaluatedCandidate> familyOrder =
+                takeDiverseCandidates(
+                        representatives, representatives.size(), candidateOrder
+                );
+
+        List<StrategyCandidateEvaluationResult.EvaluatedCandidate> selected =
+                new ArrayList<>();
+        for (int variantIndex = 0;
+                variantIndex < perFamilyLimit && selected.size() < limit;
+                variantIndex++) {
+            for (StrategyCandidateEvaluationResult.EvaluatedCandidate representative
+                    : familyOrder) {
+                List<StrategyCandidateEvaluationResult.EvaluatedCandidate> variants =
+                        byFamily.get(RecommendationFamilyKey.from(
+                                representative.candidate()
+                        ));
+                if (variantIndex < variants.size()) {
+                    selected.add(variants.get(variantIndex));
+                }
+                if (selected.size() >= limit) {
+                    break;
+                }
+            }
+        }
+        return List.copyOf(selected);
     }
 
     private static boolean dominates(
@@ -276,21 +354,17 @@ public class DeterministicRecommendationCandidatePreselector
     private static List<StrategyCandidateEvaluationResult.EvaluatedCandidate>
             takeDiverseCandidates(
             List<StrategyCandidateEvaluationResult.EvaluatedCandidate> candidates,
-            int limit
+            int limit,
+            Comparator<StrategyCandidateEvaluationResult.EvaluatedCandidate> candidateOrder
     ) {
         Map<StrategyType, Map<String,
                 Deque<StrategyCandidateEvaluationResult.EvaluatedCandidate>>> buckets =
-                new TreeMap<>(Comparator
-                        .comparingInt((StrategyType type) -> strategyOrder(candidates, type))
-                        .thenComparing(StrategyType::name));
+                new LinkedHashMap<>();
 
-        candidates.stream().sorted(CANDIDATE_ORDER).forEach(candidate -> {
+        candidates.stream().sorted(candidateOrder).forEach(candidate -> {
             StrategyType type = candidate.candidate().strategyTypes().get(0);
             String target = targetKey(candidate.candidate());
-            buckets.computeIfAbsent(type, ignored -> new TreeMap<>(Comparator
-                            .comparingInt((String key) ->
-                                    targetOrder(candidates, type, key))
-                            .thenComparing(String::compareTo)))
+            buckets.computeIfAbsent(type, ignored -> new LinkedHashMap<>())
                     .computeIfAbsent(target, ignored -> new ArrayDeque<>())
                     .add(candidate);
         });
@@ -340,28 +414,6 @@ public class DeterministicRecommendationCandidatePreselector
             }
         }
         return null;
-    }
-
-    private static int strategyOrder(
-            List<StrategyCandidateEvaluationResult.EvaluatedCandidate> candidates,
-            StrategyType type
-    ) {
-        return candidates.stream()
-                .filter(value -> value.candidate().strategyTypes().get(0) == type)
-                .mapToInt(value -> value.candidate().preference().strategyPriority())
-                .min().orElse(Integer.MAX_VALUE);
-    }
-
-    private static int targetOrder(
-            List<StrategyCandidateEvaluationResult.EvaluatedCandidate> candidates,
-            StrategyType type,
-            String targetKey
-    ) {
-        return candidates.stream()
-                .filter(value -> value.candidate().strategyTypes().get(0) == type)
-                .filter(value -> targetKey(value.candidate()).equals(targetKey))
-                .mapToInt(value -> value.candidate().preference().targetPriority())
-                .min().orElse(Integer.MAX_VALUE);
     }
 
     private static CandidateSignature signature(StrategyCandidate candidate) {

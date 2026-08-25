@@ -1,6 +1,7 @@
 package com.stockit.backend.feature.strategy.result;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -54,6 +55,62 @@ class StrategyGenerationResultSerializationTest {
         assertThat(restored).isEqualTo(original);
         assertThat(restored.options()).isEmpty();
         assertThat(restored.providerMetadata()).isNull();
+    }
+
+    @Test
+    void rejectsDuplicateCandidateIdsAtRedisResultBoundary() {
+        StrategyGenerationResult valid = result();
+        StrategyGenerationResult.Option option = valid.options().get(0);
+
+        assertThatThrownBy(() -> new StrategyGenerationResult(
+                valid.schemaVersion(),
+                valid.strategyCaseId(),
+                valid.generatedAt(),
+                valid.baselineSimulation(),
+                List.of(option, option),
+                null,
+                valid.providerMetadata()
+        )).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("candidate is invalid");
+    }
+
+    @Test
+    void rejectsCandidateWhoseStartDateIsAfterEndDate() {
+        StrategyGenerationResult valid = result();
+        StrategyGenerationResult.Option option = valid.options().get(0);
+        StrategyGenerationResult.Candidate candidate = option.candidate();
+        StrategyGenerationResult.Candidate invalidCandidate =
+                new StrategyGenerationResult.Candidate(
+                        candidate.candidateId(),
+                        candidate.strategyTypes(),
+                        candidate.endDate(),
+                        candidate.startDate(),
+                        candidate.actions(),
+                        candidate.assumptions(),
+                        candidate.preference(),
+                        candidate.maxExecutableQty()
+                );
+        StrategyGenerationResult.Option invalidOption =
+                new StrategyGenerationResult.Option(
+                        option.rank(),
+                        option.optionName(),
+                        option.recommendationReason(),
+                        option.advantage(),
+                        option.caution(),
+                        invalidCandidate,
+                        option.simulation()
+                );
+
+        assertThatThrownBy(() -> new StrategyGenerationResult(
+                valid.schemaVersion(),
+                valid.strategyCaseId(),
+                valid.generatedAt(),
+                valid.baselineSimulation(),
+                List.of(invalidOption),
+                null,
+                valid.providerMetadata()
+        )).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("candidate is invalid");
     }
 
     private static StrategyGenerationResult result() {
