@@ -19,7 +19,8 @@ import com.stockit.backend.feature.strategy.result.StrategyGenerationResult;
 public class TeamsApprovalCardFactory {
 
     TeamsWebhookRequest create(TeamsApprovalMessage message) {
-        StrategyGenerationResult.Option option = message.option();
+        ResolvedStrategySelection resolved = message.resolvedSelection();
+        StrategyGenerationResult.Option option = resolved.option();
         StrategyGenerationResult.Candidate candidate = option.candidate();
         List<Map<String, String>> facts = new ArrayList<>();
         addFact(facts, "Case", message.caseName());
@@ -28,9 +29,13 @@ public class TeamsApprovalCardFactory {
         addFact(facts, "전략 타입", candidate.strategyTypes().stream()
                 .map(Enum::name)
                 .collect(Collectors.joining(", ")));
-        addFact(facts, "대상 판매처", targetSalesPoints(candidate, message.calculationContext()));
-        addFact(facts, "판매 기간", period(candidate.startDate(), candidate.endDate()));
-        addFact(facts, "적용 수량", quantity(totalActionQuantity(candidate)));
+        addFact(facts, "대상 판매처", targetSalesPoints(
+                candidate, resolved.calculationContext()
+        ));
+        addFact(facts, "판매 기간", period(
+                candidate.startDate(), resolved.evaluationEndDate()
+        ));
+        addFact(facts, "적용 수량", quantity(resolved.targetQuantity()));
         addFact(facts, "할인율", discountRates(candidate));
         addFact(facts, "예상 판매량", quantity(option.simulation().summary().expectedSalesQty()));
         addFact(facts, "예상 매출", money(option.simulation().summary().expectedRevenue()));
@@ -103,15 +108,6 @@ public class TeamsApprovalCardFactory {
                     return point == null ? String.valueOf(id) : point.salesPointName();
                 })
                 .collect(Collectors.joining(", "));
-    }
-
-    private static BigDecimal totalActionQuantity(
-            StrategyGenerationResult.Candidate candidate
-    ) {
-        return candidate.actions().stream()
-                .map(StrategyGenerationResult.Action::actionQuantity)
-                .filter(Objects::nonNull)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
     private static String discountRates(

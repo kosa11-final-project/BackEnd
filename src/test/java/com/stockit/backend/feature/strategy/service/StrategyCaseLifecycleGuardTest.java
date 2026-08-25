@@ -45,6 +45,16 @@ class StrategyCaseLifecycleGuardTest {
     }
 
     @Test
+    void allowsReadyCaseForIdempotentFinalSelectionWhileResultIsLive() {
+        AiStrategyCaseDetailVO strategyCase = generatedCase(NOW.plusDays(1));
+        strategyCase.setCaseStatus(StrategyCaseStatus.READY_TO_EXECUTE);
+        when(detailMapper.selectCaseDetail(123L)).thenReturn(strategyCase);
+        when(dateTimeProvider.now()).thenReturn(NOW);
+
+        assertThat(guard.requireSelectable(123L)).isSameAs(strategyCase);
+    }
+
+    @Test
     void rejectsCaseWhoseGenerationIsStillInProgress() {
         AiStrategyCaseDetailVO strategyCase = generatedCase(NOW.plusDays(1));
         strategyCase.setCaseStatus(StrategyCaseStatus.GENERATING);

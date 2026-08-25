@@ -27,6 +27,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import com.stockit.backend.common.exception.AppException;
 import com.stockit.backend.common.exception.ErrorCode;
+import com.stockit.backend.feature.strategy.calculation.candidate.domain.CandidateExclusion;
+import com.stockit.backend.feature.strategy.calculation.candidate.domain.CandidateExclusionReason;
 import com.stockit.backend.feature.strategy.calculation.candidate.domain.CandidateGenerationResult;
 import com.stockit.backend.feature.strategy.calculation.candidate.domain.StrategyCandidate;
 import com.stockit.backend.feature.strategy.calculation.candidate.policy.StrategyPeriodEligibilityPolicy;
@@ -218,6 +220,71 @@ class StrategyAdjustmentSimulationServiceImplTest {
                 exception -> assertThat(exception.getErrorCode())
                         .isEqualTo(ErrorCode.AI_STRATEGY_RESULT_EXPIRED)
         );
+    }
+
+    @Test
+    void reportsSellableEndExceededForMatchingSelectionExclusion() {
+        stubSelection(new CandidateGenerationResult(
+                List.of(),
+                List.of(new CandidateExclusion(
+                        StrategyType.PRICE_DISCOUNT,
+                        10L,
+                        CandidateExclusionReason.LOT_NOT_SELLABLE_IN_PERIOD,
+                        "LOT 판매 가능 기간을 초과했습니다."
+                ))
+        ));
+
+        assertThatThrownBy(() -> service.simulate(
+                1L,
+                "CAND-1",
+                new AdjustStrategySimulationCommand(
+                        decimal("6"), decimal("0.15"), START, END
+                )
+        )).isInstanceOfSatisfying(
+                AppException.class,
+                exception -> assertThat(exception.getErrorCode())
+                        .isEqualTo(ErrorCode.AI_STRATEGY_SELLABLE_END_EXCEEDED)
+        );
+    }
+
+    @Test
+    void doesNotMisclassifyQuantityMismatchAsSellableEndExceeded() {
+        stubSelection(new CandidateGenerationResult(
+                List.of(baseCandidate()),
+                List.of(new CandidateExclusion(
+                        StrategyType.PRICE_DISCOUNT,
+                        10L,
+                        CandidateExclusionReason.LOT_NOT_SELLABLE_IN_PERIOD,
+                        "다른 수량 변형의 LOT 판매 가능 기간을 초과했습니다."
+                ))
+        ));
+
+        assertThatThrownBy(() -> service.simulate(
+                1L,
+                "CAND-1",
+                new AdjustStrategySimulationCommand(
+                        decimal("11"), decimal("0.15"), START, END
+                )
+        )).isInstanceOfSatisfying(
+                AppException.class,
+                exception -> assertThat(exception.getErrorCode())
+                        .isEqualTo(ErrorCode.AI_STRATEGY_SIMULATION_INVALID)
+        );
+    }
+
+    private void stubSelection(CandidateGenerationResult generated) {
+        StrategyGenerationResult result = mock(StrategyGenerationResult.class);
+        StrategyGenerationResult.Option option = mock(
+                StrategyGenerationResult.Option.class
+        );
+        when(resultStore.find(1L)).thenReturn(Optional.of(result));
+        when(contextStore.find(1L)).thenReturn(Optional.of(context()));
+        when(result.options()).thenReturn(List.of(option));
+        when(option.candidate()).thenReturn(template());
+        when(dateTimeProvider.now()).thenReturn(
+                LocalDateTime.of(2026, 8, 20, 10, 0)
+        );
+        when(generationService.generate(any())).thenReturn(generated);
     }
 
     private static StrategyGenerationResult.Candidate template() {

@@ -180,6 +180,7 @@ public class AiStrategyController {
         return ApiResponse.of(approvalService.sendToTeams(
                 strategyCaseId,
                 request.optionId(),
+                request.toAdjustmentCommand(),
                 request.reviewerIds(),
                 authenticated.getUserId(),
                 authenticated.getUserName(),
