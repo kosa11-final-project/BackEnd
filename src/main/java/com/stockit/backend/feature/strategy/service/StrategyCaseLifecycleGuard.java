@@ -25,6 +25,25 @@ public class StrategyCaseLifecycleGuard {
     }
 
     public AiStrategyCaseDetailVO requireAdjustable(Long strategyCaseId) {
+        AiStrategyCaseDetailVO strategyCase = requireResultBacked(strategyCaseId);
+        if (strategyCase.getCaseStatus() != StrategyCaseStatus.GENERATED) {
+            throw new AppException(ErrorCode.AI_STRATEGY_CASE_NOT_READY);
+        }
+        return strategyCase;
+    }
+
+    /** 최초 선택과 Redis TTL 안의 동일 선택 멱등 재요청을 허용한다. */
+    public AiStrategyCaseDetailVO requireSelectable(Long strategyCaseId) {
+        AiStrategyCaseDetailVO strategyCase = requireResultBacked(strategyCaseId);
+        if (strategyCase.getCaseStatus() != StrategyCaseStatus.GENERATED
+                && strategyCase.getCaseStatus()
+                != StrategyCaseStatus.READY_TO_EXECUTE) {
+            throw new AppException(ErrorCode.AI_STRATEGY_CASE_NOT_READY);
+        }
+        return strategyCase;
+    }
+
+    private AiStrategyCaseDetailVO requireResultBacked(Long strategyCaseId) {
         if (strategyCaseId == null || strategyCaseId <= 0) {
             throw new AppException(ErrorCode.AI_STRATEGY_CASE_NOT_FOUND);
         }
@@ -37,8 +56,7 @@ public class StrategyCaseLifecycleGuard {
         if (strategyCase.getCaseStatus() == StrategyCaseStatus.EXPIRED) {
             throw new AppException(ErrorCode.AI_STRATEGY_RESULT_EXPIRED);
         }
-        if (strategyCase.getCaseStatus() != StrategyCaseStatus.GENERATED
-                || strategyCase.getGenerationStage()
+        if (strategyCase.getGenerationStage()
                 != StrategyGenerationStage.COMPARISON_READY) {
             throw new AppException(ErrorCode.AI_STRATEGY_CASE_NOT_READY);
         }

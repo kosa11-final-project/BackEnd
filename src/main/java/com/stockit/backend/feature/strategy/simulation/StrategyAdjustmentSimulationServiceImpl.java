@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 import com.stockit.backend.common.exception.AppException;
 import com.stockit.backend.common.exception.ErrorCode;
 import com.stockit.backend.feature.strategy.calculation.candidate.domain.CandidateGenerationResult;
+import com.stockit.backend.feature.strategy.calculation.candidate.domain.CandidateExclusionReason;
 import com.stockit.backend.feature.strategy.calculation.candidate.domain.StrategyCandidate;
 import com.stockit.backend.feature.strategy.calculation.candidate.policy.StrategyPeriodEligibilityPolicy;
 import com.stockit.backend.feature.strategy.calculation.candidate.policy.StrategyPeriodEligibilityPolicy.PeriodConstraints;
@@ -81,8 +82,60 @@ public class StrategyAdjustmentSimulationServiceImpl
             String candidateId,
             AdjustStrategySimulationCommand command
     ) {
+        ResolvedStrategyAdjustment resolved = resolve(
+                strategyCaseId,
+                candidateId,
+                command,
+                null
+        );
+        return response(
+                strategyCaseId,
+                resolved.originalOption().candidate(),
+                resolved.adjustedContext(),
+                resolved.adjustedCandidate(),
+                resolved.command(),
+                resolved.periodConstraints(),
+                resolved.simulation()
+        );
+    }
+
+    @Override
+    public ResolvedStrategyAdjustment resolve(
+            Long strategyCaseId,
+            String candidateId,
+            AdjustStrategySimulationCommand command,
+            LocalDate businessDate
+    ) {
+        return resolveInternal(
+                strategyCaseId, candidateId, command, businessDate, false
+        );
+    }
+
+    @Override
+    public ResolvedStrategyAdjustment resolveForSelection(
+            Long strategyCaseId,
+            String candidateId,
+            AdjustStrategySimulationCommand command,
+            LocalDate businessDate
+    ) {
+        return resolveInternal(
+                strategyCaseId, candidateId, command, businessDate, true
+        );
+    }
+
+    private ResolvedStrategyAdjustment resolveInternal(
+            Long strategyCaseId,
+            String candidateId,
+            AdjustStrategySimulationCommand command,
+            LocalDate businessDate,
+            boolean selectionRequest
+    ) {
         validateIdentity(strategyCaseId, candidateId);
-        lifecycleGuard.requireAdjustable(strategyCaseId);
+        if (selectionRequest) {
+            lifecycleGuard.requireSelectable(strategyCaseId);
+        } else {
+            lifecycleGuard.requireAdjustable(strategyCaseId);
+        }
         StrategyGenerationResult result = loadResult(strategyCaseId);
         StrategyCalculationContext originalContext = loadContext(strategyCaseId);
         StrategyGenerationResult.Option option = result.options().stream()
@@ -91,12 +144,14 @@ public class StrategyAdjustmentSimulationServiceImpl
                 .orElseThrow(() -> new AppException(
                         ErrorCode.AI_STRATEGY_CANDIDATE_NOT_FOUND
                 ));
-        LocalDate businessDate = dateTimeProvider.now().toLocalDate();
+        LocalDate effectiveBusinessDate = businessDate == null
+                ? dateTimeProvider.now().toLocalDate()
+                : businessDate;
         validateCommand(
                 originalContext,
                 option.candidate(),
                 command,
-                businessDate
+                effectiveBusinessDate
         );
 
         StrategyCalculationContext adjustedContext = adjustedContext(
@@ -128,7 +183,7 @@ public class StrategyAdjustmentSimulationServiceImpl
                 command.startDate(),
                 command.endDate(),
                 allocatedInventoryBalanceIds,
-                businessDate
+                effectiveBusinessDate
         );
         try {
             StrategyCandidateSimulation simulation = simulationEngine.simulate(
@@ -137,14 +192,14 @@ public class StrategyAdjustmentSimulationServiceImpl
                     result.baselineSimulation(),
                     SimulationDetailLevel.WITH_DAILY_SERIES
             );
-            return response(
-                    strategyCaseId,
-                    option.candidate(),
+            return new ResolvedStrategyAdjustment(
+                    result,
+                    option,
                     adjustedContext,
                     adjustedCandidate,
-                    command,
                     periodConstraints,
-                    simulation
+                    simulation,
+                    command
             );
         } catch (CandidateSimulationException exception) {
             throw new AppException(
@@ -276,7 +331,7 @@ public class StrategyAdjustmentSimulationServiceImpl
     ) {
         StrategyType generationType = generationType(template.strategyTypes());
         Set<Long> targets = new LinkedHashSet<>(targetSalesPointIds(template));
-        return generated.candidates().stream()
+        StrategyCandidate selected = generated.candidates().stream()
                 .filter(candidate -> candidate.strategyTypes().contains(generationType))
                 .filter(candidate -> movementTargets(candidate).equals(targets))
                 .filter(candidate -> candidate.startDate().equals(command.startDate()))
@@ -293,10 +348,21 @@ public class StrategyAdjustmentSimulationServiceImpl
                 ))
                 .filter(candidate -> allocatedQuantity(candidate).compareTo(
                         command.actionQuantity()) >= 0)
-                .orElseThrow(() -> new AppException(
-                        ErrorCode.AI_STRATEGY_SIMULATION_INVALID,
-                        "조정 기간의 재고·수요 조건으로 요청 수량을 실행할 수 없습니다."
-                ));
+                .orElse(null);
+        if (selected != null) return selected;
+        boolean sellableEndExceeded = generated.exclusions().stream()
+                .anyMatch(exclusion -> exclusion.reason()
+                        == CandidateExclusionReason.LOT_NOT_SELLABLE_IN_PERIOD);
+        if (sellableEndExceeded) {
+            throw new AppException(
+                    ErrorCode.AI_STRATEGY_SELLABLE_END_EXCEEDED,
+                    "조정 기간 안에 판매 가능한 LOT를 배정할 수 없습니다."
+            );
+        }
+        throw new AppException(
+                ErrorCode.AI_STRATEGY_SIMULATION_INVALID,
+                "조정 기간의 재고·수요 조건으로 요청 수량을 실행할 수 없습니다."
+        );
     }
 
     private StrategyCandidate resizeAndApplyDiscount(

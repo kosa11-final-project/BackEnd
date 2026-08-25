@@ -292,8 +292,17 @@ public record StrategyCalculationContext(
     public record ForecastMetadata(
             String forecastRunId,
             Long modelVersionId,
-            OffsetDateTime forecastGeneratedAt
+            OffsetDateTime forecastGeneratedAt,
+            String requestHash
     ) {
+        public ForecastMetadata(
+                String forecastRunId,
+                Long modelVersionId,
+                OffsetDateTime forecastGeneratedAt
+        ) {
+            this(forecastRunId, modelVersionId, forecastGeneratedAt, null);
+        }
+
         public ForecastMetadata {
             if (forecastRunId == null || forecastRunId.isBlank()
                     || modelVersionId == null || modelVersionId <= 0
