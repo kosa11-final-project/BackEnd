@@ -3,6 +3,24 @@
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.stockit.backend.feature.strategy.mapper.StrategyApprovalMapper">
 
+    <select id="selectCase" resultType="com.stockit.backend.feature.strategy.approval.StrategyApprovalRecords$CaseRecord">
+        SELECT strategy_case.strategy_case_id,
+               strategy_case.sku_id,
+               strategy_case.case_name,
+               strategy_case.case_status,
+               strategy_case.generation_stage,
+               strategy_case.result_expires_at,
+               strategy_case.result_cache_key,
+               requester.user_id AS requester_id,
+               requester.user_name AS requester_name,
+               requester.organization_id AS requester_organization_id
+        FROM strategy_case
+        JOIN app_user requester
+          ON requester.user_id = strategy_case.created_by
+        WHERE strategy_case.strategy_case_id = #{strategyCaseId}
+          AND strategy_case.is_deleted = 0
+    </select>
+
     <select id="selectCaseForUpdate" resultType="com.stockit.backend.feature.strategy.approval.StrategyApprovalRecords$CaseRecord">
         SELECT strategy_case.strategy_case_id,
                strategy_case.sku_id,

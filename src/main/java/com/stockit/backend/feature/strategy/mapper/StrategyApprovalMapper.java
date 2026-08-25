@@ -25,6 +25,8 @@ import com.stockit.backend.feature.strategy.approval.StrategyReviewStatus;
 @Mapper
 public interface StrategyApprovalMapper {
 
+    CaseRecord selectCase(@Param("strategyCaseId") Long strategyCaseId);
+
     CaseRecord selectCaseForUpdate(@Param("strategyCaseId") Long strategyCaseId);
 
     ExistingSelectionRecord selectExistingSelection(

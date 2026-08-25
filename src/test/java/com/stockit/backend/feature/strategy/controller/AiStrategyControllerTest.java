@@ -35,6 +35,7 @@ import com.stockit.backend.feature.strategy.domain.StrategyCaseStatus;
 import com.stockit.backend.feature.strategy.approval.StrategyReviewStatus;
 import com.stockit.backend.feature.strategy.dto.response.AiStrategyReviewerListResponse;
 import com.stockit.backend.feature.strategy.dto.response.AiStrategyTeamsRequestResponse;
+import com.stockit.backend.feature.strategy.dto.response.AiStrategySelectionValidationResponse;
 import com.stockit.backend.feature.strategy.dto.response.AiStrategyTeamsRequestResponse.DeliveryStatus;
 import com.stockit.backend.feature.strategy.dto.response.AiStrategyCaseResponse;
 import com.stockit.backend.feature.strategy.dto.response.AiStrategyCaseListPageResponse;
@@ -48,6 +49,7 @@ import com.stockit.backend.feature.strategy.service.AiStrategyApprovalRetryServi
 import com.stockit.backend.feature.strategy.service.AiStrategyCaseListService;
 import com.stockit.backend.feature.strategy.service.AiStrategyCaseQueryService;
 import com.stockit.backend.feature.strategy.service.AiStrategyReviewerService;
+import com.stockit.backend.feature.strategy.service.AiStrategySelectionValidationService;
 import com.stockit.backend.feature.strategy.simulation.AdjustStrategySimulationCommand;
 import com.stockit.backend.feature.strategy.service.StrategyCaseService;
 import com.stockit.backend.feature.strategy.simulation.StrategyAdjustmentSimulationService;
@@ -68,6 +70,7 @@ class AiStrategyControllerTest {
     @MockitoBean private AiStrategyCaseListService listService;
     @MockitoBean private StrategyAdjustmentSimulationService adjustmentSimulationService;
     @MockitoBean private AiStrategyReviewerService reviewerService;
+    @MockitoBean private AiStrategySelectionValidationService selectionValidationService;
     @MockitoBean private AiStrategyApprovalService approvalService;
     @MockitoBean private AiStrategyApprovalRetryService approvalRetryService;
 
@@ -292,6 +295,80 @@ class AiStrategyControllerTest {
                         .value("READY_TO_EXECUTE"))
                 .andExpect(jsonPath("$.data.deliveryStatus").value("SENT"))
                 .andExpect(jsonPath("$.data.reviewers.length()").value(2));
+    }
+
+    @Test
+    void validatesAdjustedFinalOptionBeforeReviewerSelection() throws Exception {
+        AdjustStrategySimulationCommand adjusted = new AdjustStrategySimulationCommand(
+                decimal("29"), decimal("0.1500"),
+                LocalDate.of(2026, 8, 25), LocalDate.of(2026, 8, 31)
+        );
+        when(selectionValidationService.validate(
+                123L, "CAND-1", adjusted, 1L
+        )).thenReturn(new AiStrategySelectionValidationResponse(
+                123L,
+                "CAND-1",
+                true,
+                com.stockit.backend.feature.strategy.approval
+                        .StrategySelectionInputSource.USER_SELECT,
+                decimal("29"),
+                LocalDate.of(2026, 8, 25),
+                LocalDate.of(2026, 8, 31),
+                LocalDateTime.of(2026, 8, 25, 18, 30)
+        ));
+
+        CsrfCredentials csrf = requestCsrf();
+        mockMvc.perform(post("/api/v1/ai-strategies/123/selection-validations")
+                        .with(user(adminPrincipal()))
+                        .cookie(csrf.cookie())
+                        .header(csrf.headerName(), csrf.token())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "optionId": "CAND-1",
+                                  "adjustedConditions": {
+                                    "actionQuantity": 29,
+                                    "discountRate": 0.1500,
+                                    "startDate": "2026-08-25",
+                                    "endDate": "2026-08-31"
+                                  }
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.valid").value(true))
+                .andExpect(jsonPath("$.data.optionId").value("CAND-1"))
+                .andExpect(jsonPath("$.data.selectionSource")
+                        .value("USER_SELECT"))
+                .andExpect(jsonPath("$.data.actionQuantity").value(29))
+                .andExpect(jsonPath("$.data.validatedAt")
+                        .value("2026-08-25T18:30:00"));
+    }
+
+    @Test
+    void returnsBusinessErrorCodeWhenFinalOptionPrevalidationConflicts()
+            throws Exception {
+        when(selectionValidationService.validate(
+                123L, "CAND-1", null, 1L
+        )).thenThrow(new AppException(
+                ErrorCode.AI_STRATEGY_SELECTION_CONFLICT,
+                "최종 선택 수량이 현재 안전재고를 침해합니다."
+        ));
+
+        CsrfCredentials csrf = requestCsrf();
+        mockMvc.perform(post("/api/v1/ai-strategies/123/selection-validations")
+                        .with(user(adminPrincipal()))
+                        .cookie(csrf.cookie())
+                        .header(csrf.headerName(), csrf.token())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "optionId": "CAND-1"
+                                }
+                                """))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("AI_STRATEGY-017"))
+                .andExpect(jsonPath("$.message")
+                        .value("최종 선택 수량이 현재 안전재고를 침해합니다."));
     }
 
     @Test
