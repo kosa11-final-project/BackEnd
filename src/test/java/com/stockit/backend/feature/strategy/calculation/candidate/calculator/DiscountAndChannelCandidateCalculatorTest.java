@@ -71,7 +71,8 @@ class DiscountAndChannelCandidateCalculatorTest {
                         capacityPolicy,
                         new TargetAdditionalDemandPolicy(),
                         allocationPolicy,
-                        idGenerator
+                        idGenerator,
+                        new InventoryTransferCostCalculator()
                 );
         DiscountSimulationProperties discountProperties =
                 new DiscountSimulationProperties();
@@ -251,7 +252,6 @@ class DiscountAndChannelCandidateCalculatorTest {
                     StrategyType.RT_TRANSFER
             );
             assertThat(candidate.assumptions()).containsExactlyInAnyOrder(
-                    CandidateAssumption.TRANSFER_COST_EXCLUDED,
                     CandidateAssumption.TARGET_COMMERCIAL_TERMS_COPIED_FROM_SOURCE
             );
             assertThat(candidate.actions().get(0).target().warehouseId())
@@ -395,7 +395,9 @@ class DiscountAndChannelCandidateCalculatorTest {
                 original.referenceInventory(),
                 original.inventoryPolicies(),
                 salesPoints,
-                original.forecastMetadata()
+                original.forecastMetadata(),
+                original.transferRoutes(),
+                original.transferCostPolicies()
         );
     }
 
@@ -422,7 +424,9 @@ class DiscountAndChannelCandidateCalculatorTest {
                 original.referenceInventory(),
                 original.inventoryPolicies(),
                 original.salesPoints(),
-                original.forecastMetadata()
+                original.forecastMetadata(),
+                original.transferRoutes(),
+                original.transferCostPolicies()
         );
     }
 
@@ -475,7 +479,8 @@ class DiscountAndChannelCandidateCalculatorTest {
                 START,
                 END,
                 new StrategyCalculationContext.Sku(
-                        101L, "SKU-101", "테스트 SKU", "EA", BigDecimal.ONE
+                        101L, "SKU-101", "테스트 SKU", "EA", BigDecimal.ONE,
+                        new BigDecimal("0.5"), "KG"
                 ),
                 decimal("50"),
                 new StrategyCalculationContext.RequestConstraints(
@@ -498,7 +503,23 @@ class DiscountAndChannelCandidateCalculatorTest {
                                 2026, 8, 20, 9, 0, 0, 0,
                                 ZoneOffset.ofHours(9)
                         )
-                )
+                ),
+                List.of(new StrategyCalculationContext.TransferRoute(
+                        9001L,
+                        new StrategyCalculationContext.PhysicalLocation(501L, null),
+                        new StrategyCalculationContext.PhysicalLocation(502L, null),
+                        new BigDecimal("100"),
+                        "DUMMY",
+                        null,
+                        null
+                )),
+                List.of(new StrategyCalculationContext.TransferCostPolicy(
+                        8001L,
+                        "DUMMY-COMMON",
+                        new BigDecimal("2"),
+                        START.minusDays(1),
+                        null
+                ))
         );
     }
 

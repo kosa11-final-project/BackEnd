@@ -9,7 +9,9 @@
                s.sku_code,
                s.sku_name,
                s.unit_code,
-               s.package_quantity
+               s.package_quantity,
+               s.net_weight,
+               s.weight_unit
         FROM sku s
         WHERE s.sku_id = #{skuId}
           AND s.active_yn = 'Y'
@@ -129,5 +131,37 @@
                  CASE WHEN spw.priority_no IS NULL THEN 1 ELSE 0 END,
                  spw.priority_no,
                  spw.sales_point_warehouse_id
+    </select>
+
+    <select id="selectActiveTransferRoutes"
+            resultType="com.stockit.backend.feature.strategy.calculation.vo.StrategyCalculationTransferRouteVO">
+        SELECT itr.transfer_route_id,
+               itr.source_warehouse_id,
+               itr.source_sales_point_id,
+               itr.destination_warehouse_id,
+               itr.destination_sales_point_id,
+               itr.distance_km,
+               itr.distance_source,
+               itr.distance_route_option,
+               itr.distance_calculated_at
+        FROM inventory_transfer_route itr
+        WHERE itr.active_yn = 'Y'
+          AND itr.is_deleted = 0
+        ORDER BY itr.transfer_route_id
+    </select>
+
+    <select id="selectTransferCostPolicies"
+            resultType="com.stockit.backend.feature.strategy.calculation.vo.StrategyCalculationTransferCostPolicyVO">
+        SELECT itcp.transfer_cost_policy_id,
+               itcp.policy_code,
+               itcp.cost_per_kg_km,
+               itcp.effective_from,
+               itcp.effective_to
+        FROM inventory_transfer_cost_policy itcp
+        WHERE itcp.active_yn = 'Y'
+          AND itcp.is_deleted = 0
+          AND itcp.effective_from &lt;= #{rangeEndDate}
+          AND (itcp.effective_to IS NULL OR itcp.effective_to &gt;= #{rangeStartDate})
+        ORDER BY itcp.effective_from, itcp.transfer_cost_policy_id
     </select>
 </mapper>

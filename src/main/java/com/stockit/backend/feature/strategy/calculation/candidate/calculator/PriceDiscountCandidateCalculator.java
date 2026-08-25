@@ -167,7 +167,7 @@ public class PriceDiscountCandidateCalculator implements StrategyCandidateCalcul
                 BigDecimal discountedDemandTotal = sum(discountedDemand.values());
                 MovementCandidatePlan maximumPlan = allocationPolicy.plan(
                         projectedContext.evaluationInventory(),
-                        sourceCapacity.byWarehouse(),
+                        sourceCapacity.byLocation(),
                         discountedDemand,
                         sourceCapacity.total().min(discountedDemandTotal)
                 );
@@ -256,7 +256,7 @@ public class PriceDiscountCandidateCalculator implements StrategyCandidateCalcul
                     ? maximumPlan
                     : allocationPolicy.plan(
                             context.evaluationInventory(),
-                            sourceCapacity.byWarehouse(),
+                            sourceCapacity.byLocation(),
                             periodDemand,
                             requested
                     );

@@ -32,8 +32,45 @@ public record StrategyCalculationContext(
         List<InventoryLot> referenceInventory,
         List<InventoryPolicy> inventoryPolicies,
         Map<Long, SalesPoint> salesPoints,
-        ForecastMetadata forecastMetadata
+        ForecastMetadata forecastMetadata,
+        List<TransferRoute> transferRoutes,
+        List<TransferCostPolicy> transferCostPolicies
 ) {
+
+    /** V30 이전 계산 문맥을 만드는 테스트·호출부와의 소스 호환용 생성자. */
+    public StrategyCalculationContext(
+            Long strategyCaseId,
+            Long sourceSalesPointId,
+            LocalDateTime calculatedAt,
+            LocalDate forecastStartDate,
+            LocalDate forecastEndDate,
+            Sku sku,
+            BigDecimal unitCost,
+            RequestConstraints requestConstraints,
+            List<InventoryLot> evaluationInventory,
+            List<InventoryLot> referenceInventory,
+            List<InventoryPolicy> inventoryPolicies,
+            Map<Long, SalesPoint> salesPoints,
+            ForecastMetadata forecastMetadata
+    ) {
+        this(
+                strategyCaseId,
+                sourceSalesPointId,
+                calculatedAt,
+                forecastStartDate,
+                forecastEndDate,
+                sku,
+                unitCost,
+                requestConstraints,
+                evaluationInventory,
+                referenceInventory,
+                inventoryPolicies,
+                salesPoints,
+                forecastMetadata,
+                List.of(),
+                List.of()
+        );
+    }
 
     public StrategyCalculationContext {
         if (strategyCaseId == null || strategyCaseId <= 0) {
@@ -54,6 +91,8 @@ public record StrategyCalculationContext(
         referenceInventory = List.copyOf(referenceInventory);
         inventoryPolicies = List.copyOf(inventoryPolicies);
         salesPoints = Collections.unmodifiableMap(new LinkedHashMap<>(salesPoints));
+        transferRoutes = List.copyOf(transferRoutes);
+        transferCostPolicies = List.copyOf(transferCostPolicies);
         if (evaluationInventory.isEmpty()) {
             throw new IllegalArgumentException("evaluation inventory must not be empty");
         }
@@ -93,7 +132,9 @@ public record StrategyCalculationContext(
                 projectedReferenceInventory,
                 inventoryPolicies,
                 salesPoints,
-                forecastMetadata
+                forecastMetadata,
+                transferRoutes,
+                transferCostPolicies
         );
     }
 
@@ -125,14 +166,28 @@ public record StrategyCalculationContext(
             String skuCode,
             String skuName,
             String unitCode,
-            BigDecimal packageQuantity
+            BigDecimal packageQuantity,
+            BigDecimal netWeight,
+            String weightUnit
     ) {
+        public Sku(
+                Long skuId,
+                String skuCode,
+                String skuName,
+                String unitCode,
+                BigDecimal packageQuantity
+        ) {
+            this(skuId, skuCode, skuName, unitCode, packageQuantity, null, null);
+        }
+
         public Sku {
             if (skuId == null || skuId <= 0
                     || skuCode == null || skuCode.isBlank()
                     || skuName == null || skuName.isBlank()
                     || unitCode == null || unitCode.isBlank()
-                    || packageQuantity == null || packageQuantity.signum() <= 0) {
+                    || packageQuantity == null || packageQuantity.signum() <= 0
+                    || (netWeight != null && netWeight.signum() <= 0)
+                    || (weightUnit != null && weightUnit.isBlank())) {
                 throw new IllegalArgumentException("sku calculation input is invalid");
             }
         }
@@ -286,6 +341,83 @@ public record StrategyCalculationContext(
                     || safetyStockQty == null || safetyStockQty.signum() < 0) {
                 throw new IllegalArgumentException("inventory policy input is invalid");
             }
+        }
+    }
+
+    /** 창고 또는 판매처 하나를 가리키는 물리적 재고 위치. */
+    public record PhysicalLocation(Long warehouseId, Long salesPointId) {
+        public PhysicalLocation {
+            if ((warehouseId == null) == (salesPointId == null)) {
+                throw new IllegalArgumentException(
+                        "physical location must contain exactly one location id"
+                );
+            }
+        }
+
+        public static PhysicalLocation of(InventoryLot lot) {
+            if (lot.warehouseId() != null) {
+                return new PhysicalLocation(lot.warehouseId(), null);
+            }
+            Long salesPointId = lot.effectiveSalesPointId();
+            if (salesPointId == null) {
+                throw new IllegalArgumentException(
+                        "inventory lot has no physical warehouse or sales point"
+                );
+            }
+            return new PhysicalLocation(null, salesPointId);
+        }
+
+        public static PhysicalLocation of(Long warehouseId, Long salesPointId) {
+            return warehouseId != null
+                    ? new PhysicalLocation(warehouseId, null)
+                    : new PhysicalLocation(null, salesPointId);
+        }
+    }
+
+    /** 방향성을 가진 단방향 도로거리 Snapshot. */
+    public record TransferRoute(
+            Long transferRouteId,
+            PhysicalLocation source,
+            PhysicalLocation destination,
+            BigDecimal distanceKm,
+            String distanceSource,
+            String distanceRouteOption,
+            LocalDateTime distanceCalculatedAt
+    ) {
+        public TransferRoute {
+            if (transferRouteId == null || transferRouteId <= 0
+                    || source == null || destination == null
+                    || source.equals(destination)
+                    || distanceKm == null || distanceKm.signum() <= 0
+                    || distanceSource == null || distanceSource.isBlank()) {
+                throw new IllegalArgumentException("transfer route input is invalid");
+            }
+        }
+    }
+
+    /** 전략 시작일에 유효한 kg·km 단위 이동 요율. */
+    public record TransferCostPolicy(
+            Long transferCostPolicyId,
+            String policyCode,
+            BigDecimal costPerKgKm,
+            LocalDate effectiveFrom,
+            LocalDate effectiveTo
+    ) {
+        public TransferCostPolicy {
+            if (transferCostPolicyId == null || transferCostPolicyId <= 0
+                    || policyCode == null || policyCode.isBlank()
+                    || costPerKgKm == null || costPerKgKm.signum() <= 0
+                    || effectiveFrom == null
+                    || (effectiveTo != null && effectiveTo.isBefore(effectiveFrom))) {
+                throw new IllegalArgumentException(
+                        "transfer cost policy input is invalid"
+                );
+            }
+        }
+
+        public boolean appliesOn(LocalDate date) {
+            return !date.isBefore(effectiveFrom)
+                    && (effectiveTo == null || !date.isAfter(effectiveTo));
         }
     }
 

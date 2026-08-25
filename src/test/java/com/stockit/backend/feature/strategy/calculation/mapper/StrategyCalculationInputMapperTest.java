@@ -40,6 +40,8 @@ class StrategyCalculationInputMapperTest {
         assertThat(mapper.selectActiveSku(101L)).satisfies(sku -> {
             assertThat(sku.getSkuCode()).isEqualTo("SKU-101");
             assertThat(sku.getPackageQuantity()).isEqualByComparingTo("1");
+            assertThat(sku.getNetWeight()).isEqualByComparingTo("0.5");
+            assertThat(sku.getWeightUnit()).isEqualTo("KG");
         });
         assertThat(mapper.selectInventory(101L)).singleElement().satisfies(inventory -> {
             assertThat(inventory.getLotId()).isEqualTo(1001L);
@@ -71,6 +73,19 @@ class StrategyCalculationInputMapperTest {
                     assertThat(policy.getDailyUnitHoldingCost())
                             .isEqualByComparingTo("2.5");
                 });
+        assertThat(mapper.selectActiveTransferRoutes())
+                .singleElement()
+                .satisfies(route -> {
+                    assertThat(route.getSourceWarehouseId()).isEqualTo(501L);
+                    assertThat(route.getDestinationSalesPointId()).isEqualTo(20L);
+                    assertThat(route.getDistanceKm()).isEqualByComparingTo("25.5");
+                });
+        assertThat(mapper.selectTransferCostPolicies(
+                asOfDate, asOfDate.plusDays(90)
+        ))
+                .singleElement()
+                .satisfies(policy -> assertThat(policy.getCostPerKgKm())
+                        .isEqualByComparingTo("2"));
     }
 
     @Test

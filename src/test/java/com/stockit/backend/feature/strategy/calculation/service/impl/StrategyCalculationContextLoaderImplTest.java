@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.lenient;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -83,6 +84,10 @@ class StrategyCalculationContextLoaderImplTest {
                 inputMapper,
                 dateTimeProvider
         );
+        lenient().when(inputMapper.selectActiveTransferRoutes())
+                .thenReturn(List.of());
+        lenient().when(inputMapper.selectTransferCostPolicies(START, END))
+                .thenReturn(List.of());
     }
 
     @Test

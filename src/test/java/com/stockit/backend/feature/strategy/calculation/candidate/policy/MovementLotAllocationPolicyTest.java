@@ -33,7 +33,10 @@ class MovementLotAllocationPolicyTest {
 
         MovementCandidatePlan result = policy.plan(
                 List.of(fifoNewer, fifoOlder, expiring),
-                Map.of(501L, decimal("30")),
+                Map.of(
+                        new StrategyCalculationContext.PhysicalLocation(501L, null),
+                        decimal("30")
+                ),
                 new LinkedHashMap<>(Map.of(SALE_DATE, decimal("25"))),
                 decimal("25")
         );
@@ -59,7 +62,10 @@ class MovementLotAllocationPolicyTest {
 
         MovementCandidatePlan result = policy.plan(
                 List.of(lot),
-                Map.of(501L, decimal("10")),
+                Map.of(
+                        new StrategyCalculationContext.PhysicalLocation(501L, null),
+                        decimal("10")
+                ),
                 new LinkedHashMap<>(Map.of(SALE_DATE, decimal("10"))),
                 decimal("10")
         );
@@ -82,7 +88,10 @@ class MovementLotAllocationPolicyTest {
 
         MovementCandidatePlan result = policy.plan(
                 List.of(inventory),
-                Map.of(501L, decimal("10")),
+                Map.of(
+                        new StrategyCalculationContext.PhysicalLocation(501L, null),
+                        decimal("10")
+                ),
                 demand,
                 decimal("10")
         );

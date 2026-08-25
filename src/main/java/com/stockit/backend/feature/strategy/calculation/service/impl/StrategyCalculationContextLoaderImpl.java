@@ -26,6 +26,8 @@ import com.stockit.backend.feature.strategy.calculation.vo.StrategyCalculationPo
 import com.stockit.backend.feature.strategy.calculation.vo.StrategyCalculationPriceVO;
 import com.stockit.backend.feature.strategy.calculation.vo.StrategyCalculationSalesPointVO;
 import com.stockit.backend.feature.strategy.calculation.vo.StrategyCalculationSkuVO;
+import com.stockit.backend.feature.strategy.calculation.vo.StrategyCalculationTransferCostPolicyVO;
+import com.stockit.backend.feature.strategy.calculation.vo.StrategyCalculationTransferRouteVO;
 import com.stockit.backend.feature.strategy.calculation.vo.StrategyCalculationWarehouseRouteVO;
 import com.stockit.backend.feature.strategy.domain.StrategyCaseStatus;
 import com.stockit.backend.feature.strategy.domain.StrategyGenerationStage;
@@ -297,6 +299,17 @@ public class StrategyCalculationContextLoaderImpl
                 strategyCase.getSkuId(),
                 asOfDate
         );
+        List<StrategyCalculationTransferRouteVO> transferRoutes =
+                relevantTransferRoutes(
+                        inputMapper.selectActiveTransferRoutes(),
+                        evaluationInventory,
+                        salesPoints
+                );
+        List<StrategyCalculationTransferCostPolicyVO> transferCostPolicies =
+                inputMapper.selectTransferCostPolicies(
+                        forecast.forecastStartDate(),
+                        forecast.forecastEndDate()
+                );
         return new StrategyCalculationContext(
                 strategyCase.getStrategyCaseId(),
                 strategyCase.getRequestedSalesPointId(),
@@ -320,7 +333,9 @@ public class StrategyCalculationContextLoaderImpl
                         modelVersionId,
                         forecast.forecastGeneratedAt(),
                         forecastRequestHash
-                )
+                ),
+                transferRoutes.stream().map(this::toTransferRoute).toList(),
+                transferCostPolicies.stream().map(this::toTransferCostPolicy).toList()
         );
     }
 
@@ -356,6 +371,37 @@ public class StrategyCalculationContextLoaderImpl
             );
         }
         return List.copyOf(selected);
+    }
+
+    /** Case에서 실제로 출발·도착 가능성이 있는 방향성 경로만 Redis 문맥에 보존한다. */
+    private static List<StrategyCalculationTransferRouteVO> relevantTransferRoutes(
+            List<StrategyCalculationTransferRouteVO> routes,
+            List<StrategyCalculationInventoryVO> evaluationInventory,
+            Map<Long, StrategyCalculationContext.SalesPoint> salesPoints
+    ) {
+        Set<LocationKey> sourceLocations = evaluationInventory.stream()
+                .map(row -> row.getWarehouseId() != null
+                        ? new LocationKey(row.getWarehouseId(), null)
+                        : new LocationKey(null, row.effectiveSalesPointId()))
+                .filter(LocationKey::isValid)
+                .collect(Collectors.toSet());
+        Set<LocationKey> targetLocations = new HashSet<>();
+        for (StrategyCalculationContext.SalesPoint salesPoint : salesPoints.values()) {
+            targetLocations.add(new LocationKey(null, salesPoint.salesPointId()));
+            salesPoint.warehouseRoutes().stream()
+                    .map(route -> new LocationKey(route.warehouseId(), null))
+                    .forEach(targetLocations::add);
+        }
+        return routes.stream()
+                .filter(route -> sourceLocations.contains(new LocationKey(
+                        route.getSourceWarehouseId(),
+                        route.getSourceSalesPointId()
+                )))
+                .filter(route -> targetLocations.contains(new LocationKey(
+                        route.getDestinationWarehouseId(),
+                        route.getDestinationSalesPointId()
+                )))
+                .toList();
     }
 
     private static boolean matchesSource(
@@ -466,7 +512,9 @@ public class StrategyCalculationContextLoaderImpl
                 sku.getSkuCode(),
                 sku.getSkuName(),
                 sku.getUnitCode(),
-                sku.getPackageQuantity()
+                sku.getPackageQuantity(),
+                sku.getNetWeight(),
+                sku.getWeightUnit()
         );
     }
 
@@ -516,7 +564,45 @@ public class StrategyCalculationContextLoaderImpl
         );
     }
 
+    private StrategyCalculationContext.TransferRoute toTransferRoute(
+            StrategyCalculationTransferRouteVO route
+    ) {
+        return new StrategyCalculationContext.TransferRoute(
+                route.getTransferRouteId(),
+                StrategyCalculationContext.PhysicalLocation.of(
+                        route.getSourceWarehouseId(),
+                        route.getSourceSalesPointId()
+                ),
+                StrategyCalculationContext.PhysicalLocation.of(
+                        route.getDestinationWarehouseId(),
+                        route.getDestinationSalesPointId()
+                ),
+                route.getDistanceKm(),
+                route.getDistanceSource(),
+                route.getDistanceRouteOption(),
+                route.getDistanceCalculatedAt()
+        );
+    }
+
+    private StrategyCalculationContext.TransferCostPolicy toTransferCostPolicy(
+            StrategyCalculationTransferCostPolicyVO policy
+    ) {
+        return new StrategyCalculationContext.TransferCostPolicy(
+                policy.getTransferCostPolicyId(),
+                policy.getPolicyCode(),
+                policy.getCostPerKgKm(),
+                policy.getEffectiveFrom(),
+                policy.getEffectiveTo()
+        );
+    }
+
     private static StrategyCalculationException failure(String code, String message) {
         return new StrategyCalculationException(code, message);
+    }
+
+    private record LocationKey(Long warehouseId, Long salesPointId) {
+        private boolean isValid() {
+            return (warehouseId == null) != (salesPointId == null);
+        }
     }
 }

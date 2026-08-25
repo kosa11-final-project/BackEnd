@@ -13,4 +13,6 @@ public class StrategyCalculationSkuVO {
     private String skuName;
     private String unitCode;
     private BigDecimal packageQuantity;
+    private BigDecimal netWeight;
+    private String weightUnit;
 }
