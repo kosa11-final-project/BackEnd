@@ -11,6 +11,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -65,7 +66,7 @@ class DashboardSnapshotServiceImplTest {
         verify(snapshotMapper).insertSnapshot(
                 eq(SNAPSHOT_ID),
                 eq(SYNC_JOB_ID),
-                eq(2),
+                eq(3),
                 payloadCaptor.capture()
         );
         DashboardSnapshotPayload payload = objectMapper.readValue(
@@ -88,6 +89,27 @@ class DashboardSnapshotServiceImplTest {
         verifyNoInteractions(dashboardService);
     }
 
+    @Test
+    void derivesSalesPointUrgentSkusForLegacyPayloads() throws Exception {
+        DashboardSnapshotPayload payload = objectMapper.readValue(
+                "{\"summary\":null,\"warehouses\":[],\"onlineSalesPoints\":[],"
+                        + "\"offlineStores\":[],\"riskSalesPointsTop10\":[],"
+                        + "\"urgentSkusTop5\":[{\"rank\":1,\"skuId\":7,"
+                        + "\"skuCode\":\"SKU-7\",\"skuName\":\"긴급 SKU\","
+                        + "\"stockLocationType\":\"WAREHOUSE\",\"stockLocationId\":1,"
+                        + "\"stockLocationCode\":\"SEONGNAM\",\"stockLocationName\":\"성남센터\","
+                        + "\"allocatedSalesPointId\":10,\"allocatedSalesPointCode\":\"GREETING\","
+                        + "\"allocatedSalesPointName\":\"그리팅몰\",\"expiryDaysLeft\":12,"
+                        + "\"saleStopDaysLeft\":5,\"expectedDisposalQty\":86,"
+                        + "\"reasonMessage\":\"긴급 처리\"}]}",
+                DashboardSnapshotPayload.class
+        );
+
+        assertThat(payload.urgentSkusBySalesPoint()).containsKey(10L);
+        assertThat(payload.urgentSkusBySalesPoint().get(10L)).singleElement()
+                .satisfies(value -> assertThat(value.skuCode()).isEqualTo("SKU-7"));
+    }
+
     private static DashboardResponse dashboard() {
         DashboardSummaryResponse summary = new DashboardSummaryResponse(
                 new BigDecimal("4800"),
@@ -105,6 +127,7 @@ class DashboardSnapshotServiceImplTest {
                 List.of(),
                 List.of(),
                 List.of(),
+                Map.of(),
                 CALCULATED_AT
         );
     }
