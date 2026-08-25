@@ -71,7 +71,7 @@ class DeterministicRecommendationCandidatePreselectorTest {
     }
 
     @Test
-    void capsAtTwentyWhilePreservingDiversityAndInputOrderIndependence() {
+    void capsAtFourWhilePreservingDiversityAndInputOrderIndependence() {
         List<StrategyCandidateEvaluationResult.EvaluatedCandidate> candidates =
                 new ArrayList<>();
         for (int index = 0; index < 24; index++) {
@@ -107,6 +107,63 @@ class DeterministicRecommendationCandidatePreselectorTest {
                 .extracting(value -> value.candidate().actions().get(0)
                         .target().salesPointId())
                 .contains(20L, 21L, 22L);
+    }
+
+    @Test
+    void keepsOnlyBestEconomicRepresentativeWhenQuantityOnlyDiffers() {
+        var fullQuantity = evaluatedForDiversity(
+                "FULL", StrategyType.REALLOCATION, 20L, 100, "100"
+        );
+        var partialQuantity = evaluatedForDiversity(
+                "PARTIAL", StrategyType.REALLOCATION, 20L, 40, "40"
+        );
+
+        RecommendationCandidateSelection result = preselector.select(evaluation(
+                List.of(partialQuantity, fullQuantity)
+        ));
+
+        assertThat(result.candidates())
+                .extracting(value -> value.candidate().candidateId())
+                .containsExactly("FULL");
+    }
+
+    @Test
+    void keepsLeastLossRepresentativeWhenEveryQuantityVariantIsNegative() {
+        var fullQuantity = evaluatedForDiversity(
+                "FULL", StrategyType.REALLOCATION, 20L, 100, "-100"
+        );
+        var partialQuantity = evaluatedForDiversity(
+                "PARTIAL", StrategyType.REALLOCATION, 20L, 40, "-40"
+        );
+
+        RecommendationCandidateSelection result = preselector.select(evaluation(
+                List.of(fullQuantity, partialQuantity)
+        ));
+
+        assertThat(result.candidates())
+                .extracting(value -> value.candidate().candidateId())
+                .containsExactly("PARTIAL");
+    }
+
+    @Test
+    void returnsOneRepresentativePerStrategyAndTargetFamily() {
+        var reallocationA = evaluatedForDiversity(
+                "REALLOC-A", StrategyType.REALLOCATION, 20L, 100, "100"
+        );
+        var reallocationB = evaluatedForDiversity(
+                "REALLOC-B", StrategyType.REALLOCATION, 30L, 80, "80"
+        );
+        var transferA = evaluatedForDiversity(
+                "TRANSFER-A", StrategyType.RT_TRANSFER, 20L, 60, "60"
+        );
+
+        RecommendationCandidateSelection result = preselector.select(evaluation(
+                List.of(reallocationA, reallocationB, transferA)
+        ));
+
+        assertThat(result.candidates())
+                .extracting(value -> value.candidate().candidateId())
+                .containsExactly("REALLOC-A", "TRANSFER-A", "REALLOC-B");
     }
 
     private static StrategyCandidateEvaluationResult evaluation(
@@ -164,6 +221,19 @@ class DeterministicRecommendationCandidatePreselectorTest {
             Long targetSalesPointId,
             int quantity
     ) {
+        return evaluatedForDiversity(
+                id, type, targetSalesPointId, quantity, String.valueOf(quantity)
+        );
+    }
+
+    private static StrategyCandidateEvaluationResult.EvaluatedCandidate
+            evaluatedForDiversity(
+            String id,
+            StrategyType type,
+            Long targetSalesPointId,
+            int quantity,
+            String netEffect
+    ) {
         StrategyCandidate.Location source = new StrategyCandidate.Location(1L, 10L);
         StrategyCandidate.Location target = new StrategyCandidate.Location(
                 1L, targetSalesPointId
@@ -209,7 +279,7 @@ class DeterministicRecommendationCandidatePreselectorTest {
                         BigDecimal.ZERO,
                         BigDecimal.ZERO,
                         BigDecimal.ZERO,
-                        BigDecimal.ZERO
+                        new BigDecimal(netEffect)
                 ),
                 new StrategyCandidateSimulation.ComparisonToBaseline(
                         BigDecimal.ZERO,
@@ -217,7 +287,7 @@ class DeterministicRecommendationCandidatePreselectorTest {
                         BigDecimal.ZERO,
                         BigDecimal.ZERO,
                         BigDecimal.ZERO,
-                        BigDecimal.ZERO
+                        new BigDecimal(netEffect)
                 ),
                 List.of(),
                 List.of()
