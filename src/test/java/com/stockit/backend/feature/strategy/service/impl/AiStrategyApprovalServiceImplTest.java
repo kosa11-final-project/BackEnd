@@ -19,8 +19,10 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import com.stockit.backend.feature.strategy.approval.PreparedStrategyApproval;
+import com.stockit.backend.feature.strategy.approval.ResolvedStrategySelection;
 import com.stockit.backend.feature.strategy.approval.StrategyApprovalDeliveryStateService;
 import com.stockit.backend.feature.strategy.approval.StrategyApprovalPersistenceService;
+import com.stockit.backend.feature.strategy.approval.StrategySelectionResolver;
 import com.stockit.backend.feature.strategy.approval.StrategyApprovalRecords.ReviewRequestRecord;
 import com.stockit.backend.feature.strategy.approval.StrategyReviewStatus;
 import com.stockit.backend.feature.strategy.approval.TeamsApprovalDeliveryException;
@@ -31,16 +33,13 @@ import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculati
 import com.stockit.backend.feature.strategy.domain.StrategyCaseStatus;
 import com.stockit.backend.feature.strategy.dto.response.AiStrategyTeamsRequestResponse.DeliveryStatus;
 import com.stockit.backend.feature.strategy.result.StrategyGenerationResult;
-import com.stockit.backend.feature.strategy.result.StrategyResultStore;
 import com.stockit.backend.feature.strategy.service.AiStrategyReviewerService;
-import com.stockit.backend.feature.strategy.simulation.StrategySimulationContextStore;
 import com.stockit.backend.feature.strategy.vo.AiStrategyReviewerVO;
 
 @ExtendWith(MockitoExtension.class)
 class AiStrategyApprovalServiceImplTest {
 
-    @Mock private StrategyResultStore resultStore;
-    @Mock private StrategySimulationContextStore contextStore;
+    @Mock private StrategySelectionResolver selectionResolver;
     @Mock private AiStrategyReviewerService reviewerService;
     @Mock private StrategyApprovalPersistenceService persistenceService;
     @Mock private StrategyApprovalDeliveryStateService deliveryStateService;
@@ -49,6 +48,7 @@ class AiStrategyApprovalServiceImplTest {
     @Mock private StrategyGenerationResult.Option option;
     @Mock private StrategyGenerationResult.Candidate candidate;
     @Mock private StrategyCalculationContext context;
+    @Mock private ResolvedStrategySelection resolved;
     @Mock private StrategyCalculationContext.Sku sku;
 
     private AiStrategyApprovalServiceImpl service;
@@ -60,8 +60,7 @@ class AiStrategyApprovalServiceImplTest {
         TeamsApprovalProperties properties = new TeamsApprovalProperties();
         properties.setMaxReviewers(10);
         service = new AiStrategyApprovalServiceImpl(
-                resultStore,
-                contextStore,
+                selectionResolver,
                 reviewerService,
                 persistenceService,
                 deliveryStateService,
@@ -71,11 +70,9 @@ class AiStrategyApprovalServiceImplTest {
         first = reviewer(7L, "one@stockit.test");
         second = reviewer(8L, "two@stockit.test");
 
-        when(resultStore.find(123L)).thenReturn(Optional.of(result));
-        when(result.options()).thenReturn(List.of(option));
-        when(option.candidate()).thenReturn(candidate);
-        when(candidate.candidateId()).thenReturn("CAND-1");
-        when(contextStore.find(123L)).thenReturn(Optional.of(context));
+        when(selectionResolver.resolve(123L, "CAND-1", null))
+                .thenReturn(resolved);
+        lenient().when(resolved.calculationContext()).thenReturn(context);
         lenient().when(context.sku()).thenReturn(sku);
         lenient().when(sku.skuCode()).thenReturn("SKU-1");
         lenient().when(sku.skuName()).thenReturn("테스트 상품");
@@ -86,7 +83,7 @@ class AiStrategyApprovalServiceImplTest {
     @Test
     void returnsPartialFailureAndKeepsGeneratedStatus() {
         when(persistenceService.prepare(
-                123L, 3L, 1L, option, context, List.of(first, second)
+                123L, 3L, 1L, resolved, List.of(first, second)
         )).thenReturn(prepared());
         when(deliveryStateService.tryClaim(
                 701L, 3L, Duration.ofMinutes(1)
@@ -101,7 +98,7 @@ class AiStrategyApprovalServiceImplTest {
                 .thenReturn(false);
 
         var response = service.sendToTeams(
-                123L, "CAND-1", List.of(7L, 8L), 3L, "요청자", 1L
+                123L, "CAND-1", null, List.of(7L, 8L), 3L, "요청자", 1L
         );
 
         assertThat(response.caseStatus()).isEqualTo(StrategyCaseStatus.GENERATED);
@@ -118,7 +115,7 @@ class AiStrategyApprovalServiceImplTest {
         PreparedStrategyApproval prepared = prepared();
         prepared.reviewRequests().get(0).setReviewStatus(StrategyReviewStatus.SENT);
         when(persistenceService.prepare(
-                123L, 3L, 1L, option, context, List.of(first, second)
+                123L, 3L, 1L, resolved, List.of(first, second)
         )).thenReturn(prepared);
         when(deliveryStateService.tryClaim(
                 801L, 3L, Duration.ofMinutes(1)
@@ -127,7 +124,7 @@ class AiStrategyApprovalServiceImplTest {
                 .thenReturn(true);
 
         var response = service.sendToTeams(
-                123L, "CAND-1", List.of(7L, 8L), 3L, "요청자", 1L
+                123L, "CAND-1", null, List.of(7L, 8L), 3L, "요청자", 1L
         );
 
         assertThat(response.caseStatus())
@@ -139,7 +136,7 @@ class AiStrategyApprovalServiceImplTest {
     @Test
     void skipsWebhookWhenAnotherRequestAlreadyClaimedDelivery() {
         when(persistenceService.prepare(
-                123L, 3L, 1L, option, context, List.of(first, second)
+                123L, 3L, 1L, resolved, List.of(first, second)
         )).thenReturn(prepared());
         when(deliveryStateService.tryClaim(
                 701L, 3L, Duration.ofMinutes(1)
@@ -151,7 +148,7 @@ class AiStrategyApprovalServiceImplTest {
                 .thenReturn(false);
 
         var response = service.sendToTeams(
-                123L, "CAND-1", List.of(7L, 8L), 3L, "요청자", 1L
+                123L, "CAND-1", null, List.of(7L, 8L), 3L, "요청자", 1L
         );
 
         assertThat(response.caseStatus()).isEqualTo(StrategyCaseStatus.GENERATED);
@@ -169,8 +166,7 @@ class AiStrategyApprovalServiceImplTest {
                 55L,
                 StrategyCaseStatus.GENERATED,
                 "테스트 Case",
-                option,
-                context,
+                resolved,
                 List.of(request(701L, 7L), request(801L, 8L))
         );
     }

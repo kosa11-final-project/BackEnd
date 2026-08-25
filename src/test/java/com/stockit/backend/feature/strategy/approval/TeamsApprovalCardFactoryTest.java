@@ -26,6 +26,7 @@ class TeamsApprovalCardFactoryTest {
     @Mock private StrategyCandidateSimulation simulation;
     @Mock private StrategyCandidateSimulation.Summary summary;
     @Mock private StrategyCalculationContext context;
+    @Mock private ResolvedStrategySelection resolved;
 
     @Test
     void createsPersonalChatWebhookPayloadWithAdaptiveCard() {
@@ -48,7 +49,6 @@ class TeamsApprovalCardFactoryTest {
         when(candidate.strategyTypes()).thenReturn(List.of(StrategyType.PRICE_DISCOUNT));
         when(candidate.actions()).thenReturn(List.of(action));
         when(candidate.startDate()).thenReturn(LocalDate.of(2026, 8, 25));
-        when(candidate.endDate()).thenReturn(LocalDate.of(2026, 8, 31));
         when(simulation.summary()).thenReturn(summary);
         when(summary.expectedSalesQty()).thenReturn(decimal("10"));
         when(summary.expectedRevenue()).thenReturn(decimal("85000"));
@@ -61,6 +61,12 @@ class TeamsApprovalCardFactoryTest {
                         false, null, Map.of(), List.of()
                 )
         ));
+        when(resolved.option()).thenReturn(option);
+        when(resolved.calculationContext()).thenReturn(context);
+        when(resolved.targetQuantity()).thenReturn(decimal("12"));
+        when(resolved.evaluationEndDate()).thenReturn(
+                LocalDate.of(2026, 8, 31)
+        );
 
         var request = new TeamsApprovalCardFactory().create(
                 new TeamsApprovalMessage(
@@ -70,8 +76,7 @@ class TeamsApprovalCardFactoryTest {
                         "SKU-1",
                         "테스트 상품",
                         "요청자",
-                        option,
-                        context
+                        resolved
                 )
         );
 

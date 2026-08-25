@@ -8,6 +8,9 @@
                strategy_case.sku_id,
                strategy_case.case_name,
                strategy_case.case_status,
+               strategy_case.generation_stage,
+               strategy_case.result_expires_at,
+               strategy_case.result_cache_key,
                requester.user_id AS requester_id,
                requester.user_name AS requester_name,
                requester.organization_id AS requester_organization_id
@@ -155,6 +158,26 @@
         )
     </insert>
 
+    <insert id="insertExecutionResult" useGeneratedKeys="true"
+            keyProperty="strategyExecutionResultId"
+            keyColumn="strategy_execution_result_id">
+        INSERT INTO strategy_execution_result (
+            final_selection_id, result_status,
+            planned_start_date, planned_end_date,
+            goal_metric_code, goal_target_value,
+            start_risk_stock_qty, start_expected_disposal_qty,
+            start_unit_cost, calculation_version,
+            created_at, updated_at, created_by, updated_by, is_deleted
+        ) VALUES (
+            #{finalSelectionId}, #{resultStatus},
+            #{plannedStartDate}, #{plannedEndDate},
+            #{goalMetricCode}, #{goalTargetValue},
+            #{startRiskStockQty}, #{startExpectedDisposalQty},
+            #{startUnitCost}, #{calculationVersion},
+            SYSTIMESTAMP, SYSTIMESTAMP, #{createdBy}, #{updatedBy}, 0
+        )
+    </insert>
+
     <insert id="insertReviewRequest" useGeneratedKeys="true"
             keyProperty="reviewRequestId" keyColumn="review_request_id">
         INSERT INTO strategy_review_request (
@@ -179,6 +202,16 @@
         <foreach collection="reviewerIds" item="reviewerId" open="(" separator="," close=")">
             #{reviewerId}
         </foreach>
+        ORDER BY reviewer_id
+    </select>
+
+    <select id="selectAllReviewRequests" resultType="com.stockit.backend.feature.strategy.approval.StrategyApprovalRecords$ReviewRequestRecord">
+        SELECT review_request_id,
+               reviewer_id,
+               review_status
+        FROM strategy_review_request
+        WHERE strategy_option_id = #{strategyOptionId}
+          AND is_deleted = 0
         ORDER BY reviewer_id
     </select>
 

@@ -47,6 +47,7 @@ import com.stockit.backend.feature.strategy.service.AiStrategyApprovalService;
 import com.stockit.backend.feature.strategy.service.AiStrategyCaseListService;
 import com.stockit.backend.feature.strategy.service.AiStrategyCaseQueryService;
 import com.stockit.backend.feature.strategy.service.AiStrategyReviewerService;
+import com.stockit.backend.feature.strategy.simulation.AdjustStrategySimulationCommand;
 import com.stockit.backend.feature.strategy.service.StrategyCaseService;
 import com.stockit.backend.feature.strategy.simulation.StrategyAdjustmentSimulationService;
 import com.stockit.backend.feature.auth.security.AuthPrincipal;
@@ -250,7 +251,7 @@ class AiStrategyControllerTest {
     @Test
     void persistsFinalSelectionAndSendsTeamsRequests() throws Exception {
         when(approvalService.sendToTeams(
-                123L, "CAND-1", List.of(7L, 8L),
+                123L, "CAND-1", null, List.of(7L, 8L),
                 3L, "요청자", 1L
         )).thenReturn(new AiStrategyTeamsRequestResponse(
                 123L,
@@ -289,6 +290,46 @@ class AiStrategyControllerTest {
                         .value("READY_TO_EXECUTE"))
                 .andExpect(jsonPath("$.data.deliveryStatus").value("SENT"))
                 .andExpect(jsonPath("$.data.reviewers.length()").value(2));
+    }
+
+    @Test
+    void forwardsCompleteAdjustedConditionsForFinalSelection() throws Exception {
+        AdjustStrategySimulationCommand adjusted = new AdjustStrategySimulationCommand(
+                new java.math.BigDecimal("29"),
+                new java.math.BigDecimal("0.1500"),
+                java.time.LocalDate.of(2026, 8, 25),
+                java.time.LocalDate.of(2026, 8, 31)
+        );
+        when(approvalService.sendToTeams(
+                123L, "CAND-1", adjusted, List.of(7L),
+                3L, "요청자", 1L
+        )).thenReturn(new AiStrategyTeamsRequestResponse(
+                123L, "CAND-1", 55L, 44L,
+                StrategyCaseStatus.GENERATED,
+                DeliveryStatus.IN_PROGRESS,
+                List.of()
+        ));
+
+        CsrfCredentials csrf = requestCsrf();
+        mockMvc.perform(post("/api/v1/ai-strategies/123/teams-requests")
+                        .with(user(adminPrincipal()))
+                        .cookie(csrf.cookie())
+                        .header(csrf.headerName(), csrf.token())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "optionId": "CAND-1",
+                                  "adjustedConditions": {
+                                    "actionQuantity": 29,
+                                    "discountRate": 0.1500,
+                                    "startDate": "2026-08-25",
+                                    "endDate": "2026-08-31"
+                                  },
+                                  "reviewerIds": [7]
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.selectedOptionId").value("CAND-1"));
     }
 
     @Test

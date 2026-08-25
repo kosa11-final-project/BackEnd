@@ -6,6 +6,7 @@ import java.time.LocalDateTime;
 
 import com.stockit.backend.common.persistence.BaseEntity;
 import com.stockit.backend.feature.strategy.domain.StrategyCaseStatus;
+import com.stockit.backend.feature.strategy.domain.StrategyGenerationStage;
 import com.stockit.backend.feature.strategy.domain.StrategyType;
 
 import lombok.Getter;
@@ -24,6 +25,9 @@ public final class StrategyApprovalRecords {
         private Long skuId;
         private String caseName;
         private StrategyCaseStatus caseStatus;
+        private StrategyGenerationStage generationStage;
+        private LocalDateTime resultExpiresAt;
+        private String resultCacheKey;
         private Long requesterId;
         private String requesterName;
         private Long requesterOrganizationId;
@@ -154,6 +158,22 @@ public final class StrategyApprovalRecords {
         private String dailyForecastJson;
         private String inputDataHash;
         private LocalDateTime forecastGeneratedAt;
+    }
+
+    @Getter
+    @Setter
+    public static class ExecutionResultWrite extends BaseEntity {
+        private Long strategyExecutionResultId;
+        private Long finalSelectionId;
+        private String resultStatus;
+        private LocalDate plannedStartDate;
+        private LocalDate plannedEndDate;
+        private String goalMetricCode;
+        private BigDecimal goalTargetValue;
+        private BigDecimal startRiskStockQty;
+        private BigDecimal startExpectedDisposalQty;
+        private BigDecimal startUnitCost;
+        private String calculationVersion;
     }
 
     @Getter
