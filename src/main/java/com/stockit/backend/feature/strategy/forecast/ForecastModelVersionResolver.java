@@ -3,7 +3,7 @@ package com.stockit.backend.feature.strategy.forecast;
 import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Component;
 
-import com.stockit.backend.feature.demandforecast.mapper.DemandForecastMapper;
+import com.stockit.backend.feature.demandforecast.service.DemandForecastModelVersionQuery;
 import com.stockit.backend.feature.strategy.domain.StrategyGenerationStage;
 import com.stockit.backend.feature.strategy.messaging.PermanentStrategyGenerationException;
 import com.stockit.backend.feature.strategy.messaging.RetryableStrategyGenerationException;
@@ -12,15 +12,17 @@ import com.stockit.backend.feature.strategy.messaging.RetryableStrategyGeneratio
 @Component
 public class ForecastModelVersionResolver {
 
-    private final DemandForecastMapper demandForecastMapper;
+    private final DemandForecastModelVersionQuery modelVersionQuery;
 
-    public ForecastModelVersionResolver(DemandForecastMapper demandForecastMapper) {
-        this.demandForecastMapper = demandForecastMapper;
+    public ForecastModelVersionResolver(
+            DemandForecastModelVersionQuery modelVersionQuery
+    ) {
+        this.modelVersionQuery = modelVersionQuery;
     }
 
     public Long resolve(StrategyForecastResponse response) {
         try {
-            Long modelVersionId = demandForecastMapper.selectModelVersionId(
+            Long modelVersionId = modelVersionQuery.findModelVersionId(
                     response.modelName(),
                     response.modelVersion()
             );

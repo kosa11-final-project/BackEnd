@@ -15,7 +15,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataAccessResourceFailureException;
 
-import com.stockit.backend.feature.demandforecast.mapper.DemandForecastMapper;
+import com.stockit.backend.feature.demandforecast.service.DemandForecastModelVersionQuery;
 import com.stockit.backend.feature.strategy.messaging.PermanentStrategyGenerationException;
 import com.stockit.backend.feature.strategy.messaging.RetryableStrategyGenerationException;
 
@@ -23,18 +23,18 @@ import com.stockit.backend.feature.strategy.messaging.RetryableStrategyGeneratio
 class ForecastModelVersionResolverTest {
 
     @Mock
-    private DemandForecastMapper demandForecastMapper;
+    private DemandForecastModelVersionQuery modelVersionQuery;
 
     private ForecastModelVersionResolver resolver;
 
     @BeforeEach
     void setUp() {
-        resolver = new ForecastModelVersionResolver(demandForecastMapper);
+        resolver = new ForecastModelVersionResolver(modelVersionQuery);
     }
 
     @Test
     void resolvesExternalModelIdentityToInternalPrimaryKey() {
-        when(demandForecastMapper.selectModelVersionId(
+        when(modelVersionQuery.findModelVersionId(
                 "stockit-demand-lightgbm", "3"
         )).thenReturn(81L);
 
@@ -43,7 +43,7 @@ class ForecastModelVersionResolverTest {
 
     @Test
     void rejectsUnregisteredModelBeforeCheckpointIsSaved() {
-        when(demandForecastMapper.selectModelVersionId(
+        when(modelVersionQuery.findModelVersionId(
                 "stockit-demand-lightgbm", "3"
         )).thenReturn(null);
 
@@ -57,7 +57,7 @@ class ForecastModelVersionResolverTest {
 
     @Test
     void treatsDatabaseLookupFailureAsRetryable() {
-        when(demandForecastMapper.selectModelVersionId(
+        when(modelVersionQuery.findModelVersionId(
                 "stockit-demand-lightgbm", "3"
         )).thenThrow(new DataAccessResourceFailureException("database unavailable"));
 
