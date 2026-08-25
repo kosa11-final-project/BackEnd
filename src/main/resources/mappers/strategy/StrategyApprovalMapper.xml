@@ -3,6 +3,24 @@
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.stockit.backend.feature.strategy.mapper.StrategyApprovalMapper">
 
+    <select id="selectCase" resultType="com.stockit.backend.feature.strategy.approval.StrategyApprovalRecords$CaseRecord">
+        SELECT strategy_case.strategy_case_id,
+               strategy_case.sku_id,
+               strategy_case.case_name,
+               strategy_case.case_status,
+               strategy_case.generation_stage,
+               strategy_case.result_expires_at,
+               strategy_case.result_cache_key,
+               requester.user_id AS requester_id,
+               requester.user_name AS requester_name,
+               requester.organization_id AS requester_organization_id
+        FROM strategy_case
+        JOIN app_user requester
+          ON requester.user_id = strategy_case.created_by
+        WHERE strategy_case.strategy_case_id = #{strategyCaseId}
+          AND strategy_case.is_deleted = 0
+    </select>
+
     <select id="selectCaseForUpdate" resultType="com.stockit.backend.feature.strategy.approval.StrategyApprovalRecords$CaseRecord">
         SELECT strategy_case.strategy_case_id,
                strategy_case.sku_id,
@@ -38,6 +56,70 @@
         FETCH FIRST 1 ROW ONLY
     </select>
 
+    <select id="selectPersistedApprovalHeader" resultType="com.stockit.backend.feature.strategy.approval.StrategyApprovalRecords$PersistedApprovalHeader">
+        SELECT strategy_case.strategy_case_id,
+               case_requester.organization_id AS requester_organization_id,
+               strategy_case.case_status,
+               final_selection.final_selection_id,
+               strategy_option.strategy_option_id,
+               strategy_option.constraint_text,
+               strategy_case.case_name,
+               sku.sku_code,
+               sku.sku_name,
+               selection_requester.user_name AS requester_name,
+               strategy_option.option_name,
+               strategy_option.recommendation_reason,
+               simulation.target_quantity,
+               simulation.strategy_price,
+               simulation.expected_sales_qty,
+               simulation.expected_revenue,
+               simulation.total_contribution_margin,
+               simulation.expected_remaining_qty,
+               execution_result.planned_start_date,
+               execution_result.planned_end_date
+        FROM strategy_case
+        JOIN sku
+          ON sku.sku_id = strategy_case.sku_id
+         AND sku.is_deleted = 0
+        JOIN app_user case_requester
+          ON case_requester.user_id = strategy_case.created_by
+        LEFT JOIN final_strategy_selection final_selection
+          ON final_selection.strategy_case_id = strategy_case.strategy_case_id
+         AND final_selection.is_deleted = 0
+        LEFT JOIN strategy_option
+          ON strategy_option.strategy_option_id = final_selection.strategy_option_id
+         AND strategy_option.is_deleted = 0
+        LEFT JOIN strategy_simulation simulation
+          ON simulation.strategy_option_id = strategy_option.strategy_option_id
+         AND simulation.is_deleted = 0
+        LEFT JOIN strategy_execution_result execution_result
+          ON execution_result.final_selection_id = final_selection.final_selection_id
+         AND execution_result.is_deleted = 0
+        LEFT JOIN app_user selection_requester
+          ON selection_requester.user_id = final_selection.created_by
+        WHERE strategy_case.strategy_case_id = #{strategyCaseId}
+          AND strategy_case.is_deleted = 0
+        ORDER BY final_selection.created_at DESC NULLS LAST,
+                 final_selection.final_selection_id DESC NULLS LAST
+        FETCH FIRST 1 ROW ONLY
+    </select>
+
+    <select id="selectPersistedApprovalActions" resultType="com.stockit.backend.feature.strategy.approval.StrategyApprovalRecords$PersistedApprovalAction">
+        SELECT action.action_type,
+               action.target_sales_point_id,
+               target.sales_point_name AS target_sales_point_name,
+               action.strategy_price,
+               action.discount_rate,
+               action.action_order
+        FROM strategy_action action
+        LEFT JOIN sales_point target
+          ON target.sales_point_id = action.target_sales_point_id
+         AND target.is_deleted = 0
+        WHERE action.strategy_option_id = #{strategyOptionId}
+          AND action.is_deleted = 0
+        ORDER BY action.action_order, action.strategy_action_id
+    </select>
+
     <insert id="insertOption" useGeneratedKeys="true"
             keyProperty="strategyOptionId" keyColumn="strategy_option_id">
         INSERT INTO strategy_option (
@@ -45,9 +127,12 @@
             advantage_text, caution_text, constraint_text,
             created_at, updated_at, created_by, updated_by, is_deleted
         ) VALUES (
-            #{strategyCaseId}, #{optionRank}, #{optionName}, #{recommendationReason},
-            #{advantageText}, #{cautionText}, #{constraintText},
-            SYSTIMESTAMP, SYSTIMESTAMP, #{createdBy}, #{updatedBy}, 0
+            #{strategyCaseId,jdbcType=NUMERIC}, #{optionRank,jdbcType=NUMERIC},
+            #{optionName,jdbcType=VARCHAR}, #{recommendationReason,jdbcType=VARCHAR},
+            #{advantageText,jdbcType=VARCHAR}, #{cautionText,jdbcType=VARCHAR},
+            #{constraintText,jdbcType=VARCHAR},
+            SYSTIMESTAMP, SYSTIMESTAMP,
+            #{createdBy,jdbcType=NUMERIC}, #{updatedBy,jdbcType=NUMERIC}, 0
         )
     </insert>
 
@@ -61,12 +146,16 @@
             expected_remaining_qty, expected_sell_through_days,
             created_at, updated_at, created_by, updated_by, is_deleted
         ) VALUES (
-            #{strategyOptionId}, #{inputSourceType}, #{targetQuantity},
-            #{strategyPrice}, #{movementCost}, #{expectedSalesQty},
-            #{expectedRevenue}, #{unitContributionMargin},
-            #{contributionMarginRate}, #{totalContributionMargin},
-            #{expectedRemainingQty}, #{expectedSellThroughDays},
-            SYSTIMESTAMP, SYSTIMESTAMP, #{createdBy}, #{updatedBy}, 0
+            #{strategyOptionId,jdbcType=NUMERIC}, #{inputSourceType,jdbcType=VARCHAR},
+            #{targetQuantity,jdbcType=NUMERIC}, #{strategyPrice,jdbcType=NUMERIC},
+            #{movementCost,jdbcType=NUMERIC}, #{expectedSalesQty,jdbcType=NUMERIC},
+            #{expectedRevenue,jdbcType=NUMERIC}, #{unitContributionMargin,jdbcType=NUMERIC},
+            #{contributionMarginRate,jdbcType=NUMERIC},
+            #{totalContributionMargin,jdbcType=NUMERIC},
+            #{expectedRemainingQty,jdbcType=NUMERIC},
+            #{expectedSellThroughDays,jdbcType=NUMERIC},
+            SYSTIMESTAMP, SYSTIMESTAMP,
+            #{createdBy,jdbcType=NUMERIC}, #{updatedBy,jdbcType=NUMERIC}, 0
         )
     </insert>
 
@@ -79,11 +168,15 @@
             start_date, end_date, estimated_action_cost, action_order,
             created_at, updated_at, created_by, updated_by, is_deleted
         ) VALUES (
-            #{strategyOptionId}, #{sourceSalesPointId}, #{targetSalesPointId},
-            #{sourceWarehouseId}, #{destinationWarehouseId}, #{actionType},
-            #{actionQuantity}, #{strategyPrice}, #{discountRate},
-            #{startDate}, #{endDate}, #{estimatedActionCost}, #{actionOrder},
-            SYSTIMESTAMP, SYSTIMESTAMP, #{createdBy}, #{updatedBy}, 0
+            #{strategyOptionId,jdbcType=NUMERIC}, #{sourceSalesPointId,jdbcType=NUMERIC},
+            #{targetSalesPointId,jdbcType=NUMERIC}, #{sourceWarehouseId,jdbcType=NUMERIC},
+            #{destinationWarehouseId,jdbcType=NUMERIC}, #{actionType,jdbcType=VARCHAR},
+            #{actionQuantity,jdbcType=NUMERIC}, #{strategyPrice,jdbcType=NUMERIC},
+            #{discountRate,jdbcType=NUMERIC}, #{startDate,jdbcType=DATE},
+            #{endDate,jdbcType=DATE}, #{estimatedActionCost,jdbcType=NUMERIC},
+            #{actionOrder,jdbcType=NUMERIC},
+            SYSTIMESTAMP, SYSTIMESTAMP,
+            #{createdBy,jdbcType=NUMERIC}, #{updatedBy,jdbcType=NUMERIC}, 0
         )
     </insert>
 
@@ -93,9 +186,11 @@
             source_warehouse_id, source_sales_point_id, strategy_action_id,
             created_at, updated_at, created_by, updated_by, is_deleted
         ) VALUES (
-            #{lotId}, #{allocatedQuantity}, #{priorityNo},
-            #{sourceWarehouseId}, #{sourceSalesPointId}, #{strategyActionId},
-            SYSTIMESTAMP, SYSTIMESTAMP, #{createdBy}, #{updatedBy}, 0
+            #{lotId,jdbcType=NUMERIC}, #{allocatedQuantity,jdbcType=NUMERIC},
+            #{priorityNo,jdbcType=NUMERIC}, #{sourceWarehouseId,jdbcType=NUMERIC},
+            #{sourceSalesPointId,jdbcType=NUMERIC}, #{strategyActionId,jdbcType=NUMERIC},
+            SYSTIMESTAMP, SYSTIMESTAMP,
+            #{createdBy,jdbcType=NUMERIC}, #{updatedBy,jdbcType=NUMERIC}, 0
         )
     </insert>
 
@@ -107,11 +202,14 @@
             expiry_date, warehouse_id,
             created_at, updated_at, created_by, updated_by, is_deleted
         ) VALUES (
-            #{strategyCaseId}, #{skuId}, #{lotId}, #{salesPointId},
-            #{inventoryBalanceId}, #{onTotalQty}, #{onHandQty},
-            #{safetyStockQty}, #{dailySalesVelocity}, #{forecastQty},
-            #{expiryDate}, #{warehouseId},
-            SYSTIMESTAMP, SYSTIMESTAMP, #{createdBy}, #{updatedBy}, 0
+            #{strategyCaseId,jdbcType=NUMERIC}, #{skuId,jdbcType=NUMERIC},
+            #{lotId,jdbcType=NUMERIC}, #{salesPointId,jdbcType=NUMERIC},
+            #{inventoryBalanceId,jdbcType=NUMERIC}, #{onTotalQty,jdbcType=NUMERIC},
+            #{onHandQty,jdbcType=NUMERIC}, #{safetyStockQty,jdbcType=NUMERIC},
+            #{dailySalesVelocity,jdbcType=NUMERIC}, #{forecastQty,jdbcType=NUMERIC},
+            #{expiryDate,jdbcType=DATE}, #{warehouseId,jdbcType=NUMERIC},
+            SYSTIMESTAMP, SYSTIMESTAMP,
+            #{createdBy,jdbcType=NUMERIC}, #{updatedBy,jdbcType=NUMERIC}, 0
         )
     </insert>
 
@@ -119,13 +217,15 @@
         INSERT INTO strategy_price_snapshot (
             strategy_case_id, sku_id, sales_point_id, current_price,
             product_cost, payment_fee, logistics_cost,
-            unit_variable_cost, baseline_unit_contribution_margin,
+            unit_variable_cost,
             created_at, updated_at, created_by, updated_by, is_deleted
         ) VALUES (
-            #{strategyCaseId}, #{skuId}, #{salesPointId}, #{currentPrice},
-            #{productCost}, #{paymentFee}, #{logisticsCost},
-            #{unitVariableCost}, #{baselineUnitContributionMargin},
-            SYSTIMESTAMP, SYSTIMESTAMP, #{createdBy}, #{updatedBy}, 0
+            #{strategyCaseId,jdbcType=NUMERIC}, #{skuId,jdbcType=NUMERIC},
+            #{salesPointId,jdbcType=NUMERIC}, #{currentPrice,jdbcType=NUMERIC},
+            #{productCost,jdbcType=NUMERIC}, #{paymentFee,jdbcType=NUMERIC},
+            #{logisticsCost,jdbcType=NUMERIC}, #{unitVariableCost,jdbcType=NUMERIC},
+            SYSTIMESTAMP, SYSTIMESTAMP,
+            #{createdBy,jdbcType=NUMERIC}, #{updatedBy,jdbcType=NUMERIC}, 0
         )
     </insert>
 
@@ -135,8 +235,9 @@
             strategy_case_id, strategy_option_id,
             created_at, updated_at, created_by, updated_by, is_deleted
         ) VALUES (
-            #{strategyCaseId}, #{strategyOptionId},
-            SYSTIMESTAMP, SYSTIMESTAMP, #{createdBy}, #{updatedBy}, 0
+            #{strategyCaseId,jdbcType=NUMERIC}, #{strategyOptionId,jdbcType=NUMERIC},
+            SYSTIMESTAMP, SYSTIMESTAMP,
+            #{createdBy,jdbcType=NUMERIC}, #{updatedBy,jdbcType=NUMERIC}, 0
         )
     </insert>
 
@@ -149,12 +250,16 @@
             forecast_generated_at,
             created_at, updated_at, created_by, updated_by, is_deleted
         ) VALUES (
-            #{finalSelectionId}, #{salesPointId}, #{modelVersionId},
-            #{forecastRole}, #{forecastRunId}, #{strategyPeriodPredictedQty},
-            #{forecast30dQty}, #{forecast60dQty}, #{forecast90dQty},
-            #{forecast180dQty}, #{dailyForecastJson}, #{inputDataHash},
-            #{forecastGeneratedAt},
-            SYSTIMESTAMP, SYSTIMESTAMP, #{createdBy}, #{updatedBy}, 0
+            #{finalSelectionId,jdbcType=NUMERIC}, #{salesPointId,jdbcType=NUMERIC},
+            #{modelVersionId,jdbcType=NUMERIC}, #{forecastRole,jdbcType=VARCHAR},
+            #{forecastRunId,jdbcType=VARCHAR},
+            #{strategyPeriodPredictedQty,jdbcType=NUMERIC},
+            #{forecast30dQty,jdbcType=NUMERIC}, #{forecast60dQty,jdbcType=NUMERIC},
+            #{forecast90dQty,jdbcType=NUMERIC}, #{forecast180dQty,jdbcType=NUMERIC},
+            #{dailyForecastJson,jdbcType=CLOB}, #{inputDataHash,jdbcType=VARCHAR},
+            #{forecastGeneratedAt,jdbcType=TIMESTAMP},
+            SYSTIMESTAMP, SYSTIMESTAMP,
+            #{createdBy,jdbcType=NUMERIC}, #{updatedBy,jdbcType=NUMERIC}, 0
         )
     </insert>
 
@@ -169,12 +274,14 @@
             start_unit_cost, calculation_version,
             created_at, updated_at, created_by, updated_by, is_deleted
         ) VALUES (
-            #{finalSelectionId}, #{resultStatus},
-            #{plannedStartDate}, #{plannedEndDate},
-            #{goalMetricCode}, #{goalTargetValue},
-            #{startRiskStockQty}, #{startExpectedDisposalQty},
-            #{startUnitCost}, #{calculationVersion},
-            SYSTIMESTAMP, SYSTIMESTAMP, #{createdBy}, #{updatedBy}, 0
+            #{finalSelectionId,jdbcType=NUMERIC}, #{resultStatus,jdbcType=VARCHAR},
+            #{plannedStartDate,jdbcType=DATE}, #{plannedEndDate,jdbcType=DATE},
+            #{goalMetricCode,jdbcType=VARCHAR}, #{goalTargetValue,jdbcType=NUMERIC},
+            #{startRiskStockQty,jdbcType=NUMERIC},
+            #{startExpectedDisposalQty,jdbcType=NUMERIC},
+            #{startUnitCost,jdbcType=NUMERIC}, #{calculationVersion,jdbcType=VARCHAR},
+            SYSTIMESTAMP, SYSTIMESTAMP,
+            #{createdBy,jdbcType=NUMERIC}, #{updatedBy,jdbcType=NUMERIC}, 0
         )
     </insert>
 
@@ -185,9 +292,11 @@
             teams_message_id, strategy_url,
             created_at, updated_at, created_by, updated_by, is_deleted
         ) VALUES (
-            #{strategyOptionId}, #{requesterId}, #{reviewerId}, #{reviewStatus},
-            #{teamsMessageId}, #{strategyUrl},
-            SYSTIMESTAMP, SYSTIMESTAMP, #{createdBy}, #{updatedBy}, 0
+            #{strategyOptionId,jdbcType=NUMERIC}, #{requesterId,jdbcType=NUMERIC},
+            #{reviewerId,jdbcType=NUMERIC}, #{reviewStatus,jdbcType=VARCHAR},
+            #{teamsMessageId,jdbcType=VARCHAR}, #{strategyUrl,jdbcType=VARCHAR},
+            SYSTIMESTAMP, SYSTIMESTAMP,
+            #{createdBy,jdbcType=NUMERIC}, #{updatedBy,jdbcType=NUMERIC}, 0
         )
     </insert>
 
@@ -213,6 +322,36 @@
         WHERE strategy_option_id = #{strategyOptionId}
           AND is_deleted = 0
         ORDER BY reviewer_id
+    </select>
+
+    <select id="selectReviewRequestDeliveries" resultType="com.stockit.backend.feature.strategy.approval.StrategyApprovalRecords$ReviewRequestRecord">
+        SELECT request.review_request_id,
+               request.reviewer_id,
+               request.review_status,
+               request.updated_at,
+               reviewer.user_name AS reviewer_name,
+               reviewer.email AS reviewer_email,
+               reviewer.active_yn AS reviewer_active_yn,
+               reviewer.is_deleted AS reviewer_is_deleted,
+               requester.user_name AS requester_name
+        FROM strategy_review_request request
+        LEFT JOIN app_user reviewer
+          ON reviewer.user_id = request.reviewer_id
+        LEFT JOIN app_user requester
+          ON requester.user_id = request.requester_id
+        WHERE request.strategy_option_id = #{strategyOptionId}
+          AND request.is_deleted = 0
+        ORDER BY request.reviewer_id
+    </select>
+
+    <select id="selectReviewRequest" resultType="com.stockit.backend.feature.strategy.approval.StrategyApprovalRecords$ReviewRequestRecord">
+        SELECT review_request_id,
+               reviewer_id,
+               review_status,
+               updated_at
+        FROM strategy_review_request
+        WHERE review_request_id = #{reviewRequestId}
+          AND is_deleted = 0
     </select>
 
     <update id="claimReviewRequest">

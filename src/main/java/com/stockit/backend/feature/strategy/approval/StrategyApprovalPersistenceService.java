@@ -123,7 +123,10 @@ public class StrategyApprovalPersistenceService {
                     || !Objects.equals(
                             candidateId(existing.getConstraintText()),
                             option.candidate().candidateId()
-                    ) || (existingFingerprint != null
+                    ) || (existingFingerprint == null
+                    && resolved.inputSource()
+                    == StrategySelectionInputSource.USER_SELECT)
+                    || (existingFingerprint != null
                     && !Objects.equals(
                             existingFingerprint,
                             resolved.selectionFingerprint()
@@ -377,9 +380,6 @@ public class StrategyApprovalPersistenceService {
             write.setPaymentFee(price.paymentFee());
             write.setLogisticsCost(price.logisticsCost());
             write.setUnitVariableCost(unitVariableCost);
-            write.setBaselineUnitContributionMargin(
-                    price.actualPrice().subtract(unitVariableCost)
-            );
             audit(write, actorId);
             approvalMapper.insertPriceSnapshot(write);
         }

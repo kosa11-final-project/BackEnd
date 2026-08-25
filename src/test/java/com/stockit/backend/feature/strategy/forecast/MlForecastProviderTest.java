@@ -58,6 +58,8 @@ class MlForecastProviderTest {
                 .forecast(request());
 
         assertThat(result.forecastRunId()).isEqualTo("forecast-run-1");
+        assertThat(result.modelName()).isEqualTo("stockit-demand-lightgbm");
+        assertThat(result.modelVersion()).isEqualTo("3");
         assertThat(receivedApiKey).hasValue("test-api-key");
         JsonNode requestJson = objectMapper.readTree(receivedBody.get());
         assertThat(requestJson.path("strategyRequestId").asLong()).isEqualTo(12345L);
@@ -303,7 +305,8 @@ class MlForecastProviderTest {
                   "forecastEndDate": "2026-08-20",
                   "forecastDays": 1,
                   "forecastRunId": "forecast-run-1",
-                  "modelVersionId": 3,
+                  "modelName": "stockit-demand-lightgbm",
+                  "modelVersion": "3",
                   "forecastGeneratedAt": "2026-08-20T10:15:30+09:00",
                   "salesPointForecasts": [
                     {

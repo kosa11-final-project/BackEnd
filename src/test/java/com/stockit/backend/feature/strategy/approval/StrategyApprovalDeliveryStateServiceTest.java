@@ -43,4 +43,32 @@ class StrategyApprovalDeliveryStateServiceTest {
         assertThat(service.tryClaim(701L, 3L, Duration.ofMinutes(1)))
                 .isFalse();
     }
+
+    @Test
+    void returnsPersistedStatusWhenCompletionUpdateLostClaim() {
+        StrategyApprovalDeliveryStateService service =
+                new StrategyApprovalDeliveryStateService(approvalMapper);
+        StrategyApprovalRecords.ReviewRequestRecord current =
+                new StrategyApprovalRecords.ReviewRequestRecord();
+        current.setReviewStatus(StrategyReviewStatus.SENT);
+        when(approvalMapper.completeReviewRequest(
+                701L, StrategyReviewStatus.SENT, 3L
+        )).thenReturn(0);
+        when(approvalMapper.selectReviewRequest(701L)).thenReturn(current);
+
+        assertThat(service.markSent(701L, 3L))
+                .isEqualTo(StrategyReviewStatus.SENT);
+    }
+
+    @Test
+    void returnsTargetStatusWhenCompletionUpdateSucceeds() {
+        StrategyApprovalDeliveryStateService service =
+                new StrategyApprovalDeliveryStateService(approvalMapper);
+        when(approvalMapper.completeReviewRequest(
+                701L, StrategyReviewStatus.FAILED, 3L
+        )).thenReturn(1);
+
+        assertThat(service.markFailed(701L, 3L))
+                .isEqualTo(StrategyReviewStatus.FAILED);
+    }
 }

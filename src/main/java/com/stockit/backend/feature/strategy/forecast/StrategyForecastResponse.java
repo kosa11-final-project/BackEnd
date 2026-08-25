@@ -13,7 +13,8 @@ public record StrategyForecastResponse(
         LocalDate forecastEndDate,
         Integer forecastDays,
         String forecastRunId,
-        Long modelVersionId,
+        String modelName,
+        String modelVersion,
         OffsetDateTime forecastGeneratedAt,
         List<SalesPointForecast> salesPointForecasts
 ) {
