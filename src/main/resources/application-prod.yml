@@ -1,0 +1,18 @@
+spring:
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+
+server:
+  shutdown: graceful
+  forward-headers-strategy: framework
+
+management:
+  endpoint:
+    health:
+      show-details: never
+      probes:
+        enabled: true
+
+logging:
+  file:
+    name: ${APP_LOG_FILE:/var/log/stockit/application.log}

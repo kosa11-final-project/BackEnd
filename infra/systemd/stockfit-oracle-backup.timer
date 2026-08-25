@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the Stockit Oracle backup every day at 06:30 KST
+
+[Timer]
+OnCalendar=*-*-* 06:30:00 Asia/Seoul
+Persistent=true
+RandomizedDelaySec=60
+Unit=stockfit-oracle-backup.service
+
+[Install]
+WantedBy=timers.target
