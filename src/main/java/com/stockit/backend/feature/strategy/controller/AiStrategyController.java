@@ -231,6 +231,15 @@ public class AiStrategyController {
             summary = "AI 전략 Teams 전송 재시도",
             description = "Redis 결과와 무관하게 Oracle에 확정된 전략으로 미완료 Reviewer 전송만 재시도합니다."
     )
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Teams 전송 재시도 성공"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "잘못된 요청 또는 실행 기간 만료", content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "인증 필요", content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "다른 조직의 Case", content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "Case 또는 확정 전략 없음", content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "Case 상태 또는 확정 전략 데이터 충돌", content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "500", description = "확정 전략 또는 전송 상태 데이터 불일치", content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
+    })
     public ApiResponse<AiStrategyTeamsRequestResponse> retryTeamsRequest(
             @PathVariable Long strategyCaseId,
             @Parameter(description = "GET /api/v1/auth/csrf에서 발급받은 CSRF 토큰")

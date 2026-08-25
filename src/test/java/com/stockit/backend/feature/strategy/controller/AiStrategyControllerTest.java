@@ -2,6 +2,7 @@ package com.stockit.backend.feature.strategy.controller;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -372,6 +373,90 @@ class AiStrategyControllerTest {
     }
 
     @Test
+    void rejectsInvalidFinalOptionPrevalidationBeforeServiceCall()
+            throws Exception {
+        CsrfCredentials csrf = requestCsrf();
+
+        mockMvc.perform(post("/api/v1/ai-strategies/123/selection-validations")
+                        .with(user(adminPrincipal()))
+                        .cookie(csrf.cookie())
+                        .header(csrf.headerName(), csrf.token())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "optionId": " "
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON-002"));
+
+        mockMvc.perform(post("/api/v1/ai-strategies/123/selection-validations")
+                        .with(user(adminPrincipal()))
+                        .cookie(csrf.cookie())
+                        .header(csrf.headerName(), csrf.token())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "optionId": "CAND-1",
+                                  "adjustedConditions": {
+                                    "actionQuantity": 0,
+                                    "discountRate": 0.1500,
+                                    "startDate": "2026-08-25",
+                                    "endDate": "2026-08-31"
+                                  }
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON-002"));
+
+        verifyNoInteractions(selectionValidationService);
+    }
+
+    @Test
+    void rejectsReversedSelectionPeriodAtRequestBoundary() throws Exception {
+        CsrfCredentials csrf = requestCsrf();
+        String adjustedConditions = """
+                {
+                  "actionQuantity": 29,
+                  "discountRate": 0.1500,
+                  "startDate": "2026-08-31",
+                  "endDate": "2026-08-25"
+                }
+                """;
+
+        mockMvc.perform(post("/api/v1/ai-strategies/123/selection-validations")
+                        .with(user(adminPrincipal()))
+                        .cookie(csrf.cookie())
+                        .header(csrf.headerName(), csrf.token())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "optionId": "CAND-1",
+                                  "adjustedConditions": %s
+                                }
+                                """.formatted(adjustedConditions)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON-002"));
+
+        mockMvc.perform(post("/api/v1/ai-strategies/123/teams-requests")
+                        .with(user(adminPrincipal()))
+                        .cookie(csrf.cookie())
+                        .header(csrf.headerName(), csrf.token())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "optionId": "CAND-1",
+                                  "adjustedConditions": %s,
+                                  "reviewerIds": [7]
+                                }
+                                """.formatted(adjustedConditions)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON-002"));
+
+        verifyNoInteractions(selectionValidationService, approvalService);
+    }
+
+    @Test
     void forwardsCompleteAdjustedConditionsForFinalSelection() throws Exception {
         AdjustStrategySimulationCommand adjusted = new AdjustStrategySimulationCommand(
                 new java.math.BigDecimal("29"),
@@ -430,6 +515,50 @@ class AiStrategyControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.selectedOptionId").value("CAND-1"))
                 .andExpect(jsonPath("$.data.deliveryStatus").value("SENT"));
+    }
+
+    @Test
+    void rejectsAnonymousSelectionValidationAndTeamsRetry() throws Exception {
+        CsrfCredentials csrf = requestCsrf();
+
+        mockMvc.perform(post("/api/v1/ai-strategies/123/selection-validations")
+                        .cookie(csrf.cookie())
+                        .header(csrf.headerName(), csrf.token())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"optionId\":\"CAND-1\"}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("AUTH-001"));
+
+        mockMvc.perform(post("/api/v1/ai-strategies/123/teams-requests/retry")
+                        .cookie(csrf.cookie())
+                        .header(csrf.headerName(), csrf.token()))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("AUTH-001"));
+
+        verifyNoInteractions(selectionValidationService, approvalRetryService);
+    }
+
+    @Test
+    void rejectsNonAdminSelectionValidationAndTeamsRetry() throws Exception {
+        CsrfCredentials csrf = requestCsrf();
+
+        mockMvc.perform(post("/api/v1/ai-strategies/123/selection-validations")
+                        .with(user("branch").roles("BRANCH_MANAGER"))
+                        .cookie(csrf.cookie())
+                        .header(csrf.headerName(), csrf.token())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"optionId\":\"CAND-1\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("COMMON-003"));
+
+        mockMvc.perform(post("/api/v1/ai-strategies/123/teams-requests/retry")
+                        .with(user("branch").roles("BRANCH_MANAGER"))
+                        .cookie(csrf.cookie())
+                        .header(csrf.headerName(), csrf.token()))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("COMMON-003"));
+
+        verifyNoInteractions(selectionValidationService, approvalRetryService);
     }
 
     @Test
@@ -516,7 +645,11 @@ class AiStrategyControllerTest {
                 .andExpect(jsonPath("$.paths['/api/v1/ai-strategies/{strategyCaseId}/teams-requests'].post.summary")
                         .value("최종 AI 전략 선택 및 Teams 검토 요청"))
                 .andExpect(jsonPath("$.paths['/api/v1/ai-strategies/{strategyCaseId}/teams-requests/retry'].post.summary")
-                        .value("AI 전략 Teams 전송 재시도"));
+                        .value("AI 전략 Teams 전송 재시도"))
+                .andExpect(jsonPath("$.paths['/api/v1/ai-strategies/{strategyCaseId}/teams-requests/retry'].post.responses['400'].content['*/*'].schema['$ref']")
+                        .value("#/components/schemas/ApiErrorResponse"))
+                .andExpect(jsonPath("$.paths['/api/v1/ai-strategies/{strategyCaseId}/teams-requests/retry'].post.responses['401'].content['*/*'].schema['$ref']")
+                        .value("#/components/schemas/ApiErrorResponse"));
     }
 
     private MockHttpServletRequestBuilder createRequest(

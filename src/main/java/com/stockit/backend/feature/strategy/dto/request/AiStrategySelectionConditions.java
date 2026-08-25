@@ -3,8 +3,10 @@ package com.stockit.backend.feature.strategy.dto.request;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.stockit.backend.feature.strategy.simulation.AdjustStrategySimulationCommand;
 
+import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.NotNull;
@@ -23,6 +25,13 @@ public record AiStrategySelectionConditions(
         @NotNull LocalDate startDate,
         @NotNull LocalDate endDate
 ) {
+    @JsonIgnore
+    @AssertTrue(message = "전략 종료일은 시작일보다 빠를 수 없습니다.")
+    public boolean isDateRangeValid() {
+        return startDate == null || endDate == null
+                || !endDate.isBefore(startDate);
+    }
+
     public AdjustStrategySimulationCommand toCommand() {
         return new AdjustStrategySimulationCommand(
                 actionQuantity, discountRate, startDate, endDate
