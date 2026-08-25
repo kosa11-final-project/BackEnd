@@ -126,6 +126,7 @@ class StrategyCalculationContextLoaderImplTest {
                 .containsExactly(20L);
         assertThat(context.referenceInventory()).hasSize(2);
         assertThat(context.unitCost()).isEqualByComparingTo("50");
+        assertThat(context.forecastMetadata().modelVersionId()).isEqualTo(81L);
         verify(checkpointStore).find(12345L, "request-hash", List.of(10L, 20L));
         verify(responseValidator).validate(requestContext(10L), forecastResponse(10L));
     }
@@ -386,6 +387,7 @@ class StrategyCalculationContextLoaderImplTest {
                 "request-hash",
                 List.of(10L, 20L),
                 Instant.parse("2026-08-20T00:00:00Z"),
+                81L,
                 response
         );
         when(strategyCaseMapper.selectStrategyCaseById(12345L)).thenReturn(strategyCase);
@@ -431,7 +433,8 @@ class StrategyCalculationContextLoaderImplTest {
                 END,
                 2,
                 "forecast-run-1",
-                3L,
+                "stockit-demand-lightgbm",
+                "3",
                 OffsetDateTime.of(2026, 8, 20, 9, 0, 0, 0, ZoneOffset.ofHours(9)),
                 List.of(
                         forecast(10L, sourceSalesPointId != null && sourceSalesPointId == 10L),

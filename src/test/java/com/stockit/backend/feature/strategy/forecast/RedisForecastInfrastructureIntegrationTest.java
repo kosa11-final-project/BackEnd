@@ -69,6 +69,7 @@ class RedisForecastInfrastructureIntegrationTest {
         ForecastCheckpoint checkpoint = ForecastCheckpoint.create(
                 context(),
                 response(),
+                81L,
                 Instant.parse("2026-08-20T00:00:00Z")
         );
 
@@ -88,6 +89,7 @@ class RedisForecastInfrastructureIntegrationTest {
         store.save(ForecastCheckpoint.create(
                 context(),
                 response(),
+                81L,
                 Instant.now()
         ));
 
@@ -158,7 +160,8 @@ class RedisForecastInfrastructureIntegrationTest {
                 LocalDate.of(2026, 8, 20),
                 1,
                 "forecast-run-1",
-                3L,
+                "stockit-demand-lightgbm",
+                "3",
                 OffsetDateTime.parse("2026-08-20T10:15:30+09:00"),
                 List.of(new SalesPointForecast(
                         10L,

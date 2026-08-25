@@ -107,6 +107,7 @@ public class StrategyCalculationContextLoaderImpl
                 strategyCase,
                 payload,
                 checkpoint.forecastResponse(),
+                checkpoint.modelVersionId(),
                 forecastContext.expectedSalesPointIds(),
                 forecastContext.requestHash(),
                 calculatedAt
@@ -174,6 +175,7 @@ public class StrategyCalculationContextLoaderImpl
             StrategyCaseVO strategyCase,
             StrategyCaseRequestPayload payload,
             StrategyForecastResponse forecast,
+            Long modelVersionId,
             List<Long> expectedSalesPointIds,
             String forecastRequestHash,
             LocalDateTime calculatedAt
@@ -315,7 +317,7 @@ public class StrategyCalculationContextLoaderImpl
                 salesPoints,
                 new StrategyCalculationContext.ForecastMetadata(
                         forecast.forecastRunId(),
-                        forecast.modelVersionId(),
+                        modelVersionId,
                         forecast.forecastGeneratedAt(),
                         forecastRequestHash
                 )

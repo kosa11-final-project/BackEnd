@@ -8,6 +8,7 @@ import java.util.List;
  *
  * @param requestHash 현재 Case에서 복원한 ML 요청과 동일한지 확인하는 무결성 값
  * @param expectedSalesPointIds 응답 누락과 과거 범위 재사용을 검증하는 판매처 목록
+ * @param modelVersionId 외부 모델명·버전을 DB에서 해석한 내부 모델 버전 PK
  */
 public record ForecastCheckpoint(
         int schemaVersion,
@@ -15,15 +16,21 @@ public record ForecastCheckpoint(
         String requestHash,
         List<Long> expectedSalesPointIds,
         Instant storedAt,
+        Long modelVersionId,
         StrategyForecastResponse forecastResponse
 ) {
 
-    public static final int CURRENT_SCHEMA_VERSION = 1;
+    public static final int CURRENT_SCHEMA_VERSION = 2;
 
     public ForecastCheckpoint {
         expectedSalesPointIds = expectedSalesPointIds == null
                 ? List.of()
                 : List.copyOf(expectedSalesPointIds);
+        if (modelVersionId == null || modelVersionId <= 0) {
+            throw new IllegalArgumentException(
+                    "Resolved modelVersionId must be positive"
+            );
+        }
     }
 
     /**
@@ -32,6 +39,7 @@ public record ForecastCheckpoint(
     public static ForecastCheckpoint create(
             StrategyForecastRequestContext context,
             StrategyForecastResponse response,
+            Long modelVersionId,
             Instant storedAt
     ) {
         return new ForecastCheckpoint(
@@ -40,6 +48,7 @@ public record ForecastCheckpoint(
                 context.requestHash(),
                 context.expectedSalesPointIds(),
                 storedAt,
+                modelVersionId,
                 response
         );
     }
