@@ -28,4 +28,14 @@ public class InventoryDemoAdjustmentController {
     ) {
         return ResponseEntity.ok(ApiResponse.of(service.apply(request, principal == null ? null : principal.getUserId())));
     }
+
+    @PostMapping("/all")
+    public ResponseEntity<ApiResponse<InventoryDemoBulkAdjustmentResponse>> applyAll(
+            @Valid @RequestBody InventoryDemoBulkAdjustmentRequest request,
+            @AuthenticationPrincipal AuthPrincipal principal
+    ) {
+        return ResponseEntity.ok(ApiResponse.of(
+                service.applyAll(request, principal == null ? null : principal.getUserId())
+        ));
+    }
 }

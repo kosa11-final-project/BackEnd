@@ -1,6 +1,19 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.stockit.backend.feature.inventorysync.risk.InventorySyncRiskSnapshotMapper">
+    <select id="selectScopesRequiringRuleVersion" resultType="string">
+        SELECT TO_CHAR(ib.sku_id) || ':'
+               || COALESCE(TO_CHAR(ib.allocated_sales_point_id), 'UNASSIGNED') AS scope_key
+          FROM inventory_balance ib
+          LEFT JOIN risk_assessment ra
+            ON ra.inventory_balance_id = ib.inventory_balance_id
+           AND ra.is_deleted = 0
+         WHERE ib.is_deleted = 0
+         GROUP BY ib.sku_id, ib.allocated_sales_point_id
+        HAVING MAX(CASE WHEN ra.rule_version = #{ruleVersion} THEN 1 ELSE 0 END) = 0
+         ORDER BY scope_key
+    </select>
+
     <!-- balance·policy·latest forecast·LOT를 한 set-based statement snapshot으로 읽습니다. -->
     <select id="selectAffectedScopeSnapshot" resultType="com.stockit.backend.feature.inventorysync.risk.InventorySyncRiskSnapshotMapper$RiskScopeRow">
         WITH latest_forecast AS (

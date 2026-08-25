@@ -10,6 +10,7 @@ import org.apache.ibatis.annotations.Param;
 @Mapper
 public interface InventorySyncRiskSnapshotMapper {
     List<RiskScopeRow> selectAffectedScopeSnapshot(@Param("scopeKeys") Set<String> scopeKeys, @Param("asOfDate") LocalDate asOfDate);
+    List<String> selectScopesRequiringRuleVersion(@Param("ruleVersion") String ruleVersion);
 
     class RiskScopeRow {
         private Long inventoryBalanceId;

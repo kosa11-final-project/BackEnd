@@ -25,9 +25,7 @@ public class InventoryQueryRequest {
     private static final List<String> CHANNEL_TYPES = List.of("GREETING", "ECOMMERCE", "HYUNDAI_DEPT", "HMART");
     private static final List<String> STORAGE_TYPES = List.of("FROZEN", "COLD", "ROOM_TEMP");
     private static final List<String> RISK_GRADES = List.of("SAFE", "NORMAL", "CAUTION", "DANGER");
-    private static final List<String> ASSESSMENT_STATUSES = List.of(
-            "ASSESSED", "UNASSESSED", "STALE", "FAILED", "REASSESSING"
-    );
+    private static final List<String> ASSESSMENT_STATUSES = List.of("ASSESSED", "UNASSESSED");
     private static final List<String> FILTER_OPERATORS = List.of("AND", "OR");
 
     @Schema(description = "상품·SKU·판매처 검색어", example = "만두")
@@ -48,7 +46,7 @@ public class InventoryQueryRequest {
     private List<String> storageType = new ArrayList<>();
     @Schema(description = "위험 등급", allowableValues = {"SAFE", "NORMAL", "CAUTION", "DANGER"})
     private List<String> riskGrade = new ArrayList<>();
-    @Schema(description = "위험 판정 상태", allowableValues = {"ASSESSED", "UNASSESSED", "STALE", "FAILED", "REASSESSING"})
+    @Schema(description = "위험 판정 상태", allowableValues = {"ASSESSED", "UNASSESSED"})
     private List<String> assessmentStatus = new ArrayList<>();
     @Schema(
             description = "활성 필터 그룹 결합 방식. 같은 그룹의 다중 값은 항상 OR",

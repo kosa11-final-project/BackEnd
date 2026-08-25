@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.LocalDate;
 import java.util.Map;
@@ -22,6 +23,7 @@ import com.stockit.backend.feature.inventorysync.mapper.InventorySyncRunSourceMa
 import com.stockit.backend.feature.inventorysync.mapper.InventorySyncSourceWriteMapper;
 import com.stockit.backend.feature.inventorysync.risk.InventorySyncRiskScopeSnapshotLoader;
 import com.stockit.backend.feature.inventorysync.risk.InventorySyncRiskWriter;
+import com.stockit.backend.feature.inventory.risk.RiskRuleEngine;
 import com.stockit.backend.feature.inventorysync.service.InventorySyncCanonicalBatchWriter;
 import com.stockit.backend.feature.inventorysync.service.InventorySyncSnapshotCoordinator;
 import com.stockit.backend.feature.inventorysync.vo.InventorySyncRunVO;
@@ -65,6 +67,19 @@ class InventorySyncCanonicalBatchWriterTest {
         writer.finish("101", Map.of("OFFLINE", 1L), Set.of(), 7L, 0);
 
         verify(snapshotCoordinator, never()).scheduleAfterCommit(eq(RUN_ID), any(LocalDate.class));
+    }
+
+    @Test
+    void noOpSourcePublishReassessesOutdatedRiskRulesAndReportsTheChanges() {
+        Set<String> outdatedScopes = Set.of("1:10", "2:UNASSIGNED");
+        when(riskSnapshotLoader.findScopesRequiringRuleVersion(RiskRuleEngine.RULE_VERSION))
+                .thenReturn(outdatedScopes);
+
+        int riskOnlyChanged = writer.finish("101", Map.of("OFFLINE", 1L), Set.of(), 7L, 0);
+
+        assertThat(riskOnlyChanged).isEqualTo(2);
+        verify(riskWriter).evaluateAndPersist(RUN_ID, 7L, outdatedScopes, riskSnapshotLoader);
+        verify(snapshotCoordinator).scheduleAfterCommit(eq(RUN_ID), any(LocalDate.class));
     }
 
     @Test

@@ -17,10 +17,9 @@ class InventorySyncSnapshotTaskMapperContractTest {
         String sql = Files.readString(MAPPER);
 
         assertThat(sql).contains(
-                "WHEN dashboard_task_count = 0 THEN",
-                "WHEN statistics_task_count = 0 THEN",
-                "#{runId}, 'DASHBOARD', 'PENDING'",
-                "#{runId}, 'INVENTORY_STATISTICS', 'PENDING'"
+                "MERGE INTO inventory_sync_snapshot_task target",
+                "WHEN NOT MATCHED THEN INSERT",
+                "source.inventory_sync_run_id, source.task_type, 'PENDING'"
         );
     }
 

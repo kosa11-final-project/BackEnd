@@ -182,6 +182,15 @@ class InventoryQueryServiceImplTest {
     }
 
     @Test
+    void filterOptionsOnlyExposeAssessmentStatusesBackedByInventoryRows() {
+        var response = inventoryQueryService.filterOptions();
+
+        assertThat(response.assessmentStatuses())
+                .extracting(option -> option.code())
+                .containsExactly("ASSESSED", "UNASSESSED");
+    }
+
+    @Test
     void preservesNullQuantitiesInDetailAndLots() {
         InventoryItemVO item = createItemVO("SKU-1", "GREETING");
         item.setCurrentQty(null);

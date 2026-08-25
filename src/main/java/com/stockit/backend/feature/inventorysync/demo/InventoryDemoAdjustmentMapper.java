@@ -22,6 +22,16 @@ public interface InventoryDemoAdjustmentMapper {
                     @Param("sourceRowVersionAfter") long sourceRowVersionAfter, @Param("sourceHashBefore") String sourceHashBefore,
                     @Param("sourceHashAfter") String sourceHashAfter, @Param("requestedBy") Long requestedBy,
                     @Param("payloadJson") String payloadJson);
+    BulkSourceStateRow lockBulkSourceState(@Param("sourceType") String sourceType);
+    int countEligibleSyncedRows(@Param("sourceType") String sourceType,
+                                @Param("decreaseQty") BigDecimal decreaseQty);
+    int insertBulkAudit(@Param("requestId") String requestId, @Param("requestHash") String requestHash,
+                        @Param("sourceType") String sourceType, @Param("decreaseQty") BigDecimal decreaseQty,
+                        @Param("requestedBy") Long requestedBy);
+    int updateAllSyncedSources(@Param("sourceType") String sourceType,
+                               @Param("decreaseQty") BigDecimal decreaseQty);
+    int updatePendingCountBulk(@Param("sourceType") String sourceType,
+                               @Param("adjustedCount") int adjustedCount);
 
     class DemoSourceRow {
         private BigDecimal onHandQty;
@@ -43,4 +53,5 @@ public interface InventoryDemoAdjustmentMapper {
 
     /** MyBatis가 audit 한 행을 안전하게 복원하는 idempotency 조회 결과입니다. */
     record DemoAuditRow(String requestId, String requestHash, String status, int appliedCount, Instant appliedAt) { }
+    record BulkSourceStateRow(long currentRecordCount, long pendingRecordCount) { }
 }

@@ -2,6 +2,7 @@ package com.stockit.backend.feature.inventorysync;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.lang.reflect.Proxy;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -14,6 +15,31 @@ import com.stockit.backend.feature.inventorysync.batch.InventorySyncAttemptBuffe
 import com.stockit.backend.feature.inventorysync.service.InventorySyncPublisher;
 
 class InventorySyncPublisherTest {
+
+    @Test
+    void includesRiskOnlyChangesReportedByTheFinishHook() {
+        InventorySyncAttemptBuffer buffer = new InventorySyncAttemptBuffer("101", 1, 7L, 10, 9L);
+        AtomicInteger finishedChangedCount = new AtomicInteger(-1);
+        InventorySyncPublisher.CanonicalBatchWriter writer =
+                (InventorySyncPublisher.CanonicalBatchWriter) Proxy.newProxyInstance(
+                        getClass().getClassLoader(),
+                        new Class<?>[]{InventorySyncPublisher.CanonicalBatchWriter.class},
+                        (proxy, method, arguments) -> switch (method.getName()) {
+                            case "writeReferenceTargets" -> 2;
+                            case "writeBatch" -> 0;
+                            case "finish" -> {
+                                finishedChangedCount.set((Integer) arguments[4]);
+                                yield 3;
+                            }
+                            default -> null;
+                        }
+                );
+
+        var result = new InventorySyncPublisher().publish(buffer, (runId, attemptNo, token) -> { }, writer);
+
+        assertThat(finishedChangedCount).hasValue(2);
+        assertThat(result.changedCount()).isEqualTo(5);
+    }
 
     @Test
     void passesTheFinalChangedCountToTheFinishHook() {
@@ -31,9 +57,10 @@ class InventorySyncPublisherTest {
             }
 
             @Override
-            public void finish(String runId, Map<String, Long> sourceVersions, Set<String> riskScopes,
-                               Long actorId, int changedCount) {
+            public int finish(String runId, Map<String, Long> sourceVersions, Set<String> riskScopes,
+                              Long actorId, int changedCount) {
                 finishedChangedCount.set(changedCount);
+                return 0;
             }
         };
 

@@ -2,29 +2,29 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.stockit.backend.feature.inventorysync.mapper.InventorySyncSnapshotTaskMapper">
     <insert id="insertPendingTasks">
-        INSERT ALL
-            WHEN dashboard_task_count = 0 THEN
-            INTO inventory_sync_snapshot_task (
-                inventory_sync_run_id, task_type, task_status, business_date,
-                attempt_count, max_attempts, next_attempt_at, created_at, updated_at
-            ) VALUES (
-                #{runId}, 'DASHBOARD', 'PENDING', #{businessDate},
-                0, 3, SYSTIMESTAMP, SYSTIMESTAMP, SYSTIMESTAMP
-            )
-            WHEN statistics_task_count = 0 THEN
-            INTO inventory_sync_snapshot_task (
-                inventory_sync_run_id, task_type, task_status, business_date,
-                attempt_count, max_attempts, next_attempt_at, created_at, updated_at
-            ) VALUES (
-                #{runId}, 'INVENTORY_STATISTICS', 'PENDING', #{businessDate},
-                0, 3, SYSTIMESTAMP, SYSTIMESTAMP, SYSTIMESTAMP
-            )
-        SELECT
-            (SELECT COUNT(*) FROM inventory_sync_snapshot_task
-              WHERE inventory_sync_run_id = #{runId} AND task_type = 'DASHBOARD') AS dashboard_task_count,
-            (SELECT COUNT(*) FROM inventory_sync_snapshot_task
-              WHERE inventory_sync_run_id = #{runId} AND task_type = 'INVENTORY_STATISTICS') AS statistics_task_count
-        FROM dual
+        MERGE INTO inventory_sync_snapshot_task target
+        USING (
+            SELECT #{runId} AS inventory_sync_run_id,
+                   'DASHBOARD' AS task_type,
+                   #{businessDate} AS business_date
+              FROM dual
+            UNION ALL
+            SELECT #{runId} AS inventory_sync_run_id,
+                   'INVENTORY_STATISTICS' AS task_type,
+                   #{businessDate} AS business_date
+              FROM dual
+        ) source
+        ON (
+            target.inventory_sync_run_id = source.inventory_sync_run_id
+            AND target.task_type = source.task_type
+        )
+        WHEN NOT MATCHED THEN INSERT (
+            inventory_sync_run_id, task_type, task_status, business_date,
+            attempt_count, max_attempts, next_attempt_at, created_at, updated_at
+        ) VALUES (
+            source.inventory_sync_run_id, source.task_type, 'PENDING', source.business_date,
+            0, 3, SYSTIMESTAMP, SYSTIMESTAMP, SYSTIMESTAMP
+        )
     </insert>
 
     <select id="selectByRunId"

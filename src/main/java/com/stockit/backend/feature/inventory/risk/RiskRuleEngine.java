@@ -15,7 +15,8 @@ import org.springframework.stereotype.Component;
 public class RiskRuleEngine {
 
     // 수요예측·가용재고·안전재고·LOT만 사용하는 서버 규칙 버전입니다.
-    public static final String RULE_VERSION = "v1.1.0";
+    public static final String RULE_VERSION = "v1.3.0";
+    private static final BigDecimal CAUTION_STOCK_DAYS = BigDecimal.valueOf(14);
     private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Seoul");
 
     private final Clock clock;
@@ -76,6 +77,21 @@ public class RiskRuleEngine {
         Integer nearestExpiryDays = null;
         Integer maxHoldingDays = null;
         List<RiskReason> reasons = new ArrayList<>();
+
+        // 예측이 없거나 사용할 수 없는 경우에도 현재 재고·안전재고·LOT 서버 룰은 적용합니다.
+        // 다만 미래 수요를 확인하지 못한 상태를 GOOD으로 확정하면 과도하게 낙관적이므로,
+        // 다른 위험 사유가 없을 때의 하한을 NORMAL로 둡니다.
+        if (!forecastUsable) {
+            boolean forecastMissing = !input.forecastAvailable();
+            reasons.add(new RiskReason(
+                    forecastMissing ? "FORECAST_UNAVAILABLE" : "FORECAST_INVALID",
+                    forecastMissing
+                            ? "수요예측이 없어 서버 룰 기준으로 판정했으며 양호 확정은 보류합니다."
+                            : "수요예측 값이 유효하지 않아 서버 룰 기준으로 판정했으며 양호 확정은 보류합니다.",
+                    "NORMAL",
+                    forecastMissing ? "forecastAvailable=false" : "forecast values are invalid"
+            ));
+        }
 
         if (inventoryMissing) {
             reasons.add(new RiskReason(
@@ -161,10 +177,14 @@ public class RiskRuleEngine {
 
         // B. 수요예측 기반 부족량 평가
         if (shortageQty30 != null && shortageQty30.compareTo(BigDecimal.ZERO) > 0) {
+            boolean cautionShortage = availableQty.multiply(BigDecimal.valueOf(30))
+                    .compareTo(predictedQtyD30.multiply(CAUTION_STOCK_DAYS)) < 0;
             reasons.add(new RiskReason(
-                    "PREDICTED_SHORTAGE",
-                    "D+30 수요예측 대비 재고 부족 예상 (" + shortageQty30 + "개 부족)",
-                    "WARNING",
+                    cautionShortage ? "PREDICTED_SHORTAGE" : "PREDICTED_SHORTAGE_MONITORING",
+                    cautionShortage
+                            ? "D+30 수요예측 기준 재고일수가 14일 미만입니다 (" + shortageQty30 + "개 부족 예상)"
+                            : "D+30 수요예측 대비 보충 검토가 필요합니다 (" + shortageQty30 + "개 부족 예상)",
+                    cautionShortage ? "WARNING" : "NORMAL",
                     "predictedQtyD30=" + predictedQtyD30 + ", availableQty=" + availableQty
             ));
         }
