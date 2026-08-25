@@ -24,6 +24,13 @@ import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculati
 public class StrategyPeriodCandidatePolicy {
 
     private static final List<Integer> STANDARD_DAYS = List.of(7, 14, 30);
+    private final StrategyPeriodEligibilityPolicy eligibilityPolicy;
+
+    public StrategyPeriodCandidatePolicy(
+            StrategyPeriodEligibilityPolicy eligibilityPolicy
+    ) {
+        this.eligibilityPolicy = eligibilityPolicy;
+    }
 
     /** 사용자 고정 조건을 우선한 뒤 대표 기간과 고수요 기간 후보를 생성한다 */
     public List<StrategyPeriodCandidate> generate(
@@ -31,26 +38,44 @@ public class StrategyPeriodCandidatePolicy {
             Long salesPointId
     ) {
         LocalDate rangeStart = context.forecastStartDate();
-        LocalDate rangeEnd = context.forecastEndDate();
+        LocalDate rangeEnd = eligibilityPolicy.latestSelectableEndDate(
+                context,
+                List.of()
+        );
         boolean startFixed = context.requestConstraints().isStartDateFixed();
         boolean endFixed = context.requestConstraints().isEndDateFixed();
         Set<StrategyPeriodCandidate> periods = new LinkedHashSet<>();
 
-        // 예측 범위가 오늘부터 시작하더라도 사용자가 고정한 전략 기간은 변경하지 않음
+        if (rangeEnd.isBefore(rangeStart)) {
+            return List.of();
+        }
+
+        // 사용자가 고정한 날짜도 수요예측과 전체 평가 LOT의 판매 가능 범위 안에서만 사용
         if (startFixed && endFixed) {
+            LocalDate preferredStart = context.requestConstraints().preferredStartDate();
+            LocalDate preferredEnd = context.requestConstraints().preferredEndDate();
+            if (!isInsideRange(preferredStart, preferredEnd, rangeStart, rangeEnd)) {
+                return List.of();
+            }
             return List.of(new StrategyPeriodCandidate(
-                    context.requestConstraints().preferredStartDate(),
-                    context.requestConstraints().preferredEndDate()
+                    preferredStart,
+                    preferredEnd
             ));
         }
         if (startFixed) {
             LocalDate preferredStart = context.requestConstraints().preferredStartDate();
+            if (preferredStart.isBefore(rangeStart) || preferredStart.isAfter(rangeEnd)) {
+                return List.of();
+            }
             addForwardWindows(periods, preferredStart, rangeEnd);
             periods.add(new StrategyPeriodCandidate(preferredStart, rangeEnd));
             return List.copyOf(periods);
         }
         if (endFixed) {
             LocalDate preferredEnd = context.requestConstraints().preferredEndDate();
+            if (preferredEnd.isBefore(rangeStart) || preferredEnd.isAfter(rangeEnd)) {
+                return List.of();
+            }
             addBackwardWindows(periods, rangeStart, preferredEnd);
             periods.add(new StrategyPeriodCandidate(rangeStart, preferredEnd));
             return sorted(periods);
@@ -172,5 +197,17 @@ public class StrategyPeriodCandidatePolicy {
                 .comparing(StrategyPeriodCandidate::startDate)
                 .thenComparing(StrategyPeriodCandidate::endDate));
         return List.copyOf(sorted);
+    }
+
+    private static boolean isInsideRange(
+            LocalDate start,
+            LocalDate end,
+            LocalDate rangeStart,
+            LocalDate rangeEnd
+    ) {
+        return start != null && end != null
+                && !start.isAfter(end)
+                && !start.isBefore(rangeStart)
+                && !end.isAfter(rangeEnd);
     }
 }

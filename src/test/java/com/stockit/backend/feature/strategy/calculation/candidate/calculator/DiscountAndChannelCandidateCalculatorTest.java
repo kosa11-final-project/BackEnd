@@ -28,6 +28,7 @@ import com.stockit.backend.feature.strategy.calculation.candidate.policy.Movemen
 import com.stockit.backend.feature.strategy.calculation.candidate.policy.SafetyStockPolicyResolver;
 import com.stockit.backend.feature.strategy.calculation.candidate.policy.SourceInventoryCapacityPolicy;
 import com.stockit.backend.feature.strategy.calculation.candidate.policy.StrategyPeriodCandidatePolicy;
+import com.stockit.backend.feature.strategy.calculation.candidate.policy.StrategyPeriodEligibilityPolicy;
 import com.stockit.backend.feature.strategy.calculation.candidate.policy.TargetAdditionalDemandPolicy;
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculationContext;
 import com.stockit.backend.feature.strategy.calculation.policy.DiscountSimulationProperties;
@@ -54,7 +55,9 @@ class DiscountAndChannelCandidateCalculatorTest {
         StrategyCandidateIdGenerator idGenerator =
                 new StrategyCandidateIdGenerator();
         StrategyPeriodCandidatePolicy periodPolicy =
-                new StrategyPeriodCandidatePolicy();
+                new StrategyPeriodCandidatePolicy(
+                        new StrategyPeriodEligibilityPolicy()
+                );
         InventoryMovementCandidateFactory movementFactory =
                 new InventoryMovementCandidateFactory(
                         capacityPolicy,

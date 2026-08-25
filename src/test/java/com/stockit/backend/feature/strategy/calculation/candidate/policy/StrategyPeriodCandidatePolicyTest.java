@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 
@@ -15,7 +16,9 @@ import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculati
 class StrategyPeriodCandidatePolicyTest {
 
     private final StrategyPeriodCandidatePolicy policy =
-            new StrategyPeriodCandidatePolicy();
+            new StrategyPeriodCandidatePolicy(
+                    new StrategyPeriodEligibilityPolicy()
+            );
 
     @Test
     void startOnlyUsesRemainingRequestDateForecastHorizonInsteadOfNewNinetyDays() {
@@ -24,6 +27,13 @@ class StrategyPeriodCandidatePolicyTest {
         StrategyCalculationContext context = mock(StrategyCalculationContext.class);
         when(context.forecastStartDate()).thenReturn(start);
         when(context.forecastEndDate()).thenReturn(requestDateMaxEnd);
+        when(context.evaluationInventory()).thenReturn(List.of(
+                new StrategyCalculationContext.InventoryLot(
+                        1L, 1001L, 501L, 10L, 10L,
+                        BigDecimal.TEN, BigDecimal.ZERO, null,
+                        start.minusDays(10), null, null, "AVAILABLE"
+                )
+        ));
         when(context.requestConstraints()).thenReturn(
                 new StrategyCalculationContext.RequestConstraints(
                         List.of(),
