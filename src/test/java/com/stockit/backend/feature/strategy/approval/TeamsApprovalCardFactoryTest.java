@@ -87,7 +87,27 @@ class TeamsApprovalCardFactoryTest {
                     assertThat(attachment.contentType())
                             .isEqualTo("application/vnd.microsoft.card.adaptive");
                     assertThat(attachment.content()).isInstanceOf(Map.class);
+                    assertThat(cardFacts(attachment.content())).contains(
+                            Map.of("title", "적용 수량", "value", "12"),
+                            Map.of(
+                                    "title", "판매 기간",
+                                    "value", "2026-08-25 ~ 2026-08-31"
+                            )
+                    );
                 });
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<Map<String, String>> cardFacts(Object content) {
+        Map<String, Object> card = (Map<String, Object>) content;
+        List<Map<String, Object>> body =
+                (List<Map<String, Object>>) card.get("body");
+        return body.stream()
+                .filter(element -> "FactSet".equals(element.get("type")))
+                .map(element ->
+                        (List<Map<String, String>>) element.get("facts"))
+                .findFirst()
+                .orElseThrow();
     }
 
     private static BigDecimal decimal(String value) {

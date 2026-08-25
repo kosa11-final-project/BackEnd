@@ -20,6 +20,8 @@ public record ResolvedStrategySelection(
         LocalDate businessDate,
         LocalDate evaluationEndDate,
         PeriodConstraints periodConstraints,
+        // requestHash 전파 전 생성된 Redis Context는 TTL 동안 null일 수 있다.
+        // 이 경우 영속화 계층이 판매처별 legacy payload hash를 사용한다.
         String forecastRequestHash,
         String selectionFingerprint
 ) {
