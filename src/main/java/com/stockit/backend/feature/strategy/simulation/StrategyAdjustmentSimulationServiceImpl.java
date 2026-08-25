@@ -2,7 +2,6 @@ package com.stockit.backend.feature.strategy.simulation;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
@@ -16,6 +15,8 @@ import com.stockit.backend.common.exception.AppException;
 import com.stockit.backend.common.exception.ErrorCode;
 import com.stockit.backend.feature.strategy.calculation.candidate.domain.CandidateGenerationResult;
 import com.stockit.backend.feature.strategy.calculation.candidate.domain.StrategyCandidate;
+import com.stockit.backend.feature.strategy.calculation.candidate.policy.StrategyPeriodEligibilityPolicy;
+import com.stockit.backend.feature.strategy.calculation.candidate.policy.StrategyPeriodEligibilityPolicy.PeriodConstraints;
 import com.stockit.backend.feature.strategy.calculation.candidate.service.StrategyCandidateGenerationService;
 import com.stockit.backend.feature.strategy.calculation.domain.SimulationDetailLevel;
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculationContext;
@@ -29,10 +30,14 @@ import com.stockit.backend.feature.strategy.calculation.policy.SalesPointDiscoun
 import com.stockit.backend.feature.strategy.calculation.policy.SalesPointDiscountPolicy.DiscountPolicy;
 import com.stockit.backend.feature.strategy.domain.StrategyType;
 import com.stockit.backend.feature.strategy.dto.response.AdjustedAiStrategySimulationResponse;
+import com.stockit.backend.feature.strategy.dto.response.AiStrategyChartRangeResponse;
+import com.stockit.backend.feature.strategy.dto.response.AiStrategyPeriodConstraintsResponse;
 import com.stockit.backend.feature.strategy.result.InvalidStrategyResultException;
 import com.stockit.backend.feature.strategy.result.StrategyGenerationResult;
 import com.stockit.backend.feature.strategy.result.StrategyResultStore;
 import com.stockit.backend.feature.strategy.result.StrategyResultStoreException;
+import com.stockit.backend.feature.strategy.service.StrategyCaseLifecycleGuard;
+import com.stockit.backend.feature.strategy.service.StrategyDateTimeProvider;
 
 /** 생성 당시 스냅샷에서 수량·할인율·기간만 바꾸어 서버 계산을 재실행한다. */
 @Service
@@ -46,19 +51,28 @@ public class StrategyAdjustmentSimulationServiceImpl
     private final StrategyCandidateGenerationService candidateGenerationService;
     private final StrategyCandidateSimulationEngine simulationEngine;
     private final SalesPointDiscountPolicy salesPointDiscountPolicy;
+    private final StrategyPeriodEligibilityPolicy periodEligibilityPolicy;
+    private final StrategyCaseLifecycleGuard lifecycleGuard;
+    private final StrategyDateTimeProvider dateTimeProvider;
 
     public StrategyAdjustmentSimulationServiceImpl(
             StrategyResultStore resultStore,
             StrategySimulationContextStore contextStore,
             StrategyCandidateGenerationService candidateGenerationService,
             StrategyCandidateSimulationEngine simulationEngine,
-            SalesPointDiscountPolicy salesPointDiscountPolicy
+            SalesPointDiscountPolicy salesPointDiscountPolicy,
+            StrategyPeriodEligibilityPolicy periodEligibilityPolicy,
+            StrategyCaseLifecycleGuard lifecycleGuard,
+            StrategyDateTimeProvider dateTimeProvider
     ) {
         this.resultStore = resultStore;
         this.contextStore = contextStore;
         this.candidateGenerationService = candidateGenerationService;
         this.simulationEngine = simulationEngine;
         this.salesPointDiscountPolicy = salesPointDiscountPolicy;
+        this.periodEligibilityPolicy = periodEligibilityPolicy;
+        this.lifecycleGuard = lifecycleGuard;
+        this.dateTimeProvider = dateTimeProvider;
     }
 
     @Override
@@ -68,6 +82,7 @@ public class StrategyAdjustmentSimulationServiceImpl
             AdjustStrategySimulationCommand command
     ) {
         validateIdentity(strategyCaseId, candidateId);
+        lifecycleGuard.requireAdjustable(strategyCaseId);
         StrategyGenerationResult result = loadResult(strategyCaseId);
         StrategyCalculationContext originalContext = loadContext(strategyCaseId);
         StrategyGenerationResult.Option option = result.options().stream()
@@ -76,7 +91,13 @@ public class StrategyAdjustmentSimulationServiceImpl
                 .orElseThrow(() -> new AppException(
                         ErrorCode.AI_STRATEGY_CANDIDATE_NOT_FOUND
                 ));
-        validateCommand(originalContext, option.candidate(), command);
+        LocalDate businessDate = dateTimeProvider.now().toLocalDate();
+        validateCommand(
+                originalContext,
+                option.candidate(),
+                command,
+                businessDate
+        );
 
         StrategyCalculationContext adjustedContext = adjustedContext(
                 originalContext,
@@ -94,6 +115,21 @@ public class StrategyAdjustmentSimulationServiceImpl
                 baseCandidate,
                 command
         );
+        List<Long> allocatedInventoryBalanceIds = allocatedInventoryBalanceIds(
+                adjustedCandidate
+        );
+        periodEligibilityPolicy.validateAllocatedPeriod(
+                adjustedContext,
+                command.endDate(),
+                allocatedInventoryBalanceIds
+        );
+        PeriodConstraints periodConstraints = periodEligibilityPolicy.constraints(
+                adjustedContext,
+                command.startDate(),
+                command.endDate(),
+                allocatedInventoryBalanceIds,
+                businessDate
+        );
         try {
             StrategyCandidateSimulation simulation = simulationEngine.simulate(
                     adjustedContext,
@@ -107,6 +143,7 @@ public class StrategyAdjustmentSimulationServiceImpl
                     adjustedContext,
                     adjustedCandidate,
                     command,
+                    periodConstraints,
                     simulation
             );
         } catch (CandidateSimulationException exception) {
@@ -145,7 +182,8 @@ public class StrategyAdjustmentSimulationServiceImpl
     private void validateCommand(
             StrategyCalculationContext context,
             StrategyGenerationResult.Candidate template,
-            AdjustStrategySimulationCommand command
+            AdjustStrategySimulationCommand command,
+            LocalDate businessDate
     ) {
         if (command == null || command.actionQuantity() == null
                 || command.actionQuantity().signum() <= 0
@@ -157,14 +195,12 @@ public class StrategyAdjustmentSimulationServiceImpl
                     "적용 수량은 1개 단위의 양수여야 하며 시작일은 종료일보다 늦을 수 없습니다."
             );
         }
-        if (command.startDate().isBefore(context.forecastStartDate())
-                || command.endDate().isAfter(context.forecastEndDate())
-                || ChronoUnit.DAYS.between(
-                        command.startDate(),
-                        command.endDate()
-                ) + 1 > 90) {
-            throw new AppException(ErrorCode.AI_STRATEGY_DATE_OUT_OF_RANGE);
-        }
+        periodEligibilityPolicy.validateRequestedPeriod(
+                context,
+                command.startDate(),
+                command.endDate(),
+                businessDate
+        );
         boolean discount = template.strategyTypes().contains(
                 StrategyType.PRICE_DISCOUNT
         );
@@ -405,6 +441,7 @@ public class StrategyAdjustmentSimulationServiceImpl
             StrategyCalculationContext context,
             StrategyCandidate adjusted,
             AdjustStrategySimulationCommand command,
+            PeriodConstraints periodConstraints,
             StrategyCandidateSimulation simulation
     ) {
         StrategyCandidate.Action discountAction = adjusted.actions().stream()
@@ -431,6 +468,11 @@ public class StrategyAdjustmentSimulationServiceImpl
                         discountPolicy == null
                                 ? null
                                 : discountPolicy.maximumDiscountRate()
+                ),
+                AiStrategyPeriodConstraintsResponse.from(periodConstraints),
+                new AiStrategyChartRangeResponse(
+                        command.startDate(),
+                        command.endDate()
                 ),
                 simulation
         );
@@ -465,6 +507,16 @@ public class StrategyAdjustmentSimulationServiceImpl
                 .filter(action -> !action.lotAllocations().isEmpty())
                 .map(StrategyCandidate.Action::actionQuantity)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    private static List<Long> allocatedInventoryBalanceIds(
+            StrategyCandidate candidate
+    ) {
+        return candidate.actions().stream()
+                .flatMap(action -> action.lotAllocations().stream())
+                .map(StrategyCandidate.LotAllocation::inventoryBalanceId)
+                .distinct()
+                .toList();
     }
 
     private static boolean standaloneMovement(StrategyCandidate candidate) {

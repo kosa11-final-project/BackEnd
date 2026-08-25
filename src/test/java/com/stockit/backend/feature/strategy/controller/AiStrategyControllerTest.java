@@ -39,6 +39,8 @@ import com.stockit.backend.feature.strategy.dto.response.AiStrategyTeamsRequestR
 import com.stockit.backend.feature.strategy.dto.response.AiStrategyCaseResponse;
 import com.stockit.backend.feature.strategy.dto.response.AiStrategyCaseListPageResponse;
 import com.stockit.backend.feature.strategy.dto.response.AdjustedAiStrategySimulationResponse;
+import com.stockit.backend.feature.strategy.dto.response.AiStrategyChartRangeResponse;
+import com.stockit.backend.feature.strategy.dto.response.AiStrategyPeriodConstraintsResponse;
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCandidateSimulation;
 import com.stockit.backend.feature.strategy.calculation.policy.SalesPointDiscountPolicy;
 import com.stockit.backend.feature.strategy.service.AiStrategyApprovalService;
@@ -171,6 +173,10 @@ class AiStrategyControllerTest {
                                 SalesPointDiscountPolicy.SalesPointGroup.DEPARTMENT_STORE,
                                 decimal("0.20")
                         ),
+                        new AiStrategyPeriodConstraintsResponse(
+                                start, end, 90, false
+                        ),
+                        new AiStrategyChartRangeResponse(start, end),
                         simulation
                 ));
 
@@ -195,6 +201,10 @@ class AiStrategyControllerTest {
                         .value(85))
                 .andExpect(jsonPath("$.data.adjustedConditions.salesPointGroup")
                         .value("DEPARTMENT_STORE"))
+                .andExpect(jsonPath("$.data.adjustmentConstraints.minimumStartDate")
+                        .value("2026-08-20"))
+                .andExpect(jsonPath("$.data.chartRange.endDate")
+                        .value("2026-08-27"))
                 .andExpect(jsonPath("$.data.simulation.dailySeries[0].date")
                         .value("2026-08-20"));
     }
