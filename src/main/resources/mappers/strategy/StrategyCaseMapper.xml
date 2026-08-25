@@ -103,7 +103,7 @@
             #{skuId},
             #{createdBy},
             #{updatedBy},
-            #{requestedSalesPointId},
+            #{requestedSalesPointId,jdbcType=NUMERIC},
             #{caseCode},
             #{caseName},
             #{caseStatus},

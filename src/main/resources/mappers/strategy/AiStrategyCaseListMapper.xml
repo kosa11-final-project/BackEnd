@@ -18,14 +18,17 @@
     <sql id="visibleCaseFilters">
         WHERE strategy_case.is_deleted = 0
           AND (
-              strategy_case.case_status = 'GENERATING'
+              (
+                  strategy_case.case_status = 'GENERATING'
+                  AND strategy_case.created_at &gt; #{visibleFrom}
+              )
               OR (
                   strategy_case.case_status = 'GENERATED'
                   AND strategy_case.result_expires_at &gt; #{visibleAt}
               )
               OR (
                   strategy_case.case_status = 'GENERATION_FAILED'
-                  AND strategy_case.completed_at &gt;= #{failureVisibleFrom}
+                  AND strategy_case.completed_at &gt; #{visibleFrom}
               )
           )
         <if test="query.searchText != null">

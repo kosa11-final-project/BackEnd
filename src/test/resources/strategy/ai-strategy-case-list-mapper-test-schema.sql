@@ -59,7 +59,7 @@ INSERT INTO strategy_case VALUES (
     TIMESTAMP '2026-08-22 09:00:00', 0
 );
 
--- 조회 제외: Redis 만료, 실패 후 3일 경과, 명시적 만료, 최종 선택, 삭제
+-- 조회 제외: Redis 만료, 생성/실패 후 3일 경과, 명시적 만료, 최종 선택, 삭제
 INSERT INTO strategy_case VALUES (
     103, 1, 7, '만료된 생성 결과', 'GENERATED', 'COMPARISON_READY',
     TIMESTAMP '2026-08-24 09:59:59', NULL, NULL, TIMESTAMP '2026-08-21 09:00:00',
@@ -83,4 +83,17 @@ INSERT INTO strategy_case VALUES (
 INSERT INTO strategy_case VALUES (
     108, 1, 7, '삭제된 전략', 'GENERATING', 'FORECASTING',
     NULL, NULL, NULL, NULL, TIMESTAMP '2026-08-24 09:30:00', 1
+);
+INSERT INTO strategy_case VALUES (
+    109, 1, 7, '오래된 생성 중 전략', 'GENERATING', 'FORECASTING',
+    NULL, NULL, NULL, NULL, TIMESTAMP '2026-08-21 09:59:59', 0
+);
+INSERT INTO strategy_case VALUES (
+    110, 1, 7, '정확히 3일 된 생성 중 전략', 'GENERATING', 'FORECASTING',
+    NULL, NULL, NULL, NULL, TIMESTAMP '2026-08-21 10:00:00', 0
+);
+INSERT INTO strategy_case VALUES (
+    111, 1, 7, '정확히 3일 된 실패 전략', 'GENERATION_FAILED', 'FORECASTING',
+    NULL, 'ML_ERROR', '수요예측 실패', TIMESTAMP '2026-08-21 10:00:00',
+    TIMESTAMP '2026-08-21 09:00:00', 0
 );

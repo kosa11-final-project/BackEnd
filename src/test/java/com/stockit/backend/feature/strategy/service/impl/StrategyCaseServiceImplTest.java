@@ -168,7 +168,7 @@ class StrategyCaseServiceImplTest {
         ArgumentCaptor<StrategyCaseVO> captor = ArgumentCaptor.forClass(StrategyCaseVO.class);
         verify(strategyCaseMapper).insertStrategyCase(captor.capture());
         assertThat(captor.getValue().getCaseName())
-                .isEqualTo("테스트 SKU AI 전략 - 2026.08.17 14:30");
+                .isEqualTo("테스트 SKU AI 전략");
         JsonNode payload = objectMapper.readTree(captor.getValue().getRequestPayloadJson());
         assertThat(payload.get("lotIds").isEmpty()).isTrue();
         assertThat(payload.get("candidateSalesPointIds").isEmpty()).isTrue();
