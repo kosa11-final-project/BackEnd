@@ -13,10 +13,12 @@ import org.junit.jupiter.api.Test;
 
 import com.stockit.backend.common.exception.AppException;
 import com.stockit.backend.common.exception.ErrorCode;
+import com.stockit.backend.feature.strategy.calculation.candidate.policy.SafetyStockPolicyResolver;
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculationContext;
 import com.stockit.backend.feature.strategy.calculation.mapper.StrategyCalculationInputMapper;
 import com.stockit.backend.feature.strategy.calculation.vo.StrategyCalculationCostVO;
 import com.stockit.backend.feature.strategy.calculation.vo.StrategyCalculationInventoryVO;
+import com.stockit.backend.feature.strategy.calculation.vo.StrategyCalculationPolicyVO;
 import com.stockit.backend.feature.strategy.domain.StrategyType;
 import com.stockit.backend.feature.strategy.result.StrategyGenerationResult;
 
@@ -43,7 +45,7 @@ class StrategySelectionExecutabilityValidatorTest {
         when(mapper.selectInventory(100L)).thenReturn(List.of(current));
 
         StrategySelectionExecutabilityValidator validator =
-                new StrategySelectionExecutabilityValidator(mapper);
+                validator(mapper);
 
         assertThatThrownBy(() -> validator.validate(
                 resolved, LocalDate.of(2026, 8, 25)
@@ -66,7 +68,7 @@ class StrategySelectionExecutabilityValidatorTest {
                 StrategyGenerationResult.Option.class
         );
         StrategyGenerationResult.Candidate candidate = candidateWithoutSalesPoint("10");
-        StrategyCalculationInventoryVO current = inventory("10");
+        StrategyCalculationInventoryVO current = unassignedInventory("10");
         current.setReservedQty(new BigDecimal("4"));
         StrategyCalculationCostVO cost = new StrategyCalculationCostVO();
         cost.setUnitCost(new BigDecimal("5000"));
@@ -74,6 +76,7 @@ class StrategySelectionExecutabilityValidatorTest {
         when(resolved.calculationContext()).thenReturn(context);
         when(option.candidate()).thenReturn(candidate);
         when(context.sku()).thenReturn(sku);
+        when(context.sourceSalesPointId()).thenReturn(null);
         when(context.unitCost()).thenReturn(new BigDecimal("5000"));
         when(sku.skuId()).thenReturn(100L);
         when(mapper.selectInventory(100L)).thenReturn(List.of(current));
@@ -85,9 +88,112 @@ class StrategySelectionExecutabilityValidatorTest {
         )).thenReturn(List.of(cost));
 
         StrategySelectionExecutabilityValidator validator =
-                new StrategySelectionExecutabilityValidator(mapper);
+                validator(mapper);
 
         validator.validate(resolved, LocalDate.of(2026, 8, 25));
+    }
+
+    @Test
+    void appliesGlobalSafetyPolicyToActualWarehouseInventory() {
+        StrategyCalculationInputMapper mapper = mock(
+                StrategyCalculationInputMapper.class
+        );
+        ResolvedStrategySelection resolved = executableSelection("1");
+        StrategyCalculationInventoryVO current = unassignedInventory("20");
+        when(mapper.selectInventory(100L)).thenReturn(List.of(current));
+        when(mapper.selectEffectivePolicies(
+                100L, LocalDate.of(2026, 8, 25)
+        )).thenReturn(List.of(policy(1L, null, "10")));
+        when(mapper.selectEffectiveCosts(
+                100L, LocalDate.of(2026, 8, 25)
+        )).thenReturn(List.of(cost()));
+
+        validator(mapper).validate(resolved, LocalDate.of(2026, 8, 25));
+    }
+
+    @Test
+    void usesMostSpecificSafetyPolicyInsteadOfCheckingEveryMatchingPolicy() {
+        StrategyCalculationInputMapper mapper = mock(
+                StrategyCalculationInputMapper.class
+        );
+        ResolvedStrategySelection resolved = executableSelection("11");
+        StrategyCalculationInventoryVO current = unassignedInventory("20");
+        when(mapper.selectInventory(100L)).thenReturn(List.of(current));
+        when(mapper.selectEffectivePolicies(
+                100L, LocalDate.of(2026, 8, 25)
+        )).thenReturn(List.of(
+                policy(1L, null, "10"),
+                policy(2L, 501L, "5")
+        ));
+        when(mapper.selectEffectiveCosts(
+                100L, LocalDate.of(2026, 8, 25)
+        )).thenReturn(List.of(cost()));
+
+        validator(mapper).validate(resolved, LocalDate.of(2026, 8, 25));
+    }
+
+    @Test
+    void rejectsSelectionThatActuallyConsumesSelectedSafetyStock() {
+        StrategyCalculationInputMapper mapper = mock(
+                StrategyCalculationInputMapper.class
+        );
+        ResolvedStrategySelection resolved = executableSelection("1");
+        StrategyCalculationInventoryVO current = unassignedInventory("10");
+        when(mapper.selectInventory(100L)).thenReturn(List.of(current));
+        when(mapper.selectEffectivePolicies(
+                100L, LocalDate.of(2026, 8, 25)
+        )).thenReturn(List.of(policy(2L, 501L, "10")));
+
+        assertThatThrownBy(() -> validator(mapper).validate(
+                resolved, LocalDate.of(2026, 8, 25)
+        )).isInstanceOfSatisfying(
+                AppException.class,
+                exception -> assertThat(exception.getMessage())
+                        .isEqualTo("최종 선택 수량이 현재 안전재고를 침해합니다.")
+        );
+    }
+
+    private static StrategySelectionExecutabilityValidator validator(
+            StrategyCalculationInputMapper mapper
+    ) {
+        return new StrategySelectionExecutabilityValidator(
+                mapper, new SafetyStockPolicyResolver()
+        );
+    }
+
+    private static ResolvedStrategySelection executableSelection(String quantity) {
+        ResolvedStrategySelection resolved = mock(ResolvedStrategySelection.class);
+        StrategyCalculationContext context = mock(StrategyCalculationContext.class);
+        StrategyCalculationContext.Sku sku = mock(StrategyCalculationContext.Sku.class);
+        StrategyGenerationResult.Option option = mock(
+                StrategyGenerationResult.Option.class
+        );
+        when(resolved.option()).thenReturn(option);
+        when(resolved.calculationContext()).thenReturn(context);
+        when(option.candidate()).thenReturn(candidateWithoutSalesPoint(quantity));
+        when(context.sku()).thenReturn(sku);
+        when(context.sourceSalesPointId()).thenReturn(null);
+        when(context.unitCost()).thenReturn(new BigDecimal("5000"));
+        when(sku.skuId()).thenReturn(100L);
+        return resolved;
+    }
+
+    private static StrategyCalculationCostVO cost() {
+        StrategyCalculationCostVO cost = new StrategyCalculationCostVO();
+        cost.setUnitCost(new BigDecimal("5000"));
+        return cost;
+    }
+
+    private static StrategyCalculationPolicyVO policy(
+            Long policyId,
+            Long warehouseId,
+            String safetyQuantity
+    ) {
+        StrategyCalculationPolicyVO policy = new StrategyCalculationPolicyVO();
+        policy.setInventoryPolicyId(policyId);
+        policy.setWarehouseId(warehouseId);
+        policy.setSafetyStockQty(new BigDecimal(safetyQuantity));
+        return policy;
     }
 
     private static StrategyGenerationResult.Candidate candidate(String quantity) {
@@ -155,6 +261,15 @@ class StrategySelectionExecutabilityValidatorTest {
         row.setOnHandQty(new BigDecimal(available));
         row.setReservedQty(BigDecimal.ZERO);
         row.setLotStatus("AVAILABLE");
+        return row;
+    }
+
+    private static StrategyCalculationInventoryVO unassignedInventory(
+            String available
+    ) {
+        StrategyCalculationInventoryVO row = inventory(available);
+        row.setStockSalesPointId(null);
+        row.setAllocatedSalesPointId(null);
         return row;
     }
 }

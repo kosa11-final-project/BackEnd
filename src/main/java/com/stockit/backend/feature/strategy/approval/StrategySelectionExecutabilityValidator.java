@@ -14,6 +14,8 @@ import org.springframework.stereotype.Component;
 
 import com.stockit.backend.common.exception.AppException;
 import com.stockit.backend.common.exception.ErrorCode;
+import com.stockit.backend.feature.strategy.calculation.candidate.policy.SafetyStockPolicyResolver;
+import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculationContext.InventoryPolicy;
 import com.stockit.backend.feature.strategy.calculation.mapper.StrategyCalculationInputMapper;
 import com.stockit.backend.feature.strategy.calculation.vo.StrategyCalculationCostVO;
 import com.stockit.backend.feature.strategy.calculation.vo.StrategyCalculationInventoryVO;
@@ -28,11 +30,14 @@ import com.stockit.backend.feature.strategy.result.StrategyGenerationResult;
 public class StrategySelectionExecutabilityValidator {
 
     private final StrategyCalculationInputMapper inputMapper;
+    private final SafetyStockPolicyResolver safetyStockResolver;
 
     public StrategySelectionExecutabilityValidator(
-            StrategyCalculationInputMapper inputMapper
+            StrategyCalculationInputMapper inputMapper,
+            SafetyStockPolicyResolver safetyStockResolver
     ) {
         this.inputMapper = inputMapper;
+        this.safetyStockResolver = safetyStockResolver;
     }
 
     public void validate(ResolvedStrategySelection resolved, LocalDate businessDate) {
@@ -52,33 +57,56 @@ public class StrategySelectionExecutabilityValidator {
             }
             validateAllocationIdentity(candidate, current);
         }
-        validateSafetyStock(inventory, requiredByBalance, businessDate, skuId);
+        validateSafetyStock(
+                inventory,
+                byId,
+                requiredByBalance,
+                businessDate,
+                skuId,
+                resolved.calculationContext().sourceSalesPointId()
+        );
         validateSalesPointsAndRoutes(candidate);
         validateCommercialInputs(resolved, businessDate, skuId);
     }
 
     private void validateSafetyStock(
             List<StrategyCalculationInventoryVO> inventory,
+            Map<Long, StrategyCalculationInventoryVO> inventoryById,
             Map<Long, BigDecimal> requiredByBalance,
             LocalDate businessDate,
-            Long skuId
+            Long skuId,
+            Long sourceSalesPointId
     ) {
         List<StrategyCalculationPolicyVO> policies = inputMapper.selectEffectivePolicies(
                 skuId, businessDate
         );
-        for (StrategyCalculationPolicyVO policy : policies) {
+        List<InventoryPolicy> policyInputs = policies.stream()
+                .map(StrategySelectionExecutabilityValidator::toPolicy)
+                .toList();
+        Set<Long> requiredWarehouseIds = requiredByBalance.keySet().stream()
+                .map(inventoryById::get)
+                .filter(Objects::nonNull)
+                .map(StrategyCalculationInventoryVO::getWarehouseId)
+                .filter(Objects::nonNull)
+                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+
+        for (Long warehouseId : requiredWarehouseIds) {
+            BigDecimal safety = safetyStockResolver.resolve(
+                    policyInputs, warehouseId, sourceSalesPointId
+            ).safetyStockQty();
             BigDecimal available = inventory.stream()
-                    .filter(row -> samePolicyScope(row, policy))
+                    .filter(row -> Objects.equals(row.getWarehouseId(), warehouseId))
+                    .filter(row -> matchesSource(row, sourceSalesPointId))
+                    .filter(row -> isSellableAt(row, businessDate))
                     .map(StrategySelectionExecutabilityValidator::available)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
-            BigDecimal requested = inventory.stream()
-                    .filter(row -> samePolicyScope(row, policy))
-                    .map(row -> requiredByBalance.getOrDefault(
-                            row.getInventoryBalanceId(), BigDecimal.ZERO
+            BigDecimal requested = requiredByBalance.entrySet().stream()
+                    .filter(entry -> Objects.equals(
+                            inventoryById.get(entry.getKey()).getWarehouseId(),
+                            warehouseId
                     ))
+                    .map(Map.Entry::getValue)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
-            BigDecimal safety = policy.getSafetyStockQty() == null
-                    ? BigDecimal.ZERO : policy.getSafetyStockQty();
             if (available.subtract(requested).compareTo(safety) < 0) {
                 conflict("최종 선택 수량이 현재 안전재고를 침해합니다.");
             }
@@ -243,19 +271,39 @@ public class StrategySelectionExecutabilityValidator {
         }
     }
 
-    private static boolean samePolicyScope(
+    private static InventoryPolicy toPolicy(StrategyCalculationPolicyVO policy) {
+        return new InventoryPolicy(
+                policy.getInventoryPolicyId(),
+                policy.getWarehouseId(),
+                policy.getStockSalesPointId(),
+                policy.getAllocatedSalesPointId(),
+                policy.getSafetyStockQty(),
+                policy.getTargetStockQty(),
+                policy.getDailyUnitHoldingCost(),
+                policy.getUnitDisposalCost()
+        );
+    }
+
+    private static boolean matchesSource(
             StrategyCalculationInventoryVO inventory,
-            StrategyCalculationPolicyVO policy
+            Long sourceSalesPointId
     ) {
-        return Objects.equals(inventory.getWarehouseId(), policy.getWarehouseId())
-                && (policy.getStockSalesPointId() == null
-                || Objects.equals(
-                inventory.getStockSalesPointId(), policy.getStockSalesPointId()
-        )) && (policy.getAllocatedSalesPointId() == null
-                || Objects.equals(
-                inventory.getAllocatedSalesPointId(),
-                policy.getAllocatedSalesPointId()
-        ));
+        return sourceSalesPointId == null
+                ? inventory.isPublicUnassigned()
+                : Objects.equals(
+                        inventory.effectiveSalesPointId(), sourceSalesPointId
+                );
+    }
+
+    private static boolean isSellableAt(
+            StrategyCalculationInventoryVO inventory,
+            LocalDate date
+    ) {
+        return "AVAILABLE".equals(inventory.getLotStatus())
+                && (inventory.getExpiryDate() == null
+                || !date.isAfter(inventory.getExpiryDate()))
+                && (inventory.getSaleStopDate() == null
+                || date.isBefore(inventory.getSaleStopDate()));
     }
 
     private static BigDecimal available(StrategyCalculationInventoryVO row) {
