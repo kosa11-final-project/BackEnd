@@ -29,12 +29,13 @@ public class AiRecommendationPromptFactory {
                     사용자 우선순위가 없는 경우 기준 대비 경제효과가 음수인 후보보다
                     0 이상인 후보를 우선하고, 모두 음수라면 손실이 가장 작은 후보를 우선하세요.
                     예상 판매량, 공헌이익, 잔여·폐기 재고, 실행 비용, 가정을 함께 비교하세요.
-                    입력 후보는 서버가 실행 구조별 대표안으로 선별했습니다.
-                    입력 후보를 모두 반환하되 순위와 설명을 작성하세요.
+                    같은 strategyFamilyId의 후보는 실행 구조가 같고 수량, 할인율 또는
+                    기간만 다른 변형입니다. 같은 strategyFamilyId에서는 하나만 선택하세요.
+                    서로 다른 전략군에서 가장 적합한 후보를 minimumRecommendationCount 이상
+                    maximumRecommendationCount 이하로 선택하고 순위와 설명을 작성하세요.
                     수치가 불리해도 명시된 가정 때문에 불확실한 후보는 단정적으로 배제하지 마세요.
                     추천 사유·장점·주의사항은 입력 수치에서 확인 가능한 사실만 한국어로 작성하세요.
-                    아래 JSON의 minimumRecommendationCount 이상 maximumRecommendationCount 이하를
-                    rank 1부터 빠짐없이 반환하세요.
+                    선택한 후보를 rank 1부터 중복 없이 빠짐없이 반환하세요.
 
                     입력 JSON:
                     """ + objectMapper.writeValueAsString(request);

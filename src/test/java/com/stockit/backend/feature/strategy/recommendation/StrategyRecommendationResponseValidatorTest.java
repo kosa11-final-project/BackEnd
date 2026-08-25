@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
@@ -13,6 +15,7 @@ import com.stockit.backend.feature.strategy.calculation.domain.BaselineSimulatio
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCandidateEvaluationResult;
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCandidateSimulation;
 import com.stockit.backend.feature.strategy.calculation.candidate.domain.StrategyCandidate;
+import com.stockit.backend.feature.strategy.domain.StrategyType;
 import com.stockit.backend.feature.strategy.messaging.PermanentStrategyGenerationException;
 
 class StrategyRecommendationResponseValidatorTest {
@@ -22,8 +25,8 @@ class StrategyRecommendationResponseValidatorTest {
 
     @Test
     void mapsContiguousUniqueRecommendationsToServerCandidates() {
-        var first = evaluated("A");
-        var second = evaluated("B");
+        var first = evaluated("A", 20L);
+        var second = evaluated("B", 30L);
         var selection = new RecommendationCandidateSelection(List.of(first, second));
         AiRecommendationRequest request = request(2, 2);
         AiRecommendationProviderResponse response = response(List.of(
@@ -42,7 +45,7 @@ class StrategyRecommendationResponseValidatorTest {
 
     @Test
     void rejectsCandidateOutsidePreselectedPool() {
-        var selection = new RecommendationCandidateSelection(List.of(evaluated("A")));
+        var selection = new RecommendationCandidateSelection(List.of(evaluated("A", 20L)));
         assertThatThrownBy(() -> validator.validateAndMap(
                 1L, mock(com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculationContext.class),
                 mock(BaselineSimulation.class), selection, request(1, 1),
@@ -50,10 +53,58 @@ class StrategyRecommendationResponseValidatorTest {
         )).isInstanceOf(PermanentStrategyGenerationException.class);
     }
 
-    private static StrategyCandidateEvaluationResult.EvaluatedCandidate evaluated(String id) {
-        StrategyCandidate candidate = mock(StrategyCandidate.class);
+    @Test
+    void rejectsTwoCandidatesFromSameStrategyFamily() {
+        var selection = new RecommendationCandidateSelection(List.of(
+                evaluated("A", 20L), evaluated("B", 20L), evaluated("C", 30L)
+        ));
+
+        assertThatThrownBy(() -> validator.validateAndMap(
+                1L, mock(com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculationContext.class),
+                mock(BaselineSimulation.class), selection, request(2, 3),
+                response(List.of(item("A", 1), item("B", 2)))
+        )).isInstanceOfSatisfying(
+                PermanentStrategyGenerationException.class,
+                exception -> assertThat(exception.getMessage())
+                        .contains("duplicate strategy families")
+        );
+    }
+
+    private static StrategyCandidateEvaluationResult.EvaluatedCandidate evaluated(
+            String id,
+            Long targetSalesPointId
+    ) {
+        BigDecimal quantity = BigDecimal.TEN;
+        StrategyCandidate.Location source = new StrategyCandidate.Location(1L, 10L);
+        StrategyCandidate.Location target = new StrategyCandidate.Location(
+                1L, targetSalesPointId
+        );
+        StrategyCandidate.Action action = new StrategyCandidate.Action(
+                StrategyType.REALLOCATION,
+                source,
+                target,
+                quantity,
+                BigDecimal.ZERO,
+                List.of(new StrategyCandidate.LotAllocation(
+                        Math.abs((long) id.hashCode()) + 1L,
+                        Math.abs((long) id.hashCode()) + 1L,
+                        quantity,
+                        1
+                ))
+        );
+        StrategyCandidate candidate = new StrategyCandidate(
+                id,
+                List.of(StrategyType.REALLOCATION),
+                LocalDate.of(2026, 8, 25),
+                null,
+                List.of(action),
+                List.of(),
+                new StrategyCandidate.Preference(1, 1, 100),
+                new StrategyCandidate.MovementEvidence(
+                        quantity, quantity, quantity, quantity
+                )
+        );
         StrategyCandidateSimulation simulation = mock(StrategyCandidateSimulation.class);
-        when(candidate.candidateId()).thenReturn(id);
         when(simulation.candidateId()).thenReturn(id);
         return new StrategyCandidateEvaluationResult.EvaluatedCandidate(candidate, simulation);
     }

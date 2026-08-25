@@ -61,20 +61,29 @@ tasks.withType(JavaCompile).configureEach {
 }
 
 tasks.named('test') {
-    useJUnitPlatform {
-        excludeTags 'live'
+    useJUnitPlatform()
+}
+
+sourceSets {
+    geminiLiveTest {
+        java.srcDir 'src/geminiLiveTest/java'
+        resources.srcDir 'src/geminiLiveTest/resources'
+        compileClasspath += sourceSets.main.output
+        runtimeClasspath += output + compileClasspath
     }
+}
+
+configurations {
+    geminiLiveTestImplementation.extendsFrom testImplementation
+    geminiLiveTestRuntimeOnly.extendsFrom testRuntimeOnly
 }
 
 tasks.register('geminiLiveTest', Test) {
     group = 'verification'
     description = 'Runs the opt-in Gemini recommendation live smoke test.'
-    dependsOn testClasses
-    testClassesDirs = sourceSets.test.output.classesDirs
-    classpath = sourceSets.test.runtimeClasspath
-    useJUnitPlatform {
-        includeTags 'live'
-    }
+    testClassesDirs = sourceSets.geminiLiveTest.output.classesDirs
+    classpath = sourceSets.geminiLiveTest.runtimeClasspath
+    useJUnitPlatform()
     shouldRunAfter test
 }
 

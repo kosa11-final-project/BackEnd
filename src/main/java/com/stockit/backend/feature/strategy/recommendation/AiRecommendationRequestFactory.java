@@ -14,7 +14,9 @@ import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculati
 @Component
 public class AiRecommendationRequestFactory {
 
-    private static final String SCHEMA_VERSION = "ai-strategy-recommendation-v2";
+    private static final String SCHEMA_VERSION = "ai-strategy-recommendation-v3";
+    private static final int MIN_RECOMMENDATIONS = 3;
+    private static final int MAX_RECOMMENDATIONS = 4;
 
     public AiRecommendationRequest create(
             Long strategyCaseId,
@@ -25,9 +27,12 @@ public class AiRecommendationRequestFactory {
         if (requestConstraints == null) {
             throw new IllegalArgumentException("request constraints must not be null");
         }
-        int candidateCount = selection.candidates().size();
-        int minimum = candidateCount;
-        int maximum = candidateCount;
+        int familyCount = Math.toIntExact(selection.candidates().stream()
+                .map(value -> RecommendationFamilyKey.from(value.candidate()))
+                .distinct()
+                .count());
+        int maximum = Math.min(MAX_RECOMMENDATIONS, familyCount);
+        int minimum = Math.min(MIN_RECOMMENDATIONS, maximum);
         BaselineSimulation.Summary summary = baseline.summary();
         return new AiRecommendationRequest(
                 SCHEMA_VERSION,
@@ -64,7 +69,9 @@ public class AiRecommendationRequestFactory {
                         action.discountRate()
                 )).toList();
         return new AiRecommendationRequest.CandidateInput(
-                candidate.candidateId(), candidate.strategyTypes(), candidate.startDate(),
+                candidate.candidateId(),
+                RecommendationFamilyKey.from(candidate).externalId(),
+                candidate.strategyTypes(), candidate.startDate(),
                 candidate.endDate(), actions,
                 new AiRecommendationRequest.SummaryInput(
                         summary.expectedSalesQty(), summary.expectedRevenue(),

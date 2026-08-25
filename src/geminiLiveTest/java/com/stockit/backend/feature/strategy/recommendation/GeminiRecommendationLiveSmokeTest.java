@@ -8,7 +8,6 @@ import java.time.LocalDate;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.boot.env.YamlPropertySourceLoader;
 import org.springframework.core.env.PropertySource;
@@ -20,10 +19,9 @@ import com.stockit.backend.feature.strategy.messaging.RetryableStrategyGeneratio
 
 /**
  * 실제 Gemini 계정 연결을 확인하는 로컬 전용 smoke test.
- * 기본 Gradle 테스트에서는 실행하지 않으며 API 키를 출력하지 않는다.
+ * 별도 Gradle source set에서 수동으로만 실행하며 API 키를 출력하지 않는다.
  */
 @EnabledIfEnvironmentVariable(named = "GEMINI_LIVE_TEST", matches = "true")
-@Tag("live")
 class GeminiRecommendationLiveSmokeTest {
 
     @Test
@@ -114,7 +112,7 @@ class GeminiRecommendationLiveSmokeTest {
 
     private static AiRecommendationRequest request() {
         return new AiRecommendationRequest(
-                "ai-strategy-recommendation-v2",
+                "ai-strategy-recommendation-v3",
                 999999L,
                 3,
                 3,
@@ -163,6 +161,9 @@ class GeminiRecommendationLiveSmokeTest {
         BigDecimal strategyPrice = discountRate == null ? null : decimal("9000");
         return new AiRecommendationRequest.CandidateInput(
                 id,
+                type.name() + "|" + type.name()
+                        + ":W1:S" + sourceSalesPointId
+                        + ">W1:S" + targetSalesPointId,
                 List.of(type),
                 LocalDate.of(2026, 8, 24),
                 LocalDate.of(2026, 9, 6),

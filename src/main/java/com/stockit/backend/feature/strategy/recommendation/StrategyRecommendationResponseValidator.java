@@ -45,12 +45,19 @@ public class StrategyRecommendationResponseValidator {
                         value -> value.candidate().candidateId(), Function.identity()
                 ));
         Set<String> ids = new HashSet<>();
+        Set<RecommendationFamilyKey> familyKeys = new HashSet<>();
         Set<Integer> ranks = new HashSet<>();
         for (AiRecommendationProviderResponse.Recommendation value : values) {
             if (value == null || !allowed.containsKey(value.candidateId())
                     || !ids.add(value.candidateId()) || !ranks.add(value.rank())
                     || value.rank() < 1 || value.rank() > values.size()) {
                 fail("LLM response contains an invalid candidate or rank");
+            }
+            RecommendationFamilyKey familyKey = RecommendationFamilyKey.from(
+                    allowed.get(value.candidateId()).candidate()
+            );
+            if (!familyKeys.add(familyKey)) {
+                fail("LLM response contains duplicate strategy families");
             }
             requireText(value.optionName(), MAX_NAME_LENGTH, "optionName");
             requireText(value.recommendationReason(), MAX_TEXT_LENGTH,
