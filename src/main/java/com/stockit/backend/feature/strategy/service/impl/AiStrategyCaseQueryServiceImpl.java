@@ -105,11 +105,14 @@ public class AiStrategyCaseQueryServiceImpl implements AiStrategyCaseQueryServic
         );
         Map<Long, AiStrategyLotDisplayVO> lots = lots(referenceIds.lotIds());
 
-        AiStrategyGenerationResultResponse resultResponse =
-                AiStrategyGenerationResultResponse.from(
-                        result, salesPoints, warehouses, lots,
-                        periodPresentations(result, payload, context)
-                );
+        AiStrategyGenerationResultResponse resultResponse = resultResponse(
+                result,
+                payload,
+                context,
+                salesPoints,
+                warehouses,
+                lots
+        );
         return AiStrategyCaseResponse.from(
                 strategyCase, payload, salesPoints, lots, resultResponse
         );
@@ -119,8 +122,36 @@ public class AiStrategyCaseQueryServiceImpl implements AiStrategyCaseQueryServic
         try {
             return contextStore.find(strategyCaseId).orElseThrow(() ->
                     new AppException(ErrorCode.AI_STRATEGY_RESULT_EXPIRED));
-        } catch (InvalidStrategyResultException | StrategyResultStoreException exception) {
+        } catch (InvalidStrategyResultException exception) {
+            throw new AppException(ErrorCode.AI_STRATEGY_RESULT_EXPIRED);
+        } catch (StrategyResultStoreException exception) {
             throw exception;
+        }
+    }
+
+    private AiStrategyGenerationResultResponse resultResponse(
+            StrategyGenerationResult result,
+            StrategyCaseRequestPayload payload,
+            StrategyCalculationContext context,
+            Map<Long, AiStrategySalesPointReferenceVO> salesPoints,
+            Map<Long, AiStrategyWarehouseReferenceVO> warehouses,
+            Map<Long, AiStrategyLotDisplayVO> lots
+    ) {
+        try {
+            return AiStrategyGenerationResultResponse.from(
+                    result,
+                    salesPoints,
+                    warehouses,
+                    lots,
+                    periodPresentations(result, payload, context)
+            );
+        } catch (IllegalArgumentException | IllegalStateException exception) {
+            throw new AppException(ErrorCode.AI_STRATEGY_RESULT_EXPIRED);
+        } catch (AppException exception) {
+            if (exception.getErrorCode() == ErrorCode.AI_STRATEGY_RESULT_EXPIRED) {
+                throw exception;
+            }
+            throw new AppException(ErrorCode.AI_STRATEGY_RESULT_EXPIRED);
         }
     }
 
@@ -199,7 +230,9 @@ public class AiStrategyCaseQueryServiceImpl implements AiStrategyCaseQueryServic
                 throw new AppException(ErrorCode.AI_STRATEGY_RESULT_EXPIRED);
             }
             return result;
-        } catch (InvalidStrategyResultException | StrategyResultStoreException exception) {
+        } catch (InvalidStrategyResultException exception) {
+            throw new AppException(ErrorCode.AI_STRATEGY_RESULT_EXPIRED);
+        } catch (StrategyResultStoreException exception) {
             throw exception;
         }
     }

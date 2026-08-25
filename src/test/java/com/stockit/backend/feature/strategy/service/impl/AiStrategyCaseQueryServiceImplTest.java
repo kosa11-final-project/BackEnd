@@ -35,8 +35,10 @@ import com.stockit.backend.feature.strategy.domain.StrategyType;
 import com.stockit.backend.feature.strategy.dto.StrategyCaseRequestPayload;
 import com.stockit.backend.feature.strategy.dto.response.AiStrategyCaseResponse;
 import com.stockit.backend.feature.strategy.mapper.AiStrategyCaseDetailMapper;
+import com.stockit.backend.feature.strategy.result.InvalidStrategyResultException;
 import com.stockit.backend.feature.strategy.result.StrategyGenerationResult;
 import com.stockit.backend.feature.strategy.result.StrategyResultStore;
+import com.stockit.backend.feature.strategy.result.StrategyResultStoreException;
 import com.stockit.backend.feature.strategy.service.StrategyCaseRequestPayloadSerializer;
 import com.stockit.backend.feature.strategy.service.StrategyDateTimeProvider;
 import com.stockit.backend.feature.strategy.simulation.StrategySimulationContextStore;
@@ -76,6 +78,7 @@ class AiStrategyCaseQueryServiceImplTest {
     void enrichesHeaderRequestConditionsAndCandidateActionsFromMasterData() {
         AiStrategyCaseDetailVO detail = generatedCase(NOW.plusDays(3));
         StrategyCaseRequestPayload payload = payload();
+        when(candidateSimulation.candidateId()).thenReturn("CAND-1");
         StrategyGenerationResult result = result();
         when(detailMapper.selectCaseDetail(123L)).thenReturn(detail);
         when(payloadSerializer.deserialize(detail.getRequestPayloadJson()))
@@ -155,13 +158,45 @@ class AiStrategyCaseQueryServiceImplTest {
     }
 
     @Test
+    void returnsGoneWhenRedisResultFailsIntegrityValidation() {
+        AiStrategyCaseDetailVO detail = generatedCase(NOW.plusDays(3));
+        when(detailMapper.selectCaseDetail(123L)).thenReturn(detail);
+        when(dateTimeProvider.now()).thenReturn(NOW);
+        when(resultStore.find(123L)).thenThrow(
+                new InvalidStrategyResultException("invalid result", null)
+        );
+
+        assertThatThrownBy(() -> service.find(123L))
+                .isInstanceOfSatisfying(AppException.class, exception ->
+                        assertThat(exception.getErrorCode())
+                                .isEqualTo(ErrorCode.AI_STRATEGY_RESULT_EXPIRED)
+                );
+    }
+
+    @Test
+    void keepsRedisAvailabilityFailureAsServerError() {
+        AiStrategyCaseDetailVO detail = generatedCase(NOW.plusDays(3));
+        StrategyResultStoreException failure = new StrategyResultStoreException(
+                "redis unavailable",
+                new RuntimeException("connection refused")
+        );
+        when(detailMapper.selectCaseDetail(123L)).thenReturn(detail);
+        when(dateTimeProvider.now()).thenReturn(NOW);
+        when(resultStore.find(123L)).thenThrow(failure);
+
+        assertThatThrownBy(() -> service.find(123L)).isSameAs(failure);
+    }
+
+    @Test
     void returnsGoneWhenGeneratedCalculationContextIsMissingFromRedis() {
         AiStrategyCaseDetailVO detail = generatedCase(NOW.plusDays(3));
         when(detailMapper.selectCaseDetail(123L)).thenReturn(detail);
         when(payloadSerializer.deserialize(detail.getRequestPayloadJson()))
                 .thenReturn(payload());
         when(dateTimeProvider.now()).thenReturn(NOW);
-        when(resultStore.find(123L)).thenReturn(Optional.of(result()));
+        when(candidateSimulation.candidateId()).thenReturn("CAND-1");
+        StrategyGenerationResult storedResult = result();
+        when(resultStore.find(123L)).thenReturn(Optional.of(storedResult));
         when(contextStore.find(123L)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.find(123L))

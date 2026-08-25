@@ -158,7 +158,9 @@ public class StrategyAdjustmentSimulationServiceImpl
         try {
             return resultStore.find(strategyCaseId).orElseThrow(() ->
                     new AppException(ErrorCode.AI_STRATEGY_RESULT_EXPIRED));
-        } catch (InvalidStrategyResultException | StrategyResultStoreException exception) {
+        } catch (InvalidStrategyResultException exception) {
+            throw new AppException(ErrorCode.AI_STRATEGY_RESULT_EXPIRED);
+        } catch (StrategyResultStoreException exception) {
             throw exception;
         }
     }
@@ -167,7 +169,9 @@ public class StrategyAdjustmentSimulationServiceImpl
         try {
             return contextStore.find(strategyCaseId).orElseThrow(() ->
                     new AppException(ErrorCode.AI_STRATEGY_RESULT_EXPIRED));
-        } catch (InvalidStrategyResultException | StrategyResultStoreException exception) {
+        } catch (InvalidStrategyResultException exception) {
+            throw new AppException(ErrorCode.AI_STRATEGY_RESULT_EXPIRED);
+        } catch (StrategyResultStoreException exception) {
             throw exception;
         }
     }
