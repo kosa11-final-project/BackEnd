@@ -2,9 +2,11 @@ package com.stockit.backend.feature.strategy.calculation.candidate.calculator;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -35,6 +37,7 @@ import com.stockit.backend.feature.strategy.calculation.policy.DiscountSimulatio
 import com.stockit.backend.feature.strategy.calculation.policy.DiscountDemandPolicy;
 import com.stockit.backend.feature.strategy.calculation.policy.SalesPointDiscountPolicy;
 import com.stockit.backend.feature.strategy.domain.StrategyType;
+import com.stockit.backend.feature.strategy.service.StrategyDateTimeProvider;
 
 class DiscountAndChannelCandidateCalculatorTest {
 
@@ -54,9 +57,14 @@ class DiscountAndChannelCandidateCalculatorTest {
         allocationPolicy = spy(new MovementLotAllocationPolicy());
         StrategyCandidateIdGenerator idGenerator =
                 new StrategyCandidateIdGenerator();
+        StrategyDateTimeProvider dateTimeProvider = mock(
+                StrategyDateTimeProvider.class
+        );
+        when(dateTimeProvider.now()).thenReturn(START.atStartOfDay());
         StrategyPeriodCandidatePolicy periodPolicy =
                 new StrategyPeriodCandidatePolicy(
-                        new StrategyPeriodEligibilityPolicy()
+                        new StrategyPeriodEligibilityPolicy(),
+                        dateTimeProvider
                 );
         InventoryMovementCandidateFactory movementFactory =
                 new InventoryMovementCandidateFactory(

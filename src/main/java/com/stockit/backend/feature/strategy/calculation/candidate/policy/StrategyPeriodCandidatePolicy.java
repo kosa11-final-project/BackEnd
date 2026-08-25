@@ -16,6 +16,7 @@ import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculati
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculationContext.InventoryLot;
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculationContext.SalesPoint;
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculationException;
+import com.stockit.backend.feature.strategy.service.StrategyDateTimeProvider;
 
 /**
  * 사용자 고정일과 90일 이내 수요·소비기한 경계를 반영해 기간 후보를 제한하는 정책
@@ -25,11 +26,14 @@ public class StrategyPeriodCandidatePolicy {
 
     private static final List<Integer> STANDARD_DAYS = List.of(7, 14, 30);
     private final StrategyPeriodEligibilityPolicy eligibilityPolicy;
+    private final StrategyDateTimeProvider dateTimeProvider;
 
     public StrategyPeriodCandidatePolicy(
-            StrategyPeriodEligibilityPolicy eligibilityPolicy
+            StrategyPeriodEligibilityPolicy eligibilityPolicy,
+            StrategyDateTimeProvider dateTimeProvider
     ) {
         this.eligibilityPolicy = eligibilityPolicy;
+        this.dateTimeProvider = dateTimeProvider;
     }
 
     /** 사용자 고정 조건을 우선한 뒤 대표 기간과 고수요 기간 후보를 생성한다 */
@@ -37,7 +41,10 @@ public class StrategyPeriodCandidatePolicy {
             StrategyCalculationContext context,
             Long salesPointId
     ) {
-        LocalDate rangeStart = context.forecastStartDate();
+        LocalDate rangeStart = eligibilityPolicy.minimumStartDate(
+                context,
+                dateTimeProvider.now().toLocalDate()
+        );
         LocalDate rangeEnd = eligibilityPolicy.latestSelectableEndDate(
                 context,
                 List.of()
