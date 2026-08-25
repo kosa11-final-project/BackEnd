@@ -5,6 +5,9 @@ import java.time.Duration;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.stockit.backend.common.exception.AppException;
+import com.stockit.backend.common.exception.ErrorCode;
+import com.stockit.backend.feature.strategy.approval.StrategyApprovalRecords.ReviewRequestRecord;
 import com.stockit.backend.feature.strategy.mapper.StrategyApprovalMapper;
 
 /** 외부 Teams 호출과 분리된 짧은 트랜잭션으로 전송 상태를 갱신한다. */
@@ -32,17 +35,24 @@ public class StrategyApprovalDeliveryStateService {
     }
 
     @Transactional
-    public void markSent(Long reviewRequestId, Long actorId) {
-        approvalMapper.completeReviewRequest(
-                reviewRequestId, StrategyReviewStatus.SENT, actorId
-        );
+    public StrategyReviewStatus markSent(Long reviewRequestId, Long actorId) {
+        return complete(reviewRequestId, StrategyReviewStatus.SENT, actorId);
     }
 
     @Transactional
-    public void markFailed(Long reviewRequestId, Long actorId) {
-        approvalMapper.completeReviewRequest(
-                reviewRequestId, StrategyReviewStatus.FAILED, actorId
+    public StrategyReviewStatus markFailed(Long reviewRequestId, Long actorId) {
+        return complete(reviewRequestId, StrategyReviewStatus.FAILED, actorId);
+    }
+
+    @Transactional(readOnly = true)
+    public StrategyReviewStatus currentStatus(Long reviewRequestId) {
+        ReviewRequestRecord current = approvalMapper.selectReviewRequest(
+                reviewRequestId
         );
+        if (current == null || current.getReviewStatus() == null) {
+            throw new AppException(ErrorCode.DATABASE_ERROR);
+        }
+        return current.getReviewStatus();
     }
 
     @Transactional
@@ -54,5 +64,19 @@ public class StrategyApprovalDeliveryStateService {
         return approvalMapper.markReadyToExecuteIfAllSent(
                 strategyCaseId, strategyOptionId, actorId
         ) == 1;
+    }
+
+    private StrategyReviewStatus complete(
+            Long reviewRequestId,
+            StrategyReviewStatus targetStatus,
+            Long actorId
+    ) {
+        int updated = approvalMapper.completeReviewRequest(
+                reviewRequestId, targetStatus, actorId
+        );
+        if (updated == 1) {
+            return targetStatus;
+        }
+        return currentStatus(reviewRequestId);
     }
 }

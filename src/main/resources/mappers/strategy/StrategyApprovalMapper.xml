@@ -38,6 +38,70 @@
         FETCH FIRST 1 ROW ONLY
     </select>
 
+    <select id="selectPersistedApprovalHeader" resultType="com.stockit.backend.feature.strategy.approval.StrategyApprovalRecords$PersistedApprovalHeader">
+        SELECT strategy_case.strategy_case_id,
+               case_requester.organization_id AS requester_organization_id,
+               strategy_case.case_status,
+               final_selection.final_selection_id,
+               strategy_option.strategy_option_id,
+               strategy_option.constraint_text,
+               strategy_case.case_name,
+               sku.sku_code,
+               sku.sku_name,
+               selection_requester.user_name AS requester_name,
+               strategy_option.option_name,
+               strategy_option.recommendation_reason,
+               simulation.target_quantity,
+               simulation.strategy_price,
+               simulation.expected_sales_qty,
+               simulation.expected_revenue,
+               simulation.total_contribution_margin,
+               simulation.expected_remaining_qty,
+               execution_result.planned_start_date,
+               execution_result.planned_end_date
+        FROM strategy_case
+        JOIN sku
+          ON sku.sku_id = strategy_case.sku_id
+         AND sku.is_deleted = 0
+        JOIN app_user case_requester
+          ON case_requester.user_id = strategy_case.created_by
+        LEFT JOIN final_strategy_selection final_selection
+          ON final_selection.strategy_case_id = strategy_case.strategy_case_id
+         AND final_selection.is_deleted = 0
+        LEFT JOIN strategy_option
+          ON strategy_option.strategy_option_id = final_selection.strategy_option_id
+         AND strategy_option.is_deleted = 0
+        LEFT JOIN strategy_simulation simulation
+          ON simulation.strategy_option_id = strategy_option.strategy_option_id
+         AND simulation.is_deleted = 0
+        LEFT JOIN strategy_execution_result execution_result
+          ON execution_result.final_selection_id = final_selection.final_selection_id
+         AND execution_result.is_deleted = 0
+        LEFT JOIN app_user selection_requester
+          ON selection_requester.user_id = final_selection.created_by
+        WHERE strategy_case.strategy_case_id = #{strategyCaseId}
+          AND strategy_case.is_deleted = 0
+        ORDER BY final_selection.created_at DESC NULLS LAST,
+                 final_selection.final_selection_id DESC NULLS LAST
+        FETCH FIRST 1 ROW ONLY
+    </select>
+
+    <select id="selectPersistedApprovalActions" resultType="com.stockit.backend.feature.strategy.approval.StrategyApprovalRecords$PersistedApprovalAction">
+        SELECT action.action_type,
+               action.target_sales_point_id,
+               target.sales_point_name AS target_sales_point_name,
+               action.strategy_price,
+               action.discount_rate,
+               action.action_order
+        FROM strategy_action action
+        LEFT JOIN sales_point target
+          ON target.sales_point_id = action.target_sales_point_id
+         AND target.is_deleted = 0
+        WHERE action.strategy_option_id = #{strategyOptionId}
+          AND action.is_deleted = 0
+        ORDER BY action.action_order, action.strategy_action_id
+    </select>
+
     <insert id="insertOption" useGeneratedKeys="true"
             keyProperty="strategyOptionId" keyColumn="strategy_option_id">
         INSERT INTO strategy_option (
@@ -213,6 +277,36 @@
         WHERE strategy_option_id = #{strategyOptionId}
           AND is_deleted = 0
         ORDER BY reviewer_id
+    </select>
+
+    <select id="selectReviewRequestDeliveries" resultType="com.stockit.backend.feature.strategy.approval.StrategyApprovalRecords$ReviewRequestRecord">
+        SELECT request.review_request_id,
+               request.reviewer_id,
+               request.review_status,
+               request.updated_at,
+               reviewer.user_name AS reviewer_name,
+               reviewer.email AS reviewer_email,
+               reviewer.active_yn AS reviewer_active_yn,
+               reviewer.is_deleted AS reviewer_is_deleted,
+               requester.user_name AS requester_name
+        FROM strategy_review_request request
+        LEFT JOIN app_user reviewer
+          ON reviewer.user_id = request.reviewer_id
+        LEFT JOIN app_user requester
+          ON requester.user_id = request.requester_id
+        WHERE request.strategy_option_id = #{strategyOptionId}
+          AND request.is_deleted = 0
+        ORDER BY request.reviewer_id
+    </select>
+
+    <select id="selectReviewRequest" resultType="com.stockit.backend.feature.strategy.approval.StrategyApprovalRecords$ReviewRequestRecord">
+        SELECT review_request_id,
+               reviewer_id,
+               review_status,
+               updated_at
+        FROM strategy_review_request
+        WHERE review_request_id = #{reviewRequestId}
+          AND is_deleted = 0
     </select>
 
     <update id="claimReviewRequest">

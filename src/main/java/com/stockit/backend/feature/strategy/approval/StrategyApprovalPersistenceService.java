@@ -123,7 +123,10 @@ public class StrategyApprovalPersistenceService {
                     || !Objects.equals(
                             candidateId(existing.getConstraintText()),
                             option.candidate().candidateId()
-                    ) || (existingFingerprint != null
+                    ) || (existingFingerprint == null
+                    && resolved.inputSource()
+                    == StrategySelectionInputSource.USER_SELECT)
+                    || (existingFingerprint != null
                     && !Objects.equals(
                             existingFingerprint,
                             resolved.selectionFingerprint()

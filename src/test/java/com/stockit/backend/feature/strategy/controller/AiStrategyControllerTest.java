@@ -44,6 +44,7 @@ import com.stockit.backend.feature.strategy.dto.response.AiStrategyPeriodConstra
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCandidateSimulation;
 import com.stockit.backend.feature.strategy.calculation.policy.SalesPointDiscountPolicy;
 import com.stockit.backend.feature.strategy.service.AiStrategyApprovalService;
+import com.stockit.backend.feature.strategy.service.AiStrategyApprovalRetryService;
 import com.stockit.backend.feature.strategy.service.AiStrategyCaseListService;
 import com.stockit.backend.feature.strategy.service.AiStrategyCaseQueryService;
 import com.stockit.backend.feature.strategy.service.AiStrategyReviewerService;
@@ -68,6 +69,7 @@ class AiStrategyControllerTest {
     @MockitoBean private StrategyAdjustmentSimulationService adjustmentSimulationService;
     @MockitoBean private AiStrategyReviewerService reviewerService;
     @MockitoBean private AiStrategyApprovalService approvalService;
+    @MockitoBean private AiStrategyApprovalRetryService approvalRetryService;
 
     @Test
     @WithMockUser(roles = "GREENFOOD_ADMIN")
@@ -252,7 +254,7 @@ class AiStrategyControllerTest {
     void persistsFinalSelectionAndSendsTeamsRequests() throws Exception {
         when(approvalService.sendToTeams(
                 123L, "CAND-1", null, List.of(7L, 8L),
-                3L, "요청자", 1L
+                3L, 1L
         )).thenReturn(new AiStrategyTeamsRequestResponse(
                 123L,
                 "CAND-1",
@@ -302,7 +304,7 @@ class AiStrategyControllerTest {
         );
         when(approvalService.sendToTeams(
                 123L, "CAND-1", adjusted, List.of(7L),
-                3L, "요청자", 1L
+                3L, 1L
         )).thenReturn(new AiStrategyTeamsRequestResponse(
                 123L, "CAND-1", 55L, 44L,
                 StrategyCaseStatus.GENERATED,
@@ -330,6 +332,27 @@ class AiStrategyControllerTest {
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.selectedOptionId").value("CAND-1"));
+    }
+
+    @Test
+    void retriesTeamsDeliveryWithoutRequestBody() throws Exception {
+        when(approvalRetryService.retry(123L, 3L, 1L)).thenReturn(
+                new AiStrategyTeamsRequestResponse(
+                        123L, "CAND-1", 55L, 44L,
+                        StrategyCaseStatus.READY_TO_EXECUTE,
+                        DeliveryStatus.SENT,
+                        List.of()
+                )
+        );
+
+        CsrfCredentials csrf = requestCsrf();
+        mockMvc.perform(post("/api/v1/ai-strategies/123/teams-requests/retry")
+                        .with(user(adminPrincipal()))
+                        .cookie(csrf.cookie())
+                        .header(csrf.headerName(), csrf.token()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.selectedOptionId").value("CAND-1"))
+                .andExpect(jsonPath("$.data.deliveryStatus").value("SENT"));
     }
 
     @Test
@@ -414,7 +437,9 @@ class AiStrategyControllerTest {
                 .andExpect(jsonPath("$.paths['/api/v1/ai-strategies/reviewers'].get.summary")
                         .value("AI 전략 Teams 검토자 목록 조회"))
                 .andExpect(jsonPath("$.paths['/api/v1/ai-strategies/{strategyCaseId}/teams-requests'].post.summary")
-                        .value("최종 AI 전략 선택 및 Teams 검토 요청"));
+                        .value("최종 AI 전략 선택 및 Teams 검토 요청"))
+                .andExpect(jsonPath("$.paths['/api/v1/ai-strategies/{strategyCaseId}/teams-requests/retry'].post.summary")
+                        .value("AI 전략 Teams 전송 재시도"));
     }
 
     private MockHttpServletRequestBuilder createRequest(

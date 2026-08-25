@@ -31,6 +31,7 @@ import com.stockit.backend.feature.strategy.dto.response.AdjustedAiStrategySimul
 import com.stockit.backend.feature.strategy.dto.response.AiStrategyReviewerListResponse;
 import com.stockit.backend.feature.strategy.dto.response.AiStrategyTeamsRequestResponse;
 import com.stockit.backend.feature.strategy.service.AiStrategyApprovalService;
+import com.stockit.backend.feature.strategy.service.AiStrategyApprovalRetryService;
 import com.stockit.backend.feature.strategy.service.AiStrategyCaseListService;
 import com.stockit.backend.feature.strategy.service.AiStrategyCaseQueryService;
 import com.stockit.backend.feature.strategy.service.AiStrategyReviewerService;
@@ -58,6 +59,7 @@ public class AiStrategyController {
     private final StrategyAdjustmentSimulationService adjustmentSimulationService;
     private final AiStrategyReviewerService reviewerService;
     private final AiStrategyApprovalService approvalService;
+    private final AiStrategyApprovalRetryService approvalRetryService;
 
     public AiStrategyController(
             StrategyCaseService caseService,
@@ -65,7 +67,8 @@ public class AiStrategyController {
             AiStrategyCaseListService listService,
             StrategyAdjustmentSimulationService adjustmentSimulationService,
             AiStrategyReviewerService reviewerService,
-            AiStrategyApprovalService approvalService
+            AiStrategyApprovalService approvalService,
+            AiStrategyApprovalRetryService approvalRetryService
     ) {
         this.caseService = caseService;
         this.queryService = queryService;
@@ -73,6 +76,7 @@ public class AiStrategyController {
         this.adjustmentSimulationService = adjustmentSimulationService;
         this.reviewerService = reviewerService;
         this.approvalService = approvalService;
+        this.approvalRetryService = approvalRetryService;
     }
 
     @GetMapping
@@ -183,7 +187,25 @@ public class AiStrategyController {
                 request.toAdjustmentCommand(),
                 request.reviewerIds(),
                 authenticated.getUserId(),
-                authenticated.getUserName(),
+                authenticated.getOrganizationId()
+        ));
+    }
+
+    @PostMapping("/{strategyCaseId}/teams-requests/retry")
+    @Operation(
+            summary = "AI 전략 Teams 전송 재시도",
+            description = "Redis 결과와 무관하게 Oracle에 확정된 전략으로 미완료 Reviewer 전송만 재시도합니다."
+    )
+    public ApiResponse<AiStrategyTeamsRequestResponse> retryTeamsRequest(
+            @PathVariable Long strategyCaseId,
+            @Parameter(description = "GET /api/v1/auth/csrf에서 발급받은 CSRF 토큰")
+            @RequestHeader(name = "X-XSRF-TOKEN") String csrfToken,
+            @AuthenticationPrincipal AuthPrincipal principal
+    ) {
+        AuthPrincipal authenticated = requirePrincipal(principal);
+        return ApiResponse.of(approvalRetryService.retry(
+                strategyCaseId,
+                authenticated.getUserId(),
                 authenticated.getOrganizationId()
         ));
     }

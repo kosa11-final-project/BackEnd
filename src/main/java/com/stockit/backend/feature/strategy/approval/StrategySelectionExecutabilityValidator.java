@@ -261,9 +261,8 @@ public class StrategySelectionExecutabilityValidator {
     private static BigDecimal available(StrategyCalculationInventoryVO row) {
         BigDecimal onHand = row.getOnHandQty() == null
                 ? BigDecimal.ZERO : row.getOnHandQty();
-        BigDecimal reserved = row.getReservedQty() == null
-                ? BigDecimal.ZERO : row.getReservedQty();
-        return onHand.subtract(reserved).max(BigDecimal.ZERO);
+        // 프로젝트 재고 계약에서 on_hand_qty는 이미 예약분을 제외한 가용재고다.
+        return onHand.max(BigDecimal.ZERO);
     }
 
     private static boolean different(BigDecimal left, BigDecimal right) {

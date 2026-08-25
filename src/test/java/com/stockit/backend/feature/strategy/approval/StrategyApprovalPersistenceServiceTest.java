@@ -92,6 +92,9 @@ class StrategyApprovalPersistenceServiceTest {
     @Test
     void reusesSameSelectionAndCreatesOnlyMissingReviewerRequest() {
         stubValidCase();
+        when(resolved.inputSource()).thenReturn(
+                StrategySelectionInputSource.AI_RECOMMENDED
+        );
         when(option.rank()).thenReturn(1);
         when(option.candidate()).thenReturn(candidate);
         when(candidate.candidateId()).thenReturn("CAND-1");
@@ -112,6 +115,28 @@ class StrategyApprovalPersistenceServiceTest {
         assertThat(prepared.reviewRequests()).containsExactly(request);
         verify(approvalMapper, never())
                 .insertReviewRequest(any(ReviewRequestWrite.class));
+    }
+
+    @Test
+    void rejectsAdjustedRetryForLegacySelectionWithoutFingerprint() {
+        stubValidCase();
+        when(resolved.inputSource()).thenReturn(
+                StrategySelectionInputSource.USER_SELECT
+        );
+        when(option.rank()).thenReturn(1);
+        when(option.candidate()).thenReturn(candidate);
+        when(candidate.candidateId()).thenReturn("CAND-1");
+        when(approvalMapper.selectExistingSelection(123L))
+                .thenReturn(existingSelection(1, "CAND-1"));
+
+        assertThatThrownBy(() -> service.prepare(
+                123L, 3L, 1L, resolved, List.of(reviewer)
+        ))
+                .isInstanceOf(AppException.class)
+                .extracting(exception -> ((AppException) exception).getErrorCode())
+                .isEqualTo(ErrorCode.AI_STRATEGY_SELECTION_CONFLICT);
+
+        verify(approvalMapper, never()).insertReviewRequest(any());
     }
 
     @Test
