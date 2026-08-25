@@ -152,7 +152,8 @@ class StrategyGenerationResultSerializationTest {
                         new StrategyGenerationResult.Preference(1, 1, 100), d("10")
                 );
         return new StrategyGenerationResult(
-                1, 1L, LocalDateTime.of(2026, 8, 24, 10, 0), baseline,
+                StrategyGenerationResult.CURRENT_SCHEMA_VERSION,
+                1L, LocalDateTime.of(2026, 8, 24, 10, 0), baseline,
                 List.of(new StrategyGenerationResult.Option(
                         1, "할인 전략", "추천 이유", "장점", "주의사항",
                         candidate, simulation

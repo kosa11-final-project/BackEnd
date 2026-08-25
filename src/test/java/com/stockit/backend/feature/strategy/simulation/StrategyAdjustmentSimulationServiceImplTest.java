@@ -31,6 +31,7 @@ import com.stockit.backend.feature.strategy.calculation.candidate.domain.Candida
 import com.stockit.backend.feature.strategy.calculation.candidate.domain.CandidateExclusionReason;
 import com.stockit.backend.feature.strategy.calculation.candidate.domain.CandidateGenerationResult;
 import com.stockit.backend.feature.strategy.calculation.candidate.domain.StrategyCandidate;
+import com.stockit.backend.feature.strategy.calculation.candidate.calculator.InventoryTransferCostCalculator;
 import com.stockit.backend.feature.strategy.calculation.candidate.policy.StrategyPeriodEligibilityPolicy;
 import com.stockit.backend.feature.strategy.calculation.candidate.service.StrategyCandidateGenerationService;
 import com.stockit.backend.feature.strategy.calculation.domain.BaselineSimulation;
@@ -71,7 +72,8 @@ class StrategyAdjustmentSimulationServiceImplTest {
                 new SalesPointDiscountPolicy(new DiscountSimulationProperties()),
                 new StrategyPeriodEligibilityPolicy(),
                 lifecycleGuard,
-                dateTimeProvider
+                dateTimeProvider,
+                new InventoryTransferCostCalculator()
         );
     }
 
@@ -132,6 +134,55 @@ class StrategyAdjustmentSimulationServiceImplTest {
                 .isFalse();
         assertThat(response.chartRange().startDate()).isEqualTo(START);
         verify(lifecycleGuard).requireAdjustable(1L);
+    }
+
+    @Test
+    void recalculatesRtTransferCostWhenAdjustedQuantityChanges() {
+        StrategyCalculationContext context = transferContext();
+        StrategyGenerationResult result = mock(StrategyGenerationResult.class);
+        StrategyGenerationResult.Option option = mock(
+                StrategyGenerationResult.Option.class
+        );
+        BaselineSimulation baseline = mock(BaselineSimulation.class);
+        StrategyCandidateSimulation simulation = mock(
+                StrategyCandidateSimulation.class
+        );
+        StrategyGenerationResult.Candidate template = transferTemplate();
+
+        when(resultStore.find(1L)).thenReturn(Optional.of(result));
+        when(contextStore.find(1L)).thenReturn(Optional.of(context));
+        when(dateTimeProvider.now()).thenReturn(START.atStartOfDay());
+        when(result.options()).thenReturn(List.of(option));
+        when(result.baselineSimulation()).thenReturn(baseline);
+        when(option.candidate()).thenReturn(template);
+        when(generationService.generate(any())).thenReturn(
+                new CandidateGenerationResult(
+                        List.of(transferBaseCandidate()), List.of()
+                )
+        );
+        when(simulationEngine.simulate(
+                any(), any(), eq(baseline), eq(SimulationDetailLevel.WITH_DAILY_SERIES)
+        )).thenReturn(simulation);
+
+        service.simulate(
+                1L,
+                "CAND-RT",
+                new AdjustStrategySimulationCommand(
+                        decimal("6"), null, START, END
+                )
+        );
+
+        ArgumentCaptor<StrategyCandidate> candidateCaptor =
+                ArgumentCaptor.forClass(StrategyCandidate.class);
+        verify(simulationEngine).simulate(
+                any(), candidateCaptor.capture(), eq(baseline),
+                eq(SimulationDetailLevel.WITH_DAILY_SERIES)
+        );
+        StrategyCandidate.Action adjusted = candidateCaptor.getValue()
+                .actions().get(0);
+        assertThat(adjusted.actionQuantity()).isEqualByComparingTo("6");
+        assertThat(adjusted.movementCost().weightKg()).isEqualByComparingTo("3");
+        assertThat(adjusted.estimatedActionCost()).isEqualByComparingTo("600");
     }
 
     @Test
@@ -343,6 +394,68 @@ class StrategyAdjustmentSimulationServiceImplTest {
         );
     }
 
+    private static StrategyGenerationResult.Candidate transferTemplate() {
+        return new StrategyGenerationResult.Candidate(
+                "CAND-RT",
+                List.of(StrategyType.RT_TRANSFER),
+                START,
+                null,
+                List.of(new StrategyGenerationResult.Action(
+                        StrategyType.RT_TRANSFER,
+                        501L,
+                        10L,
+                        502L,
+                        20L,
+                        decimal("10"),
+                        decimal("1000"),
+                        null,
+                        null,
+                        List.of(new StrategyGenerationResult.LotAllocation(
+                                1L, 1001L, decimal("10"), 1
+                        )),
+                        new StrategyGenerationResult.MovementCost(
+                                1L, 1L, decimal("5"), decimal("100"),
+                                decimal("2"), decimal("1000")
+                        )
+                )),
+                List.of(),
+                new StrategyGenerationResult.Preference(1, 1, 100),
+                decimal("10")
+        );
+    }
+
+    private static StrategyCandidate transferBaseCandidate() {
+        StrategyCandidate.MovementCost movement =
+                new StrategyCandidate.MovementCost(
+                        1L, 1L, decimal("5"), decimal("100"),
+                        decimal("2"), decimal("1000")
+                );
+        return new StrategyCandidate(
+                "BASE-RT",
+                List.of(StrategyType.RT_TRANSFER),
+                START,
+                null,
+                List.of(new StrategyCandidate.Action(
+                        StrategyType.RT_TRANSFER,
+                        new StrategyCandidate.Location(501L, 10L),
+                        new StrategyCandidate.Location(502L, 20L),
+                        decimal("10"),
+                        decimal("1000"),
+                        null,
+                        null,
+                        List.of(new StrategyCandidate.LotAllocation(
+                                1L, 1001L, decimal("10"), 1
+                        )),
+                        movement
+                )),
+                List.of(),
+                new StrategyCandidate.Preference(1, 1, 100),
+                new StrategyCandidate.MovementEvidence(
+                        decimal("10"), decimal("10"), decimal("20"), decimal("10")
+                )
+        );
+    }
+
     private static StrategyCandidate baseCandidateWithTwoLots(LocalDate endDate) {
         StrategyCandidate.Location location = new StrategyCandidate.Location(
                 501L, 10L
@@ -380,6 +493,53 @@ class StrategyAdjustmentSimulationServiceImplTest {
 
     private static StrategyCalculationContext context() {
         return context(List.of(lot(1L, 1001L, decimal("10"), null)));
+    }
+
+    private static StrategyCalculationContext transferContext() {
+        StrategyCalculationContext original = context();
+        Map<LocalDate, BigDecimal> forecasts = new LinkedHashMap<>();
+        for (LocalDate date = START; !date.isAfter(END); date = date.plusDays(1)) {
+            forecasts.put(date, decimal("2"));
+        }
+        Map<Long, StrategyCalculationContext.SalesPoint> salesPoints =
+                new LinkedHashMap<>(original.salesPoints());
+        salesPoints.put(20L, new StrategyCalculationContext.SalesPoint(
+                20L, "DEPT-MOKDONG", "목동점", BigDecimal.ZERO,
+                true,
+                new StrategyCalculationContext.Price(
+                        2L, decimal("120"), decimal("100"), decimal("70"),
+                        decimal("5"), decimal("10")
+                ),
+                forecasts,
+                List.of(new StrategyCalculationContext.WarehouseRoute(
+                        20L, 20L, 502L, 1, null
+                ))
+        ));
+        return new StrategyCalculationContext(
+                original.strategyCaseId(), original.sourceSalesPointId(),
+                original.calculatedAt(), original.forecastStartDate(),
+                original.forecastEndDate(),
+                new StrategyCalculationContext.Sku(
+                        100L, "SKU-100", "상품", "EA", BigDecimal.ONE,
+                        decimal("0.5"), "KG"
+                ),
+                original.unitCost(),
+                new StrategyCalculationContext.RequestConstraints(
+                        List.of(20L), List.of(StrategyType.RT_TRANSFER), null, null
+                ),
+                original.evaluationInventory(), original.referenceInventory(),
+                original.inventoryPolicies(), salesPoints,
+                original.forecastMetadata(),
+                List.of(new StrategyCalculationContext.TransferRoute(
+                        1L,
+                        new StrategyCalculationContext.PhysicalLocation(501L, null),
+                        new StrategyCalculationContext.PhysicalLocation(502L, null),
+                        decimal("100"), "DUMMY", null, null
+                )),
+                List.of(new StrategyCalculationContext.TransferCostPolicy(
+                        1L, "COMMON", decimal("2"), START, null
+                ))
+        );
     }
 
     private static StrategyCalculationContext context(
