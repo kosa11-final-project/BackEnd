@@ -64,10 +64,13 @@ jobs:
         id: image
         shell: bash
         run: |
-          if aws ecr batch-get-image \
+          image_count="$(aws ecr batch-get-image \
             --repository-name "$ECR_REPOSITORY" \
             --image-ids "imageTag=$GITHUB_SHA" \
-            >/dev/null 2>&1; then
+            --query 'length(images)' \
+            --output text)"
+
+          if [ "$image_count" -gt 0 ]; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
