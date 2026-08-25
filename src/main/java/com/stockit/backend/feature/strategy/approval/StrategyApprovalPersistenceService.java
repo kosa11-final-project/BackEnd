@@ -282,6 +282,13 @@ public class StrategyApprovalPersistenceService {
         write.setTotalContributionMargin(summary.totalContributionMargin());
         write.setExpectedRemainingQty(summary.expectedRemainingQty());
         write.setExpectedSellThroughDays(summary.expectedSellThroughDays());
+        write.setAvoidedDisposalCost(
+                option.simulation().comparisonToBaseline().avoidedDisposalCost()
+        );
+        write.setAvoidedHoldingCost(
+                option.simulation().comparisonToBaseline().avoidedHoldingCost()
+        );
+        write.setNetEffect(summary.netEffect());
         audit(write, actorId);
         return write;
     }
@@ -307,6 +314,17 @@ public class StrategyApprovalPersistenceService {
             write.setEndDate(option.candidate().endDate());
             write.setEstimatedActionCost(action.estimatedActionCost());
             write.setActionOrder(order++);
+            StrategyGenerationResult.MovementCost movement = action.movementCost();
+            write.setMovementCostStatus(
+                    movement == null ? "NOT_APPLICABLE" : "CALCULATED"
+            );
+            if (movement != null) {
+                write.setTransferRouteId(movement.transferRouteId());
+                write.setTransferCostPolicyId(movement.transferCostPolicyId());
+                write.setMovementWeightKg(movement.weightKg());
+                write.setMovementDistanceKm(movement.distanceKm());
+                write.setMovementCostPerKgKm(movement.costPerKgKm());
+            }
             audit(write, actorId);
             approvalMapper.insertAction(write);
 

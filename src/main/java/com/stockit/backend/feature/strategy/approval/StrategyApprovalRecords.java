@@ -107,6 +107,9 @@ public final class StrategyApprovalRecords {
         private BigDecimal totalContributionMargin;
         private BigDecimal expectedRemainingQty;
         private Integer expectedSellThroughDays;
+        private BigDecimal avoidedDisposalCost;
+        private BigDecimal avoidedHoldingCost;
+        private BigDecimal netEffect;
     }
 
     @Getter
@@ -126,6 +129,12 @@ public final class StrategyApprovalRecords {
         private LocalDate endDate;
         private BigDecimal estimatedActionCost;
         private Integer actionOrder;
+        private Long transferRouteId;
+        private Long transferCostPolicyId;
+        private String movementCostStatus;
+        private BigDecimal movementWeightKg;
+        private BigDecimal movementDistanceKm;
+        private BigDecimal movementCostPerKgKm;
     }
 
     @Getter

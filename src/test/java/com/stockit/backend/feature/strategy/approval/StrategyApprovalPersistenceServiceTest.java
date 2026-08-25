@@ -26,6 +26,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.stockit.backend.common.exception.AppException;
 import com.stockit.backend.common.exception.ErrorCode;
 import com.stockit.backend.feature.strategy.approval.StrategyApprovalRecords.CaseRecord;
+import com.stockit.backend.feature.strategy.approval.StrategyApprovalRecords.ActionWrite;
 import com.stockit.backend.feature.strategy.approval.StrategyApprovalRecords.ExistingSelectionRecord;
 import com.stockit.backend.feature.strategy.approval.StrategyApprovalRecords.ReviewRequestRecord;
 import com.stockit.backend.feature.strategy.approval.StrategyApprovalRecords.ReviewRequestWrite;
@@ -38,6 +39,7 @@ import com.stockit.backend.feature.strategy.calculation.domain.BaselineSimulatio
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCandidateSimulation;
 import com.stockit.backend.feature.strategy.domain.StrategyCaseStatus;
 import com.stockit.backend.feature.strategy.domain.StrategyGenerationStage;
+import com.stockit.backend.feature.strategy.domain.StrategyType;
 import com.stockit.backend.feature.strategy.mapper.StrategyApprovalMapper;
 import com.stockit.backend.feature.strategy.result.StrategyGenerationResult;
 import com.stockit.backend.feature.strategy.service.StrategyDateTimeProvider;
@@ -167,6 +169,10 @@ class StrategyApprovalPersistenceServiceTest {
         StrategyCandidateSimulation.Summary summary = org.mockito.Mockito.mock(
                 StrategyCandidateSimulation.Summary.class
         );
+        StrategyCandidateSimulation.ComparisonToBaseline comparison =
+                org.mockito.Mockito.mock(
+                        StrategyCandidateSimulation.ComparisonToBaseline.class
+                );
         BaselineSimulation baseline = org.mockito.Mockito.mock(
                 BaselineSimulation.class
         );
@@ -179,9 +185,27 @@ class StrategyApprovalPersistenceServiceTest {
         when(option.simulation()).thenReturn(simulation);
         when(candidate.candidateId()).thenReturn("CAND-1");
         when(candidate.startDate()).thenReturn(LocalDate.of(2026, 8, 25));
-        when(candidate.actions()).thenReturn(List.of());
+        when(candidate.actions()).thenReturn(List.of(
+                new StrategyGenerationResult.Action(
+                        StrategyType.RT_TRANSFER,
+                        501L, 10L, 502L, 20L,
+                        new BigDecimal("29"), new BigDecimal("5800"),
+                        null, null,
+                        List.of(new StrategyGenerationResult.LotAllocation(
+                                1L, 1001L, new BigDecimal("29"), 1
+                        )),
+                        new StrategyGenerationResult.MovementCost(
+                                9L, 8L, new BigDecimal("14.5"),
+                                new BigDecimal("100"), new BigDecimal("4"),
+                                new BigDecimal("5800")
+                        )
+                )
+        ));
         when(candidate.assumptions()).thenReturn(List.of());
         when(simulation.summary()).thenReturn(summary);
+        when(simulation.comparisonToBaseline()).thenReturn(comparison);
+        when(comparison.avoidedDisposalCost()).thenReturn(BigDecimal.ZERO);
+        when(comparison.avoidedHoldingCost()).thenReturn(BigDecimal.ZERO);
         when(summary.expectedSalesQty()).thenReturn(new BigDecimal("29"));
         when(summary.expectedRevenue()).thenReturn(new BigDecimal("246500"));
         when(summary.totalContributionMargin()).thenReturn(new BigDecimal("58000"));
@@ -227,6 +251,15 @@ class StrategyApprovalPersistenceServiceTest {
                 .isEqualTo("USER_SELECT");
         assertThat(simulationCaptor.getValue().getTargetQuantity())
                 .isEqualByComparingTo("29");
+        ArgumentCaptor<ActionWrite> actionCaptor =
+                ArgumentCaptor.forClass(ActionWrite.class);
+        verify(approvalMapper).insertAction(actionCaptor.capture());
+        assertThat(actionCaptor.getValue().getMovementCostStatus())
+                .isEqualTo("CALCULATED");
+        assertThat(actionCaptor.getValue().getTransferRouteId()).isEqualTo(9L);
+        assertThat(actionCaptor.getValue().getTransferCostPolicyId()).isEqualTo(8L);
+        assertThat(actionCaptor.getValue().getMovementWeightKg())
+                .isEqualByComparingTo("14.5");
 
         ArgumentCaptor<ExecutionResultWrite> executionCaptor =
                 ArgumentCaptor.forClass(ExecutionResultWrite.class);
