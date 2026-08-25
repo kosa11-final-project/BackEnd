@@ -15,8 +15,10 @@ import org.springframework.stereotype.Component;
 public class RiskRuleEngine {
 
     // 수요예측·가용재고·안전재고·LOT만 사용하는 서버 규칙 버전입니다.
-    public static final String RULE_VERSION = "v1.3.0";
+    public static final String RULE_VERSION = "v1.5.0";
     private static final BigDecimal CAUTION_STOCK_DAYS = BigDecimal.valueOf(14);
+    private static final int CRITICAL_SALE_STOP_DAYS = 7;
+    private static final int WARNING_SALE_STOP_DAYS = 30;
     private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Seoul");
 
     private final Clock clock;
@@ -46,10 +48,46 @@ public class RiskRuleEngine {
             throw new IllegalArgumentException("lot quantity must be non-negative");
         }
 
-        // 현재 canonical 계약에서는 on_hand_qty 자체가 예약을 제외한 가용수량입니다.
-        // 소비기한·판매중지에 따른 별도 차감 컬럼은 후속 스키마 결정에서 반영합니다.
-        BigDecimal availableQty = input.onHandQty() == null ? BigDecimal.ZERO : input.onHandQty();
         boolean inventoryMissing = input.onHandQty() == null;
+        BigDecimal physicalAvailableQty = inventoryMissing ? BigDecimal.ZERO : input.onHandQty();
+        BigDecimal excludedLotQty = BigDecimal.ZERO;
+        List<RiskReason> excludedLotReasons = new ArrayList<>();
+
+        // 이미 판매중지·소비기한 경과·소진된 LOT는 물리 재고로는 남아 있어도 판매할 수 없습니다.
+        // 해당 수량은 재고 부족·수요예측·안전재고 판정에서 제외하고 운영 조치 정보로만 남깁니다.
+        if (input.lots() != null) {
+            for (RiskAssessmentInput.LotRiskItem lot : input.lots()) {
+                boolean hasQuantity = lot.quantity() != null && lot.quantity().compareTo(BigDecimal.ZERO) > 0;
+                if (!hasQuantity) {
+                    continue;
+                }
+
+                boolean expired = isExpired(lot, assessmentDate);
+                boolean saleStopped = isSaleStopped(lot, assessmentDate);
+                boolean depleted = isDepleted(lot);
+                if (expired || saleStopped || depleted) {
+                    excludedLotQty = excludedLotQty.add(lot.quantity());
+                }
+                if (expired) {
+                    excludedLotReasons.add(new RiskReason(
+                            "LOT_EXPIRED_EXCLUDED",
+                            "소비기한 경과 LOT를 판매 가능 재고에서 제외했습니다 (" + lot.lotNumber() + ")",
+                            "INFO",
+                            "expiryDate=" + lot.expiryDate() + ", qty=" + lot.quantity()
+                    ));
+                }
+                if (saleStopped) {
+                    excludedLotReasons.add(new RiskReason(
+                            "LOT_SALE_STOPPED_EXCLUDED",
+                            "판매중지 LOT를 판매 가능 재고에서 제외했습니다 (" + lot.lotNumber() + ")",
+                            "INFO",
+                            "saleStopDate=" + lot.saleStopDate() + ", qty=" + lot.quantity()
+                    ));
+                }
+            }
+        }
+
+        BigDecimal availableQty = physicalAvailableQty.subtract(excludedLotQty).max(BigDecimal.ZERO);
         boolean forecastUsable = isUsableForecast(input);
 
         // 2. 수요예측이 유효할 때만 예측 기반 규칙과 수치를 계산합니다.
@@ -75,20 +113,22 @@ public class RiskRuleEngine {
 
         // 3. LOT 기반 소비기한 및 보유일수 계산
         Integer nearestExpiryDays = null;
+        Integer nearestSaleStopDays = null;
         Integer maxHoldingDays = null;
         List<RiskReason> reasons = new ArrayList<>();
 
         // 예측이 없거나 사용할 수 없는 경우에도 현재 재고·안전재고·LOT 서버 룰은 적용합니다.
-        // 다만 미래 수요를 확인하지 못한 상태를 GOOD으로 확정하면 과도하게 낙관적이므로,
-        // 다른 위험 사유가 없을 때의 하한을 NORMAL로 둡니다.
+        // 수요예측 부재 자체는 위험등급을 올리는 사유가 아닙니다. 현재 재고와 안전재고,
+        // LOT 상태가 양호하면 SAFE로 판정할 수 있도록 하되, 안전재고 정책이 없는 경우에는
+        // 미래 수요를 확인할 기준이 부족하므로 NORMAL을 유지합니다.
         if (!forecastUsable) {
             boolean forecastMissing = !input.forecastAvailable();
             reasons.add(new RiskReason(
                     forecastMissing ? "FORECAST_UNAVAILABLE" : "FORECAST_INVALID",
                     forecastMissing
-                            ? "수요예측이 없어 서버 룰 기준으로 판정했으며 양호 확정은 보류합니다."
-                            : "수요예측 값이 유효하지 않아 서버 룰 기준으로 판정했으며 양호 확정은 보류합니다.",
-                    "NORMAL",
+                            ? "수요예측 없이 현재 재고·안전재고·LOT 기준으로 판정했습니다."
+                            : "수요예측 값이 유효하지 않아 현재 재고·안전재고·LOT 기준으로 판정했습니다.",
+                    "INFO",
                     forecastMissing ? "forecastAvailable=false" : "forecast values are invalid"
             ));
         }
@@ -103,16 +143,17 @@ public class RiskRuleEngine {
         } else if (availableQty.signum() == 0) {
             reasons.add(new RiskReason(
                     "ZERO_AVAILABLE_STOCK",
-                    "가용재고가 0개입니다.",
+                    "판매 가능한 가용재고가 0개입니다.",
                     "CRITICAL",
-                    "on_hand_qty=0"
+                    "physicalAvailableQty=" + physicalAvailableQty + ", excludedLotQty=" + excludedLotQty
             ));
         }
 
         if (input.lots() != null && !input.lots().isEmpty()) {
             for (RiskAssessmentInput.LotRiskItem lot : input.lots()) {
                 boolean hasQuantity = lot.quantity() != null && lot.quantity().compareTo(BigDecimal.ZERO) > 0;
-                if (hasQuantity && lot.expiryDate() != null) {
+                boolean sellable = hasQuantity && isSellable(lot, assessmentDate);
+                if (sellable && lot.expiryDate() != null) {
                     long days = ChronoUnit.DAYS.between(assessmentDate, lot.expiryDate());
                     int daysInt = (int) days;
                     if (nearestExpiryDays == null || daysInt < nearestExpiryDays) {
@@ -120,32 +161,31 @@ public class RiskRuleEngine {
                     }
                 }
 
-                if (hasQuantity && lot.receivedDate() != null) {
+                if (sellable && lot.saleStopDate() != null) {
+                    long days = ChronoUnit.DAYS.between(assessmentDate, lot.saleStopDate());
+                    int daysInt = (int) days;
+                    if (nearestSaleStopDays == null || daysInt < nearestSaleStopDays) {
+                        nearestSaleStopDays = daysInt;
+                    }
+                }
+
+                if (sellable && lot.receivedDate() != null) {
                     long holding = ChronoUnit.DAYS.between(lot.receivedDate(), assessmentDate);
                     int holdingInt = (int) holding;
                     if (maxHoldingDays == null || holdingInt > maxHoldingDays) {
                         maxHoldingDays = holdingInt;
                     }
                 }
-
-                // 개별 LOT 단위 경과/임박 체크
-                if (hasQuantity && isSaleStopped(lot, assessmentDate)) {
-                    reasons.add(new RiskReason(
-                            "LOT_SALE_STOPPED",
-                            "판매중지일 도래 LOT 존재 (" + lot.lotNumber() + ")",
-                            "CRITICAL",
-                            "saleStopDate=" + lot.saleStopDate() + ", qty=" + lot.quantity()
-                    ));
-                }
-                if (hasQuantity && isExpired(lot, assessmentDate)) {
-                    reasons.add(new RiskReason(
-                            "LOT_EXPIRED",
-                            "소비기한 만료 LOT 존재 (" + lot.lotNumber() + ")",
-                            "CRITICAL",
-                            "expiryDate=" + lot.expiryDate() + ", qty=" + lot.quantity()
-                    ));
-                }
             }
+        }
+
+        if (!forecastUsable && input.safetyStockQty() == null) {
+            reasons.add(new RiskReason(
+                    "FORECAST_WITHOUT_SAFETY_POLICY",
+                    "수요예측과 안전재고 정책이 모두 없어 양호 여부를 확정할 기준이 부족합니다.",
+                    "NORMAL",
+                    "safetyStockQty=null"
+            ));
         }
 
         // 4. 규칙 기반 위험 사유 평가
@@ -175,7 +215,26 @@ public class RiskRuleEngine {
             }
         }
 
-        // B. 수요예측 기반 부족량 평가
+        // B. 아직 판매 가능한 LOT의 판매중지일 임박 평가
+        if (nearestSaleStopDays != null) {
+            if (nearestSaleStopDays <= CRITICAL_SALE_STOP_DAYS) {
+                reasons.add(new RiskReason(
+                        "SALE_STOP_CRITICAL",
+                        "판매중지일까지 7일 이하 남았습니다 (" + nearestSaleStopDays + "일 남음)",
+                        "CRITICAL",
+                        "nearestSaleStopDays=" + nearestSaleStopDays
+                ));
+            } else if (nearestSaleStopDays <= WARNING_SALE_STOP_DAYS) {
+                reasons.add(new RiskReason(
+                        "SALE_STOP_WARNING",
+                        "판매중지일까지 30일 이하 남았습니다 (" + nearestSaleStopDays + "일 남음)",
+                        "WARNING",
+                        "nearestSaleStopDays=" + nearestSaleStopDays
+                ));
+            }
+        }
+
+        // C. 수요예측 기반 부족량 평가
         if (shortageQty30 != null && shortageQty30.compareTo(BigDecimal.ZERO) > 0) {
             boolean cautionShortage = availableQty.multiply(BigDecimal.valueOf(30))
                     .compareTo(predictedQtyD30.multiply(CAUTION_STOCK_DAYS)) < 0;
@@ -189,7 +248,7 @@ public class RiskRuleEngine {
             ));
         }
 
-        // C. 안전재고 미달 평가
+        // D. 안전재고 미달 평가
         if (safetyStock != null && safetyStock.compareTo(BigDecimal.ZERO) > 0) {
             if (projectedD7 != null && projectedD7.compareTo(safetyStock) < 0) {
                 reasons.add(new RiskReason(
@@ -237,11 +296,17 @@ public class RiskRuleEngine {
             apiGrade = "SAFE";
             reasons.add(new RiskReason(
                     "OPTIMAL_STOCK",
-                    "적정 재고 및 유효기한 유지 상태",
+                    "판매 가능 LOT 기준 적정 재고 및 유효기한 유지 상태",
                     "GOOD",
                     "availableQty=" + availableQty
             ));
         }
+
+        reasons.addAll(excludedLotReasons);
+        reasons.sort((left, right) -> Integer.compare(
+                severityRank(right.severity()),
+                severityRank(left.severity())
+        ));
 
         String primaryReason = reasons.get(0).message();
         String forecastNote = forecastNote(input, forecastUsable);
@@ -251,7 +316,6 @@ public class RiskRuleEngine {
         if (safetyStock == null) {
             primaryReason += " 안전재고 정책이 없어 안전재고 규칙은 제외했습니다.";
         }
-
         return new RiskAssessmentResult(
                 "ASSESSED",
                 dbGrade,
@@ -314,8 +378,15 @@ public class RiskRuleEngine {
 
     private static boolean isSaleStopped(RiskAssessmentInput.LotRiskItem lot, LocalDate baseDate) {
         return "SALE_STOPPED".equalsIgnoreCase(lot.lotStatus())
-                || "DEPLETED".equalsIgnoreCase(lot.lotStatus())
                 || (lot.saleStopDate() != null && !lot.saleStopDate().isAfter(baseDate));
+    }
+
+    private static boolean isDepleted(RiskAssessmentInput.LotRiskItem lot) {
+        return "DEPLETED".equalsIgnoreCase(lot.lotStatus());
+    }
+
+    private static boolean isSellable(RiskAssessmentInput.LotRiskItem lot, LocalDate baseDate) {
+        return !isExpired(lot, baseDate) && !isSaleStopped(lot, baseDate) && !isDepleted(lot);
     }
 
 }

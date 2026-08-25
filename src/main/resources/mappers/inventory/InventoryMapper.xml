@@ -35,16 +35,22 @@
         </choose>
     </sql>
 
+    <!--
+        선택된 각 값은 하나의 원자 조건으로 취급한다.
+        따라서 AND는 모든 값을 만족해야 하고 OR는 하나의 값만 만족해도 된다.
+        판매처·권역·채널·물류센터처럼 SKU에 여러 행으로 존재하는 조건은 상관 EXISTS로 SKU 단위에서 평가한다.
+    -->
     <sql id="candidateFilterWhere">
         <if test="(q != null and q != '')
                 or (channelTypes != null and channelTypes.size() > 0)
                 or (salesPointCodes != null and salesPointCodes.size() > 0)
                 or (regionCodes != null and regionCodes.size() > 0)
-                or categoryId != null
+                or (categoryIds != null and categoryIds.size() > 0)
                 or (storageTypes != null and storageTypes.size() > 0)
                 or (warehouseCodes != null and warehouseCodes.size() > 0)
                 or (riskGrades != null and riskGrades.size() > 0)
-                or (assessmentStatuses != null and assessmentStatuses.size() > 0)">
+                or (assessmentStatuses != null and assessmentStatuses.size() > 0)
+                or (shortageYn != null and shortageYn != '')">
           AND
           <trim prefix="(" suffix=")" suffixOverrides="AND|OR">
             <if test="q != null and q != ''">
@@ -53,68 +59,109 @@
                 OR LOWER(p.product_name) LIKE '%' || LOWER(#{q}) || '%'
                 OR LOWER(s.sku_code) LIKE '%' || LOWER(#{q}) || '%'
                 OR LOWER(s.sku_name) LIKE '%' || LOWER(#{q}) || '%'
-                OR (sp.sales_point_code IS NOT NULL AND LOWER(sp.sales_point_code) LIKE '%' || LOWER(#{q}) || '%')
-                OR (sp.sales_point_name IS NOT NULL AND LOWER(sp.sales_point_name) LIKE '%' || LOWER(#{q}) || '%')
+                OR EXISTS (
+                    SELECT 1
+                    FROM inventory_balance q_ib
+                    INNER JOIN sales_point q_sp
+                            ON q_sp.sales_point_id = NVL(q_ib.stock_sales_point_id, q_ib.allocated_sales_point_id)
+                           AND q_sp.is_deleted = 0
+                           AND q_sp.active_yn = 'Y'
+                    WHERE q_ib.is_deleted = 0
+                      AND q_ib.sku_id = ib.sku_id
+                      AND (
+                        LOWER(q_sp.sales_point_code) LIKE '%' || LOWER(#{q}) || '%'
+                        OR LOWER(q_sp.sales_point_name) LIKE '%' || LOWER(#{q}) || '%'
+                      )
+                )
               )
               <include refid="candidateFilterOperator"/>
             </if>
             <if test="channelTypes != null and channelTypes.size() > 0">
-              (
-                sp.sales_point_code IS NOT NULL
-                AND
-                <foreach collection="channelTypes" item="channelType" open="(" separator=" OR " close=")">
-                    (
-                      CASE
-                        WHEN sp.sales_point_code = 'GREETING' THEN 'GREETING'
-                        WHEN sp.sales_point_code = 'MODU_MATJIP' THEN 'ECOMMERCE'
-                        WHEN sp.sales_point_code LIKE 'DEPT_%' THEN 'HYUNDAI_DEPT'
-                        WHEN sp.sales_point_code LIKE 'HMART_%' THEN 'HMART'
-                        ELSE sc.channel_code
-                      END = #{channelType}
-                    )
-                </foreach>
-              )
-              <include refid="candidateFilterOperator"/>
+              <foreach collection="channelTypes" item="channelType">
+                EXISTS (
+                    SELECT 1
+                    FROM inventory_balance channel_ib
+                    INNER JOIN sales_point channel_sp
+                            ON channel_sp.sales_point_id = NVL(channel_ib.stock_sales_point_id, channel_ib.allocated_sales_point_id)
+                           AND channel_sp.is_deleted = 0
+                           AND channel_sp.active_yn = 'Y'
+                    LEFT JOIN sales_channel channel_sc
+                               ON channel_sc.sales_channel_id = channel_sp.sales_channel_id
+                    WHERE channel_ib.is_deleted = 0
+                      AND channel_ib.sku_id = ib.sku_id
+                      AND (channel_sc.sales_channel_id IS NULL OR (channel_sc.is_deleted = 0 AND channel_sc.active_yn = 'Y'))
+                      AND (
+                        CASE
+                          WHEN channel_sp.sales_point_code = 'GREETING' THEN 'GREETING'
+                          WHEN channel_sp.sales_point_code = 'MODU_MATJIP' THEN 'ECOMMERCE'
+                          WHEN channel_sp.sales_point_code LIKE 'DEPT_%' THEN 'HYUNDAI_DEPT'
+                          WHEN channel_sp.sales_point_code LIKE 'HMART_%' THEN 'HMART'
+                          ELSE channel_sc.channel_code
+                        END = #{channelType}
+                      )
+                )
+                <include refid="candidateFilterOperator"/>
+              </foreach>
             </if>
             <if test="salesPointCodes != null and salesPointCodes.size() > 0">
-              sp.sales_point_code IN
-              <foreach collection="salesPointCodes" item="salesPointCode" open="(" separator="," close=")">
-                  #{salesPointCode}
+              <foreach collection="salesPointCodes" item="salesPointCode">
+                EXISTS (
+                    SELECT 1
+                    FROM inventory_balance filter_sp_ib
+                    INNER JOIN sales_point filter_sp
+                            ON filter_sp.sales_point_id = NVL(filter_sp_ib.stock_sales_point_id, filter_sp_ib.allocated_sales_point_id)
+                           AND filter_sp.is_deleted = 0
+                           AND filter_sp.active_yn = 'Y'
+                    WHERE filter_sp_ib.is_deleted = 0
+                      AND filter_sp_ib.sku_id = ib.sku_id
+                      AND filter_sp.sales_point_code = #{salesPointCode}
+                )
+                <include refid="candidateFilterOperator"/>
               </foreach>
-              <include refid="candidateFilterOperator"/>
             </if>
             <if test="regionCodes != null and regionCodes.size() > 0">
-              sp.region_code IN
-              <foreach collection="regionCodes" item="regionCode" open="(" separator="," close=")">
-                  #{regionCode}
+              <foreach collection="regionCodes" item="regionCode">
+                EXISTS (
+                    SELECT 1
+                    FROM inventory_balance filter_region_ib
+                    INNER JOIN sales_point filter_region_sp
+                            ON filter_region_sp.sales_point_id = NVL(filter_region_ib.stock_sales_point_id, filter_region_ib.allocated_sales_point_id)
+                           AND filter_region_sp.is_deleted = 0
+                           AND filter_region_sp.active_yn = 'Y'
+                    WHERE filter_region_ib.is_deleted = 0
+                      AND filter_region_ib.sku_id = ib.sku_id
+                      AND filter_region_sp.region_code = #{regionCode}
+                )
+                <include refid="candidateFilterOperator"/>
               </foreach>
-              <include refid="candidateFilterOperator"/>
             </if>
-            <if test="categoryId != null">
-              p.category_id IN (
-                  SELECT descendant.category_id
-                  FROM (
-                      SELECT category_id, is_deleted
-                      FROM category
-                      START WITH category_id = #{categoryId}
-                      CONNECT BY NOCYCLE PRIOR category_id = parent_category_id
-                  ) descendant
-                  WHERE descendant.is_deleted = 0
-              )
-              <include refid="candidateFilterOperator"/>
+            <if test="categoryIds != null and categoryIds.size() > 0">
+              <foreach collection="categoryIds" item="categoryFilterId">
+                p.category_id IN (
+                    SELECT descendant.category_id
+                    FROM (
+                        SELECT category_id, is_deleted
+                        FROM category
+                        START WITH category_id = #{categoryFilterId}
+                        CONNECT BY NOCYCLE PRIOR category_id = parent_category_id
+                    ) descendant
+                    WHERE descendant.is_deleted = 0
+                )
+                <include refid="candidateFilterOperator"/>
+              </foreach>
             </if>
             <if test="storageTypes != null and storageTypes.size() > 0">
-              s.storage_type IN
-              <foreach collection="storageTypes" item="storageType" open="(" separator="," close=")">
-                  CASE
+              <foreach collection="storageTypes" item="storageType">
+                s.storage_type = CASE
                     WHEN #{storageType} = 'ROOM_TEMP' THEN 'AMBIENT'
                     ELSE #{storageType}
                   END
+                <include refid="candidateFilterOperator"/>
               </foreach>
-              <include refid="candidateFilterOperator"/>
             </if>
             <if test="warehouseCodes != null and warehouseCodes.size() > 0">
-              EXISTS (
+              <foreach collection="warehouseCodes" item="warehouseCode">
+                EXISTS (
                   SELECT 1
                   FROM inventory_balance filtered_ib
                   INNER JOIN warehouse filtered_w
@@ -123,27 +170,25 @@
                          AND filtered_w.active_yn = 'Y'
                   WHERE filtered_ib.is_deleted = 0
                     AND filtered_ib.sku_id = ib.sku_id
-                    AND NVL(filtered_ib.stock_sales_point_id, NVL(filtered_ib.allocated_sales_point_id, -1))
-                        = NVL(ib.stock_sales_point_id, NVL(ib.allocated_sales_point_id, -1))
-                    AND filtered_w.warehouse_code IN
-                    <foreach collection="warehouseCodes" item="warehouseCode" open="(" separator="," close=")">
-                        #{warehouseCode}
-                    </foreach>
-              )
-              <include refid="candidateFilterOperator"/>
+                    AND filtered_w.warehouse_code = #{warehouseCode}
+                )
+                <include refid="candidateFilterOperator"/>
+              </foreach>
             </if>
             <if test="riskGrades != null and riskGrades.size() > 0">
-              NVL(sr.risk_grade, 'UNASSESSED') IN
-              <foreach collection="riskGrades" item="riskGrade" open="(" separator="," close=")">
-                  #{riskGrade}
+              <foreach collection="riskGrades" item="riskGrade">
+                NVL(sr.risk_grade, 'UNASSESSED') = #{riskGrade}
+                <include refid="candidateFilterOperator"/>
               </foreach>
-              <include refid="candidateFilterOperator"/>
             </if>
             <if test="assessmentStatuses != null and assessmentStatuses.size() > 0">
-              NVL(sr.assessment_status, 'UNASSESSED') IN
-              <foreach collection="assessmentStatuses" item="assessmentStatus" open="(" separator="," close=")">
-                  #{assessmentStatus}
+              <foreach collection="assessmentStatuses" item="assessmentStatus">
+                NVL(sr.assessment_status, 'UNASSESSED') = #{assessmentStatus}
+                <include refid="candidateFilterOperator"/>
               </foreach>
+            </if>
+            <if test="shortageYn != null and shortageYn != ''">
+              NVL(sr.shortage_yn, 'N') = #{shortageYn}
               <include refid="candidateFilterOperator"/>
             </if>
           </trim>
@@ -153,25 +198,15 @@
     <select id="selectInventoryList" resultType="InventoryItemVO">
         WITH risk_rows AS (
             SELECT ib.sku_id,
-                   CASE WHEN ib.allocated_sales_point_id IS NULL THEN -1
-                        ELSE NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id)
-                   END AS sales_point_id,
+                   NVL(ib.stock_sales_point_id, NVL(ib.allocated_sales_point_id, -1)) AS sales_point_id,
                    ra.risk_grade,
+                   ra.shortage_yn,
                    ra.reason_message,
                    ra.updated_at,
                    ROW_NUMBER() OVER (
                        PARTITION BY ib.sku_id,
-                                    CASE WHEN ib.allocated_sales_point_id IS NULL THEN -1
-                                         ELSE NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id)
-                                    END
-                       ORDER BY CASE ra.risk_grade
-                                    WHEN 'CRITICAL' THEN 1
-                                    WHEN 'WARNING' THEN 2
-                                    WHEN 'NORMAL' THEN 3
-                                    WHEN 'GOOD' THEN 4
-                                    ELSE 5
-                                END,
-                                ra.updated_at DESC,
+                                    NVL(ib.stock_sales_point_id, NVL(ib.allocated_sales_point_id, -1))
+                       ORDER BY ra.updated_at DESC,
                                 ra.risk_assessment_id DESC
                    ) AS rn
             FROM risk_assessment ra
@@ -189,15 +224,14 @@
                        ELSE risk_grade
                    END AS risk_grade,
                    CASE WHEN risk_grade IS NULL THEN 'UNASSESSED' ELSE 'ASSESSED' END AS assessment_status,
+                   shortage_yn,
                    reason_message AS risk_reason
             FROM risk_rows
             WHERE rn = 1
         ),
         valid_scope_keys AS (
             SELECT DISTINCT ib.sku_id,
-                   CASE WHEN ib.allocated_sales_point_id IS NULL THEN -1
-                        ELSE NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id)
-                   END AS sales_point_id
+                   NVL(ib.stock_sales_point_id, NVL(ib.allocated_sales_point_id, -1)) AS sales_point_id
             FROM inventory_balance ib
             INNER JOIN sku s ON s.sku_id = ib.sku_id
             INNER JOIN product p ON p.product_id = s.product_id
@@ -215,7 +249,8 @@
                      WHEN SUM(CASE WHEN r.risk_grade = 'SAFE' THEN 1 ELSE 0 END) &gt; 0 THEN 'SAFE'
                      ELSE NULL
                    END AS risk_grade,
-                   CASE WHEN COUNT(*) = COUNT(r.risk_grade) THEN 'ASSESSED' ELSE 'UNASSESSED' END AS assessment_status
+                   CASE WHEN COUNT(*) = COUNT(r.risk_grade) THEN 'ASSESSED' ELSE 'UNASSESSED' END AS assessment_status,
+                   CASE WHEN SUM(CASE WHEN r.shortage_yn = 'Y' THEN 1 ELSE 0 END) &gt; 0 THEN 'Y' ELSE 'N' END AS shortage_yn
             FROM valid_scope_keys scope
             LEFT JOIN risk_latest r ON r.sku_id = scope.sku_id AND r.sales_point_id = scope.sales_point_id
             GROUP BY scope.sku_id
@@ -353,15 +388,25 @@
             FROM sku_warehouse_rows
             GROUP BY sku_id
         ),
-        policy_agg AS (
+        latest_policy AS (
             SELECT sku_id,
-                    COALESCE(stock_sales_point_id, allocated_sales_point_id, -1) AS sales_point_id,
-                    SUM(safety_stock_qty) AS safety_qty
+                   COALESCE(stock_sales_point_id, allocated_sales_point_id, -1) AS sales_point_id,
+                   safety_stock_qty,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY sku_id, COALESCE(stock_sales_point_id, allocated_sales_point_id, -1)
+                       ORDER BY effective_from DESC NULLS LAST, inventory_policy_id DESC
+                   ) AS rn
             FROM inventory_policy
             WHERE is_deleted = 0
               AND (effective_from IS NULL OR effective_from &lt;= #{asOfDate})
               AND (effective_to IS NULL OR effective_to &gt;= #{asOfDate})
-            GROUP BY sku_id, COALESCE(stock_sales_point_id, allocated_sales_point_id, -1)
+        ),
+        policy_agg AS (
+            SELECT sku_id,
+                   sales_point_id,
+                   safety_stock_qty AS safety_qty
+            FROM latest_policy
+            WHERE rn = 1
         ),
         latest_price AS (
             SELECT sku_id, sales_point_id, selling_price,
@@ -375,7 +420,7 @@
               AND (effective_to IS NULL OR effective_to &gt;= #{asOfDate})
         ),
         seller_facts AS (
-            SELECT ra.*, p.safety_qty, r.risk_grade, r.assessment_status, r.risk_reason, lp.selling_price
+            SELECT ra.*, p.safety_qty, r.risk_grade, r.assessment_status, r.shortage_yn, r.risk_reason, lp.selling_price
             FROM row_agg ra
             LEFT JOIN policy_agg p ON p.sku_id = ra.sku_id AND p.sales_point_id = ra.sales_point_id
             LEFT JOIN risk_latest r ON r.sku_id = ra.sku_id AND r.sales_point_id = ra.sales_point_id
@@ -389,6 +434,7 @@
                    ua.inventory_fact_state,
                    ur.risk_grade,
                    ur.assessment_status,
+                   ur.shortage_yn,
                    ur.risk_reason
             FROM unassigned_agg ua
             LEFT JOIN risk_latest ur ON ur.sku_id = ua.sku_id AND ur.sales_point_id = -1
@@ -411,6 +457,7 @@
                        'availableQuantity' VALUE sf.available_qty,
                        'reservedQuantity' VALUE sf.reserved_qty,
                        'riskGrade' VALUE sf.risk_grade,
+                       'shortageYn' VALUE sf.shortage_yn,
                        'salesPointState' VALUE sf.sales_point_state,
                        'warehouseName' VALUE CAST(NULL AS VARCHAR2(200)),
                        'sellingPrice' VALUE sf.selling_price
@@ -436,15 +483,17 @@
                    END AS inventory_fact_state,
                    sr.risk_grade,
                    sr.assessment_status,
+                   sr.shortage_yn,
                    SUM(lot_count) AS lot_count,
                    MIN(nearest_expiry_days) AS nearest_expiry_days,
                    MIN(nearest_expiry_date) AS nearest_expiry_date,
                    MAX(updated_at) AS updated_at
             FROM seller_facts sf
             LEFT JOIN sku_risk_agg sr ON sr.sku_id = sf.sku_id
-            GROUP BY sf.sku_id, sr.risk_grade, sr.assessment_status
+            GROUP BY sf.sku_id, sr.risk_grade, sr.assessment_status, sr.shortage_yn
         )
-        SELECT q.*
+        SELECT q.*,
+               COUNT(*) OVER () AS total_count
         FROM (
             SELECT sa.sku_id,
                    p.product_code,
@@ -474,6 +523,7 @@
                    sa.inventory_fact_state,
                    sa.risk_grade,
                    sa.assessment_status,
+                   sa.shortage_yn,
                    CAST(NULL AS VARCHAR2(1000)) AS risk_reason,
                    swa.locations_json,
                    swa.locations_json AS unassigned_locations_json,
@@ -485,6 +535,7 @@
                    uf.available_qty AS unassigned_available_qty,
                    uf.reserved_qty AS unassigned_reserved_qty,
                    uf.inventory_fact_state AS unassigned_inventory_fact_state,
+                   uf.shortage_yn AS unassigned_shortage_yn,
                    uf.risk_grade AS unassigned_risk_grade,
                    uf.assessment_status AS unassigned_assessment_status,
                    uf.risk_reason AS unassigned_risk_reason,
@@ -526,24 +577,14 @@
     <select id="countInventory" resultType="long">
         WITH risk_rows AS (
             SELECT ib.sku_id,
-                   CASE WHEN ib.allocated_sales_point_id IS NULL THEN -1
-                        ELSE NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id)
-                   END AS sales_point_id,
+                   NVL(ib.stock_sales_point_id, NVL(ib.allocated_sales_point_id, -1)) AS sales_point_id,
                    ra.risk_grade,
+                   ra.shortage_yn,
                    ra.updated_at,
                    ROW_NUMBER() OVER (
                        PARTITION BY ib.sku_id,
-                                    CASE WHEN ib.allocated_sales_point_id IS NULL THEN -1
-                                         ELSE NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id)
-                                    END
-                       ORDER BY CASE ra.risk_grade
-                                    WHEN 'CRITICAL' THEN 1
-                                    WHEN 'WARNING' THEN 2
-                                    WHEN 'NORMAL' THEN 3
-                                    WHEN 'GOOD' THEN 4
-                                    ELSE 5
-                                END,
-                                ra.updated_at DESC,
+                                    NVL(ib.stock_sales_point_id, NVL(ib.allocated_sales_point_id, -1))
+                       ORDER BY ra.updated_at DESC,
                                 ra.risk_assessment_id DESC
                    ) AS rn
             FROM risk_assessment ra
@@ -560,15 +601,14 @@
                        WHEN 'CRITICAL' THEN 'DANGER'
                        ELSE risk_grade
                    END AS risk_grade,
-                   CASE WHEN risk_grade IS NULL THEN 'UNASSESSED' ELSE 'ASSESSED' END AS assessment_status
+                   CASE WHEN risk_grade IS NULL THEN 'UNASSESSED' ELSE 'ASSESSED' END AS assessment_status,
+                   shortage_yn
             FROM risk_rows
             WHERE rn = 1
         ),
         valid_scope_keys AS (
             SELECT DISTINCT ib.sku_id,
-                   CASE WHEN ib.allocated_sales_point_id IS NULL THEN -1
-                        ELSE NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id)
-                   END AS sales_point_id
+                   NVL(ib.stock_sales_point_id, NVL(ib.allocated_sales_point_id, -1)) AS sales_point_id
             FROM inventory_balance ib
             INNER JOIN sku s ON s.sku_id = ib.sku_id
             INNER JOIN product p ON p.product_id = s.product_id
@@ -586,7 +626,8 @@
                      WHEN SUM(CASE WHEN r.risk_grade = 'SAFE' THEN 1 ELSE 0 END) &gt; 0 THEN 'SAFE'
                      ELSE NULL
                    END AS risk_grade,
-                   CASE WHEN COUNT(*) = COUNT(r.risk_grade) THEN 'ASSESSED' ELSE 'UNASSESSED' END AS assessment_status
+                   CASE WHEN COUNT(*) = COUNT(r.risk_grade) THEN 'ASSESSED' ELSE 'UNASSESSED' END AS assessment_status,
+                   CASE WHEN SUM(CASE WHEN r.shortage_yn = 'Y' THEN 1 ELSE 0 END) &gt; 0 THEN 'Y' ELSE 'N' END AS shortage_yn
             FROM valid_scope_keys scope
             LEFT JOIN risk_latest r ON r.sku_id = scope.sku_id AND r.sales_point_id = scope.sales_point_id
             GROUP BY scope.sku_id
@@ -609,27 +650,24 @@
 
     <select id="selectInventorySummary" resultType="InventorySummaryVO">
         WITH risk_rows AS (
-            SELECT ib.sku_id,
-                   CASE WHEN ib.allocated_sales_point_id IS NULL THEN -1
-                        ELSE NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id)
-                   END AS sales_point_id,
+            SELECT /*+ MATERIALIZE */
+                   ib.inventory_balance_id,
+                   ib.sku_id,
+                   NVL(ib.stock_sales_point_id, NVL(ib.allocated_sales_point_id, -1)) AS sales_point_id,
                    ra.risk_grade,
+                   ra.shortage_yn,
                    ra.updated_at,
                    ROW_NUMBER() OVER (
                        PARTITION BY ib.sku_id,
-                                    CASE WHEN ib.allocated_sales_point_id IS NULL THEN -1
-                                         ELSE NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id)
-                                    END
-                       ORDER BY CASE ra.risk_grade
-                                    WHEN 'CRITICAL' THEN 1
-                                    WHEN 'WARNING' THEN 2
-                                    WHEN 'NORMAL' THEN 3
-                                    WHEN 'GOOD' THEN 4
-                                    ELSE 5
-                                END,
-                                ra.updated_at DESC,
+                                    NVL(ib.stock_sales_point_id, NVL(ib.allocated_sales_point_id, -1))
+                       ORDER BY ra.updated_at DESC,
                                 ra.risk_assessment_id DESC
-                   ) AS rn
+                   ) AS scope_rn,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY ib.inventory_balance_id
+                       ORDER BY ra.updated_at DESC,
+                                ra.risk_assessment_id DESC
+                   ) AS balance_rn
             FROM risk_assessment ra
             INNER JOIN inventory_balance ib ON ib.inventory_balance_id = ra.inventory_balance_id
                                            AND ib.is_deleted = 0
@@ -644,15 +682,20 @@
                        WHEN 'CRITICAL' THEN 'DANGER'
                        ELSE risk_grade
                    END AS risk_grade,
-                   CASE WHEN risk_grade IS NULL THEN 'UNASSESSED' ELSE 'ASSESSED' END AS assessment_status
+                   CASE WHEN risk_grade IS NULL THEN 'UNASSESSED' ELSE 'ASSESSED' END AS assessment_status,
+                   shortage_yn
             FROM risk_rows
-            WHERE rn = 1
+            WHERE scope_rn = 1
+        ),
+        latest_shortage AS (
+            SELECT inventory_balance_id,
+                   shortage_yn
+            FROM risk_rows
+            WHERE balance_rn = 1
         ),
         valid_scope_keys AS (
             SELECT DISTINCT ib.sku_id,
-                   CASE WHEN ib.allocated_sales_point_id IS NULL THEN -1
-                        ELSE NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id)
-                   END AS sales_point_id
+                   NVL(ib.stock_sales_point_id, NVL(ib.allocated_sales_point_id, -1)) AS sales_point_id
             FROM inventory_balance ib
             INNER JOIN sku s ON s.sku_id = ib.sku_id
             INNER JOIN product p ON p.product_id = s.product_id
@@ -667,10 +710,11 @@
                      WHEN SUM(CASE WHEN r.risk_grade = 'DANGER' THEN 1 ELSE 0 END) &gt; 0 THEN 'DANGER'
                      WHEN SUM(CASE WHEN r.risk_grade = 'CAUTION' THEN 1 ELSE 0 END) &gt; 0 THEN 'CAUTION'
                      WHEN SUM(CASE WHEN r.risk_grade = 'NORMAL' THEN 1 ELSE 0 END) &gt; 0 THEN 'NORMAL'
-                     WHEN SUM(CASE WHEN r.risk_grade = 'SAFE' THEN 1 ELSE 0 END) &gt; 0 THEN 'SAFE'
-                     ELSE NULL
+                   WHEN SUM(CASE WHEN r.risk_grade = 'SAFE' THEN 1 ELSE 0 END) &gt; 0 THEN 'SAFE'
+                   ELSE NULL
                    END AS risk_grade,
-                   CASE WHEN COUNT(*) = COUNT(r.risk_grade) THEN 'ASSESSED' ELSE 'UNASSESSED' END AS assessment_status
+                   CASE WHEN COUNT(*) = COUNT(r.risk_grade) THEN 'ASSESSED' ELSE 'UNASSESSED' END AS assessment_status,
+                   CASE WHEN SUM(CASE WHEN r.shortage_yn = 'Y' THEN 1 ELSE 0 END) &gt; 0 THEN 'Y' ELSE 'N' END AS shortage_yn
             FROM valid_scope_keys scope
             LEFT JOIN risk_latest r ON r.sku_id = scope.sku_id AND r.sales_point_id = scope.sales_point_id
             GROUP BY scope.sku_id
@@ -688,7 +732,8 @@
             <include refid="candidateFilterWhere"/>
         ),
         balance_base AS (
-            SELECT ib.sku_id,
+            SELECT ib.inventory_balance_id,
+                   ib.sku_id,
                    NVL(ib.stock_sales_point_id, NVL(ib.allocated_sales_point_id, -1)) AS sales_point_id,
                    ib.on_hand_qty,
                    ib.reserved_qty,
@@ -707,24 +752,36 @@
             WHERE ib.is_deleted = 0
         ),
         row_agg AS (
-            SELECT sku_id,
-                   sales_point_id,
-                   SUM(on_hand_qty + reserved_qty) AS current_qty,
-                   SUM(reserved_qty) AS reserved_qty,
-                   SUM(on_hand_qty) AS available_qty,
-                   MAX(updated_at) AS updated_at
-            FROM balance_base
-            GROUP BY sku_id, sales_point_id
+            SELECT bb.sku_id,
+                   bb.sales_point_id,
+                   SUM(bb.on_hand_qty + bb.reserved_qty) AS current_qty,
+                   SUM(bb.reserved_qty) AS reserved_qty,
+                   SUM(bb.on_hand_qty) AS available_qty,
+                   MAX(CASE WHEN ls.shortage_yn = 'Y' THEN 1 ELSE 0 END) AS shortage_count,
+                   MAX(bb.updated_at) AS updated_at
+            FROM balance_base bb
+            LEFT JOIN latest_shortage ls ON ls.inventory_balance_id = bb.inventory_balance_id
+            GROUP BY bb.sku_id, bb.sales_point_id
         ),
-        policy_agg AS (
+        latest_policy AS (
             SELECT sku_id,
-                    COALESCE(stock_sales_point_id, allocated_sales_point_id, -1) AS sales_point_id,
-                    SUM(safety_stock_qty) AS safety_qty
+                   COALESCE(stock_sales_point_id, allocated_sales_point_id, -1) AS sales_point_id,
+                   safety_stock_qty,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY sku_id, COALESCE(stock_sales_point_id, allocated_sales_point_id, -1)
+                       ORDER BY effective_from DESC NULLS LAST, inventory_policy_id DESC
+                   ) AS rn
             FROM inventory_policy
             WHERE is_deleted = 0
               AND (effective_from IS NULL OR effective_from &lt;= #{asOfDate})
               AND (effective_to IS NULL OR effective_to &gt;= #{asOfDate})
-            GROUP BY sku_id, COALESCE(stock_sales_point_id, allocated_sales_point_id, -1)
+        ),
+        policy_agg AS (
+            SELECT sku_id,
+                   sales_point_id,
+                   safety_stock_qty AS safety_qty
+            FROM latest_policy
+            WHERE rn = 1
         ),
         seller_facts AS (
             SELECT ra.*, p.safety_qty
@@ -736,14 +793,14 @@
                    SUM(sf.current_qty) AS current_qty,
                    SUM(sf.available_qty) AS available_qty,
                    SUM(sf.reserved_qty) AS reserved_qty,
-                   CASE WHEN SUM(CASE WHEN sf.safety_qty IS NOT NULL AND sf.available_qty &lt; sf.safety_qty THEN 1 ELSE 0 END) &gt; 0 THEN 1 ELSE 0 END AS under_safety_count,
+                   CASE WHEN MAX(sf.shortage_count) = 1 THEN 1 ELSE 0 END AS under_safety_count,
                    CASE WHEN sr.risk_grade = 'DANGER' THEN 1 ELSE 0 END AS danger_risk_count,
                    CASE WHEN sr.risk_grade = 'CAUTION' THEN 1 ELSE 0 END AS caution_risk_count,
                    CASE WHEN sr.risk_grade = 'SAFE' THEN 1 ELSE 0 END AS safe_risk_count,
                    MAX(sf.updated_at) AS updated_at
             FROM seller_facts sf
             LEFT JOIN sku_risk_agg sr ON sr.sku_id = sf.sku_id
-            GROUP BY sf.sku_id, sr.risk_grade
+            GROUP BY sf.sku_id, sr.risk_grade, sr.shortage_yn
         )
         SELECT SUM(current_qty) AS total_current_qty,
                SUM(available_qty) AS total_available_qty,
@@ -1019,36 +1076,36 @@
               AND effective_from &lt;= #{asOfDate}
               AND (effective_to IS NULL OR effective_to &gt;= #{asOfDate})
         ),
-        policy_agg AS (
+        latest_policy AS (
             SELECT sku_id,
                    COALESCE(stock_sales_point_id, allocated_sales_point_id, -1) AS sales_point_id,
-                   SUM(safety_stock_qty) AS safety_qty
+                   safety_stock_qty,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY sku_id, COALESCE(stock_sales_point_id, allocated_sales_point_id, -1)
+                       ORDER BY effective_from DESC NULLS LAST, inventory_policy_id DESC
+                   ) AS rn
             FROM inventory_policy
             WHERE is_deleted = 0
               AND (effective_from IS NULL OR effective_from &lt;= #{asOfDate})
               AND (effective_to IS NULL OR effective_to &gt;= #{asOfDate})
-            GROUP BY sku_id, COALESCE(stock_sales_point_id, allocated_sales_point_id, -1)
+        ),
+        policy_agg AS (
+            SELECT sku_id,
+                   sales_point_id,
+                   safety_stock_qty AS safety_qty
+            FROM latest_policy
+            WHERE rn = 1
         ),
         risk_rows AS (
             SELECT ib.sku_id,
-                   CASE WHEN ib.allocated_sales_point_id IS NULL THEN -1
-                        ELSE NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id)
-                   END AS sales_point_id,
+                   NVL(ib.stock_sales_point_id, NVL(ib.allocated_sales_point_id, -1)) AS sales_point_id,
                    ra.risk_grade,
+                   ra.shortage_yn,
                    ra.reason_message,
                    ROW_NUMBER() OVER (
                        PARTITION BY ib.sku_id,
-                                    CASE WHEN ib.allocated_sales_point_id IS NULL THEN -1
-                                         ELSE NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id)
-                                    END
-                       ORDER BY CASE ra.risk_grade
-                                    WHEN 'CRITICAL' THEN 1
-                                    WHEN 'WARNING' THEN 2
-                                    WHEN 'NORMAL' THEN 3
-                                    WHEN 'GOOD' THEN 4
-                                    ELSE 5
-                                END,
-                                ra.updated_at DESC,
+                                    NVL(ib.stock_sales_point_id, NVL(ib.allocated_sales_point_id, -1))
+                       ORDER BY ra.updated_at DESC,
                                 ra.risk_assessment_id DESC
                    ) AS rn
             FROM risk_assessment ra
@@ -1067,6 +1124,7 @@
                        ELSE risk_grade
                    END AS risk_grade,
                    CASE WHEN risk_grade IS NULL THEN 'UNASSESSED' ELSE 'ASSESSED' END AS assessment_status,
+                   shortage_yn,
                    reason_message AS risk_reason
             FROM risk_rows
             WHERE rn = 1
@@ -1106,6 +1164,7 @@
                ra.inventory_fact_state,
                risk.risk_grade,
                risk.assessment_status,
+               risk.shortage_yn,
                risk.risk_reason,
                uaw.locations_json,
                uaw.locations_json AS unassigned_locations_json,
@@ -1127,6 +1186,7 @@
                    'availableQuantity' VALUE ra.available_qty,
                    'reservedQuantity' VALUE ra.reserved_qty,
                    'riskGrade' VALUE risk.risk_grade,
+                   'shortageYn' VALUE risk.shortage_yn,
                    'salesPointState' VALUE ra.sales_point_state,
                    'warehouseName' VALUE CAST(NULL AS VARCHAR2(200)),
                    'sellingPrice' VALUE price.selling_price
@@ -1135,6 +1195,7 @@
                ua.available_qty AS unassigned_available_qty,
                ua.reserved_qty AS unassigned_reserved_qty,
                ua.inventory_fact_state AS unassigned_inventory_fact_state,
+               (SELECT r.shortage_yn FROM risk_agg r WHERE r.sku_id = ra.sku_id AND r.sales_point_id = -1) AS unassigned_shortage_yn,
                (SELECT r.risk_grade FROM risk_agg r WHERE r.sku_id = ra.sku_id AND r.sales_point_id = -1) AS unassigned_risk_grade,
                (SELECT r.assessment_status FROM risk_agg r WHERE r.sku_id = ra.sku_id AND r.sales_point_id = -1) AS unassigned_assessment_status,
                (SELECT r.risk_reason FROM risk_agg r WHERE r.sku_id = ra.sku_id AND r.sales_point_id = -1) AS unassigned_risk_reason,

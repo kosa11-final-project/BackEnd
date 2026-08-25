@@ -25,7 +25,7 @@
             SELECT sku_id, allocated_sales_point_id AS sales_point_id,
                    safety_stock_qty,
                    ROW_NUMBER() OVER (PARTITION BY sku_id, allocated_sales_point_id
-                                      ORDER BY effective_from DESC, inventory_policy_id DESC) AS rn
+                                      ORDER BY effective_from DESC NULLS LAST, inventory_policy_id DESC) AS rn
               FROM inventory_policy
              WHERE is_deleted = 0
                AND (effective_from IS NULL OR effective_from &lt;= #{asOfDate})

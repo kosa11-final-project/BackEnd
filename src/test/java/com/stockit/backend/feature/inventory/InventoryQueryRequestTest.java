@@ -44,6 +44,26 @@ class InventoryQueryRequestTest {
     }
 
     @Test
+    void normalizesSafetyStockShortageFlag() {
+        InventoryQueryRequest request = new InventoryQueryRequest();
+        request.setShortageYn(" y ");
+
+        assertThat(request.toQuery(LocalDate.of(2026, 8, 14)).shortageYn()).isEqualTo("Y");
+
+        request.setShortageYn("N");
+        assertThat(request.toQuery(LocalDate.of(2026, 8, 14)).shortageYn()).isEqualTo("N");
+    }
+
+    @Test
+    void rejectsUnsupportedSafetyStockShortageFlag() {
+        InventoryQueryRequest request = new InventoryQueryRequest();
+        request.setShortageYn("maybe");
+
+        assertThatThrownBy(() -> request.toQuery(LocalDate.of(2026, 8, 14)))
+                .isInstanceOf(AppException.class);
+    }
+
+    @Test
     void rejectsUnsupportedFilterOperator() {
         InventoryQueryRequest request = new InventoryQueryRequest();
         request.setFilterOperator("XOR");
@@ -105,6 +125,7 @@ class InventoryQueryRequestTest {
         assertSort("availableQuantity,desc", "available_qty", "DESC");
         assertSort("reservedQuantity,asc", "reserved_qty", "ASC");
         assertSort("riskGrade,desc", "risk_grade", "DESC");
+        assertSort("shortageYn,asc", "shortage_yn", "ASC");
         assertSort("nearestExpiryDays,asc", "nearest_expiry_days", "ASC");
     }
 
@@ -112,7 +133,7 @@ class InventoryQueryRequestTest {
     void calculatesLongOffsetWithoutIntegerOverflow() {
         InventoryQuery query = new InventoryQuery(
                 null, List.of(), List.of(), List.of(), List.of(),
-                null, List.of(), List.of(), List.of(), "AND",
+                null, List.of(), List.of(), List.of(), null, "AND",
                 100_000_000, 50, "updated_at", "DESC", LocalDate.of(2026, 8, 14)
         );
 

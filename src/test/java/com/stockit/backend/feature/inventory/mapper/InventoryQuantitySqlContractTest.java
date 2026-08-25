@@ -66,6 +66,8 @@ class InventoryQuantitySqlContractTest {
                 .contains("LEFT JOIN risk_latest ur ON ur.sku_id = ua.sku_id AND ur.sales_point_id = -1")
                 .contains("AND r.sales_point_id = -1")
                 .contains("unassigned_current_qty")
+                .contains("unassigned_shortage_yn")
+                .contains("(SELECT r.shortage_yn FROM risk_agg r WHERE r.sku_id = ra.sku_id AND r.sales_point_id = -1) AS unassigned_shortage_yn")
                 .contains("unassigned_risk_grade")
                 .contains("unassigned_assessment_status")
                 .contains("unassigned_risk_reason")
@@ -84,14 +86,12 @@ class InventoryQuantitySqlContractTest {
     }
 
     @Test
-    void sellerRiskAggregationPrioritizesTheMostSevereLot() throws IOException {
+    void sellerRiskAggregationUsesTheLatestPersistedAssessmentPerScope() throws IOException {
         String inventorySql = read("inventory/InventoryMapper.xml");
 
         assertThat(inventorySql)
-                .contains("WHEN 'CRITICAL' THEN 1")
-                .contains("WHEN 'WARNING' THEN 2")
-                .contains("WHEN 'NORMAL' THEN 3")
-                .contains("WHEN 'GOOD' THEN 4")
+                .contains("ORDER BY ra.updated_at DESC,", "ra.risk_assessment_id DESC")
+                .doesNotContain("ORDER BY CASE ra.risk_grade")
                 .contains("reason_message AS risk_reason")
                 .contains("risk.risk_reason");
     }
@@ -103,12 +103,12 @@ class InventoryQuantitySqlContractTest {
         assertThat(inventorySql)
                 .contains("sku_risk_agg AS")
                 .contains("LEFT JOIN sku_risk_agg sr ON sr.sku_id = ib.sku_id")
-                .contains("NVL(sr.risk_grade, 'UNASSESSED') IN")
-                .doesNotContain("NVL(r.risk_grade, 'UNASSESSED') IN");
+                .contains("NVL(sr.risk_grade, 'UNASSESSED') =")
+                .doesNotContain("NVL(r.risk_grade, 'UNASSESSED') =");
     }
 
     @Test
-    void candidateFilterGroupsUseTheValidatedAndOrOperator() throws IOException {
+    void candidateFilterValuesUseTheValidatedAndOrOperator() throws IOException {
         String inventorySql = read("inventory/InventoryMapper.xml");
 
         assertThat(inventorySql)

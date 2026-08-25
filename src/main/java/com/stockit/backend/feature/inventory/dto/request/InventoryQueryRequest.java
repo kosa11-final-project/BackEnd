@@ -42,14 +42,18 @@ public class InventoryQueryRequest {
     private List<String> regionCode = new ArrayList<>();
     @Schema(description = "카테고리 ID", example = "12")
     private String categoryId;
+    @Schema(description = "카테고리 ID 목록. filterOperator에 따라 모든 값(AND) 또는 하나 이상(OR)을 만족", example = "[12, 18]")
+    private List<String> categoryIds = new ArrayList<>();
     @Schema(description = "보관 유형", allowableValues = {"FROZEN", "COLD", "ROOM_TEMP"})
     private List<String> storageType = new ArrayList<>();
     @Schema(description = "위험 등급", allowableValues = {"SAFE", "NORMAL", "CAUTION", "DANGER"})
     private List<String> riskGrade = new ArrayList<>();
     @Schema(description = "위험 판정 상태", allowableValues = {"ASSESSED", "UNASSESSED"})
     private List<String> assessmentStatus = new ArrayList<>();
+    @Schema(description = "안전재고 미달 여부. Y이면 판매 가능 재고가 안전재고보다 적은 범위만 조회", allowableValues = {"Y", "N"})
+    private String shortageYn;
     @Schema(
-            description = "활성 필터 그룹 결합 방식. 같은 그룹의 다중 값은 항상 OR",
+            description = "활성 필터 조건 결합 방식. AND는 선택한 조건을 모두 만족하고 OR는 하나 이상 만족",
             allowableValues = {"AND", "OR"},
             defaultValue = "AND"
     )
@@ -79,16 +83,18 @@ public class InventoryQueryRequest {
                 normalize(salesPointCode, null, "salesPointCode"),
                 normalize(warehouseCode, null, "warehouseCode"),
                 normalize(regionCode, null, "regionCode"),
-                parseCategoryId(),
+                parseCategoryIds(),
                 normalize(storageType, STORAGE_TYPES, "storageType"),
                 normalize(riskGrade, RISK_GRADES, "riskGrade"),
                 normalize(assessmentStatus, ASSESSMENT_STATUSES, "assessmentStatus"),
+                normalizeShortageYn(),
                 normalizeFilterOperator(),
                 page == null ? 1 : page,
                 size == null ? 20 : size,
                 sortColumn(sort),
                 sortDirection(sort),
-                asOfDate
+                asOfDate,
+                true
         );
     }
 
@@ -98,21 +104,23 @@ public class InventoryQueryRequest {
         }
     }
 
-    private Long parseCategoryId() {
-        String normalized = trimToNull(categoryId);
-        if (normalized == null) {
-            return null;
-        }
+    private List<Long> parseCategoryIds() {
+        List<String> rawValues = new ArrayList<>();
+        if (categoryIds != null) rawValues.addAll(categoryIds);
+        if (rawValues.isEmpty() && categoryId != null) rawValues.add(categoryId);
 
-        try {
-            long value = Long.parseLong(normalized);
-            if (value < 1) {
-                throw new NumberFormatException();
-            }
-            return value;
-        } catch (NumberFormatException exception) {
-            throw new AppException(ErrorCode.INVALID_PARAMETER);
-        }
+        return normalize(rawValues, null, "categoryIds").stream()
+                .map(value -> {
+                    try {
+                        long parsed = Long.parseLong(value);
+                        if (parsed < 1) throw new NumberFormatException();
+                        return parsed;
+                    } catch (NumberFormatException exception) {
+                        throw new AppException(ErrorCode.INVALID_PARAMETER);
+                    }
+                })
+                .distinct()
+                .toList();
     }
 
     private static List<String> normalize(List<String> values, List<String> allowed, String field) {
@@ -147,6 +155,7 @@ public class InventoryQueryRequest {
             case "availableQuantity", "availableQty" -> "available_qty";
             case "reservedQuantity", "reservedQty" -> "reserved_qty";
             case "riskGrade" -> "risk_grade";
+            case "shortageYn" -> "shortage_yn";
             case "nearestExpiryDays", "expiryDate", "nearestExpiryDate", "expiryDays" -> "nearest_expiry_days";
             default -> throw new AppException(ErrorCode.INVALID_PARAMETER);
         };
@@ -183,6 +192,18 @@ public class InventoryQueryRequest {
             return null;
         }
         return value.trim();
+    }
+
+    private String normalizeShortageYn() {
+        String normalized = trimToNull(shortageYn);
+        if (normalized == null) {
+            return null;
+        }
+        normalized = normalized.toUpperCase(Locale.ROOT);
+        if (!List.of("Y", "N").contains(normalized)) {
+            throw new AppException(ErrorCode.INVALID_PARAMETER);
+        }
+        return normalized;
     }
 
     private String normalizeFilterOperator() {
@@ -245,6 +266,14 @@ public class InventoryQueryRequest {
         this.categoryId = categoryId;
     }
 
+    public List<String> getCategoryIds() {
+        return categoryIds;
+    }
+
+    public void setCategoryIds(List<String> categoryIds) {
+        this.categoryIds = categoryIds;
+    }
+
     public List<String> getStorageType() {
         return storageType;
     }
@@ -267,6 +296,14 @@ public class InventoryQueryRequest {
 
     public void setAssessmentStatus(List<String> assessmentStatus) {
         this.assessmentStatus = assessmentStatus;
+    }
+
+    public String getShortageYn() {
+        return shortageYn;
+    }
+
+    public void setShortageYn(String shortageYn) {
+        this.shortageYn = shortageYn;
     }
 
     public String getFilterOperator() {

@@ -87,6 +87,7 @@ class InventoryControllerTest {
         mockMvc.perform(get("/api/v1/inventories")
                         .param("channelType", "GREETING")
                         .param("filterOperator", "or")
+                        .param("shortageYn", "Y")
                         .param("page", "1")
                         .param("size", "20"))
                 .andExpect(status().isOk())
@@ -100,7 +101,8 @@ class InventoryControllerTest {
 
         mockMvc.perform(get("/api/v1/inventories/summary")
                         .param("channelType", "GREETING")
-                        .param("filterOperator", "or"))
+                        .param("filterOperator", "or")
+                        .param("shortageYn", "Y"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.totalCurrentQuantity").value(10))
                 .andExpect(jsonPath("$.data.totalAvailableQuantity").value(8));
@@ -110,7 +112,9 @@ class InventoryControllerTest {
         verify(inventoryQueryService).find(listQuery.capture());
         verify(inventoryQueryService).summary(summaryQuery.capture());
         assertThat(listQuery.getValue().filterOperator()).isEqualTo("OR");
+        assertThat(listQuery.getValue().shortageYn()).isEqualTo("Y");
         assertThat(summaryQuery.getValue().filterOperator()).isEqualTo("OR");
+        assertThat(summaryQuery.getValue().shortageYn()).isEqualTo("Y");
     }
 
     @Test

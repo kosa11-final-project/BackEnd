@@ -208,13 +208,11 @@ public class RiskAssessmentServiceImpl implements RiskAssessmentService {
     private static String deriveSafetyStockShortageYn(RiskAssessmentResult result) {
         BigDecimal availableQty = result.availableQty();
         BigDecimal safetyStockQty = result.safetyStockQty();
-        if (availableQty == null || availableQty.signum() == 0) {
-            return "Y";
-        }
         if (safetyStockQty == null) {
-            return null;
+            return "N";
         }
-        return availableQty.compareTo(safetyStockQty) < 0 ? "Y" : "N";
+        BigDecimal normalizedAvailableQty = availableQty == null ? BigDecimal.ZERO : availableQty;
+        return normalizedAvailableQty.compareTo(safetyStockQty) < 0 ? "Y" : "N";
     }
 
     private record RiskEvaluation(

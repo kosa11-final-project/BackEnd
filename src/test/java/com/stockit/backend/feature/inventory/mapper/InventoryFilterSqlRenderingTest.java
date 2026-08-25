@@ -38,8 +38,8 @@ class InventoryFilterSqlRenderingTest {
 
             assertThat(sql)
                     .as(statement)
-                    .contains("OR s.storage_type IN")
-                    .contains("OR NVL(sr.risk_grade, 'UNASSESSED') IN")
+                    .contains("OR s.storage_type =")
+                    .contains("OR NVL(sr.risk_grade, 'UNASSESSED') =")
                     .doesNotContain("${filterOperator}");
         }
     }
@@ -56,6 +56,7 @@ class InventoryFilterSqlRenderingTest {
         request.setStorageType(List.of("FROZEN"));
         request.setRiskGrade(List.of("NORMAL"));
         request.setAssessmentStatus(List.of("ASSESSED"));
+        request.setShortageYn("Y");
         InventoryQuery query = request.toQuery(LocalDate.of(2026, 8, 24));
 
         for (String statement : List.of("selectInventoryList", "countInventory", "selectInventorySummary")) {
@@ -64,15 +65,164 @@ class InventoryFilterSqlRenderingTest {
             assertThat(sql)
                     .as(statement)
                     .contains("LOWER(p.product_name) LIKE")
-                    .contains("sp.sales_point_code = 'GREETING'")
-                    .contains("sp.sales_point_code IN")
-                    .contains("sp.region_code IN")
-                    .contains("START WITH category_id = ?")
-                    .contains("s.storage_type IN")
-                    .contains("filtered_w.warehouse_code IN")
-                    .contains("NVL(sr.risk_grade, 'UNASSESSED') IN")
-                    .contains("NVL(sr.assessment_status, 'UNASSESSED') IN");
+                    .contains("filter_sp.sales_point_code =")
+                    .contains("filter_region_sp.region_code =")
+                    .contains("START WITH category_id =")
+                    .contains("s.storage_type =")
+                    .contains("filtered_w.warehouse_code =")
+                    .contains("NVL(sr.risk_grade, 'UNASSESSED') =")
+                    .contains("NVL(sr.assessment_status, 'UNASSESSED') =")
+                    .contains("NVL(sr.shortage_yn, 'N') = ?");
         }
+    }
+
+    @Test
+    void appliesOrToEverySelectedFilterValueInListCountAndSummary() {
+        InventoryQueryRequest request = new InventoryQueryRequest();
+        request.setQ("만두");
+        request.setChannelType(List.of("GREETING"));
+        request.setSalesPointCode(List.of("GREETING"));
+        request.setWarehouseCode(List.of("GYEONGIN_1"));
+        request.setRegionCode(List.of("GYEONGGI"));
+        request.setCategoryIds(List.of("301", "302"));
+        request.setStorageType(List.of("FROZEN", "ROOM_TEMP"));
+        request.setRiskGrade(List.of("NORMAL", "DANGER"));
+        request.setAssessmentStatus(List.of("ASSESSED"));
+        request.setShortageYn("Y");
+        request.setFilterOperator("OR");
+        InventoryQuery query = request.toQuery(LocalDate.of(2026, 8, 24));
+
+        for (String statement : List.of("selectInventoryList", "countInventory", "selectInventorySummary")) {
+            String sql = render(statement, query);
+
+            assertThat(sql)
+                    .as(statement)
+                    .contains("OR LOWER(p.product_name) LIKE")
+                    .contains("OR EXISTS ( SELECT 1 FROM inventory_balance channel_ib")
+                    .contains("OR EXISTS ( SELECT 1 FROM inventory_balance filter_sp_ib")
+                    .contains("OR EXISTS ( SELECT 1 FROM inventory_balance filter_region_ib")
+                    .contains("OR p.category_id IN")
+                    .contains("OR s.storage_type =")
+                    .contains("OR EXISTS ( SELECT 1 FROM inventory_balance filtered_ib")
+                    .contains("OR NVL(sr.risk_grade, 'UNASSESSED') =")
+                    .contains("OR NVL(sr.assessment_status, 'UNASSESSED') =")
+                    .contains("OR NVL(sr.shortage_yn, 'N') = ?");
+        }
+    }
+
+    @Test
+    void appliesAndToEverySelectedFilterValueInListCountAndSummary() {
+        InventoryQueryRequest request = new InventoryQueryRequest();
+        request.setQ("만두");
+        request.setChannelType(List.of("GREETING", "HMART"));
+        request.setSalesPointCode(List.of("STORE_A", "STORE_B"));
+        request.setWarehouseCode(List.of("GYEONGIN_1", "GYEONGIN_2"));
+        request.setRegionCode(List.of("GYEONGGI", "SEOUL"));
+        request.setCategoryIds(List.of("301", "302"));
+        request.setStorageType(List.of("FROZEN", "ROOM_TEMP"));
+        request.setRiskGrade(List.of("NORMAL", "DANGER"));
+        request.setAssessmentStatus(List.of("ASSESSED", "UNASSESSED"));
+        request.setShortageYn("Y");
+        request.setFilterOperator("AND");
+        InventoryQuery query = request.toQuery(LocalDate.of(2026, 8, 24));
+
+        for (String statement : List.of("selectInventoryList", "countInventory", "selectInventorySummary")) {
+            String sql = render(statement, query);
+
+            assertThat(sql)
+                    .as(statement)
+                    .contains("AND EXISTS ( SELECT 1 FROM inventory_balance channel_ib")
+                    .contains("AND EXISTS ( SELECT 1 FROM inventory_balance filter_sp_ib")
+                    .contains("AND EXISTS ( SELECT 1 FROM inventory_balance filter_region_ib")
+                    .contains("AND p.category_id IN")
+                    .contains("AND s.storage_type =")
+                    .contains("AND EXISTS ( SELECT 1 FROM inventory_balance filtered_ib")
+                    .contains("AND NVL(sr.risk_grade, 'UNASSESSED') =")
+                    .contains("AND NVL(sr.assessment_status, 'UNASSESSED') =")
+                    .contains("AND NVL(sr.shortage_yn, 'N') = ?");
+        }
+    }
+
+    @Test
+    void appliesTheSelectedOperatorBetweenMultipleCategoryValues() {
+        InventoryQueryRequest request = new InventoryQueryRequest();
+        request.setCategoryIds(List.of("301", "302"));
+        request.setFilterOperator("AND");
+        InventoryQuery query = request.toQuery(LocalDate.of(2026, 8, 24));
+
+        for (String statement : List.of("selectInventoryList", "countInventory", "selectInventorySummary")) {
+            String sql = render(statement, query);
+
+            assertThat(sql).as(statement)
+                    .contains("START WITH category_id = ?")
+                    .contains("CONNECT BY NOCYCLE PRIOR category_id = parent_category_id")
+                    .contains(") AND p.category_id IN ( SELECT descendant.category_id");
+            assertThat(occurrences(sql, "START WITH category_id = ?")).isEqualTo(2);
+        }
+    }
+
+    @Test
+    void appliesTheSelectedOperatorBetweenMultipleChannelValues() {
+        InventoryQueryRequest andRequest = new InventoryQueryRequest();
+        andRequest.setChannelType(List.of("ECOMMERCE", "GREETING", "HMART"));
+        andRequest.setFilterOperator("AND");
+        InventoryQuery andQuery = andRequest.toQuery(LocalDate.of(2026, 8, 24));
+
+        for (String statement : List.of("selectInventoryList", "countInventory", "selectInventorySummary")) {
+            String sql = render(statement, andQuery);
+
+            assertThat(sql)
+                    .as(statement)
+                    .contains("AND EXISTS ( SELECT 1 FROM inventory_balance channel_ib");
+            assertThat(occurrences(sql, "FROM inventory_balance channel_ib")).isEqualTo(3);
+        }
+
+        InventoryQueryRequest orRequest = new InventoryQueryRequest();
+        orRequest.setChannelType(List.of("ECOMMERCE", "GREETING", "HMART"));
+        orRequest.setFilterOperator("OR");
+
+        String orSql = render("selectInventoryList", orRequest.toQuery(LocalDate.of(2026, 8, 24)));
+        assertThat(orSql).contains("OR EXISTS ( SELECT 1 FROM inventory_balance channel_ib");
+        assertThat(occurrences(orSql, "FROM inventory_balance channel_ib")).isEqualTo(3);
+    }
+
+    @Test
+    void returnsTheTotalCountFromThePagedListQuery() {
+        String sql = render(
+                "selectInventoryList",
+                new InventoryQueryRequest().toQuery(LocalDate.of(2026, 8, 24))
+        );
+
+        assertThat(sql)
+                .contains("COUNT(*) OVER () AS total_count")
+                .contains("OFFSET ? ROWS FETCH NEXT ? ROWS ONLY");
+    }
+
+    @Test
+    void usesTheLatestAssessmentAndLatestPolicyForInventoryQueries() {
+        InventoryQuery query = new InventoryQueryRequest().toQuery(LocalDate.of(2026, 8, 24));
+
+        for (String statement : List.of("selectInventoryList", "countInventory", "selectInventorySummary")) {
+            String sql = render(statement, query);
+
+            assertThat(sql)
+                    .as(statement)
+                    .contains("ORDER BY ra.updated_at DESC, ra.risk_assessment_id DESC")
+                    .doesNotContain("ORDER BY CASE ra.risk_grade");
+        }
+
+        assertThat(render("selectInventoryList", query))
+                .contains("ORDER BY effective_from DESC NULLS LAST, inventory_policy_id DESC");
+        assertThat(render("selectInventorySummary", query))
+                .contains("ORDER BY effective_from DESC NULLS LAST, inventory_policy_id DESC")
+                .contains("ra.shortage_yn")
+                .contains("CASE WHEN ls.shortage_yn = 'Y' THEN 1 ELSE 0 END")
+                .contains("CASE WHEN MAX(sf.shortage_count) = 1 THEN 1 ELSE 0 END")
+                .contains("/*+ MATERIALIZE */")
+                .contains("PARTITION BY ib.inventory_balance_id");
+
+        assertThat(occurrences(render("selectInventorySummary", query), "FROM risk_assessment ra"))
+                .isEqualTo(1);
     }
 
     @Test
@@ -107,5 +257,9 @@ class InventoryFilterSqlRenderingTest {
                 .getMappedStatement(MAPPER_NAMESPACE + "." + statement)
                 .getBoundSql(query);
         return boundSql.getSql().replaceAll("\\s+", " ").trim();
+    }
+
+    private static int occurrences(String value, String needle) {
+        return (value.length() - value.replace(needle, "").length()) / needle.length();
     }
 }
