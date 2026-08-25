@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCandidateEvaluationResult;
 import com.stockit.backend.feature.strategy.domain.StrategyType;
+import com.stockit.backend.feature.strategy.messaging.PermanentStrategyGenerationException;
 
 /** 후보 선별, 외부 추천, 서버 의미 검증을 한 번의 순수 추천 단계로 묶는다. */
 @Service
@@ -27,19 +28,22 @@ public class StrategyRecommendationService {
     private final AiRecommendationRequestFactory requestFactory;
     private final AiRecommendationProvider provider;
     private final StrategyRecommendationResponseValidator validator;
+    private final DeterministicRecommendationFallback fallback;
 
     public StrategyRecommendationService(
             BaselineImprovementCandidateFilter baselineImprovementFilter,
             RecommendationCandidatePreselector preselector,
             AiRecommendationRequestFactory requestFactory,
             AiRecommendationProvider provider,
-            StrategyRecommendationResponseValidator validator
+            StrategyRecommendationResponseValidator validator,
+            DeterministicRecommendationFallback fallback
     ) {
         this.baselineImprovementFilter = baselineImprovementFilter;
         this.preselector = preselector;
         this.requestFactory = requestFactory;
         this.provider = provider;
         this.validator = validator;
+        this.fallback = fallback;
     }
 
     public StrategyRecommendationResult recommend(
@@ -103,10 +107,8 @@ public class StrategyRecommendationService {
                 selection,
                 evaluation.calculationContext().requestConstraints()
         );
-        AiRecommendationProviderResponse response = provider.recommend(request);
-        StrategyRecommendationResult result = validator.validateAndMap(
-                strategyCaseId, evaluation.calculationContext(),
-                evaluation.baselineSimulation(), selection, request, response
+        StrategyRecommendationResult result = recommendAndValidate(
+                strategyCaseId, evaluation, selection, request
         );
         log.info(
                 "AI strategy candidate diagnostics; caseId={}, generated={}, simulated={}, "
@@ -124,6 +126,38 @@ public class StrategyRecommendationService {
                 countByType(evaluation.evaluatedCandidates())
         );
         return result;
+    }
+
+    private StrategyRecommendationResult recommendAndValidate(
+            Long strategyCaseId,
+            StrategyCandidateEvaluationResult evaluation,
+            RecommendationCandidateSelection selection,
+            AiRecommendationRequest request
+    ) {
+        try {
+            AiRecommendationProviderResponse response = provider.recommend(request);
+            return validator.validateAndMap(
+                    strategyCaseId, evaluation.calculationContext(),
+                    evaluation.baselineSimulation(), selection, request, response
+            );
+        } catch (PermanentStrategyGenerationException exception) {
+            if (!"LLM_RESPONSE_INVALID".equals(exception.getFailureCode())) {
+                throw exception;
+            }
+            log.warn(
+                    "Invalid LLM recommendation response; using deterministic fallback; "
+                            + "caseId={}, reason={}",
+                    strategyCaseId,
+                    exception.getMessage()
+            );
+            AiRecommendationProviderResponse fallbackResponse = fallback.create(
+                    selection, request
+            );
+            return validator.validateAndMap(
+                    strategyCaseId, evaluation.calculationContext(),
+                    evaluation.baselineSimulation(), selection, request, fallbackResponse
+            );
+        }
     }
 
     private static Map<StrategyType, Long> countByType(
