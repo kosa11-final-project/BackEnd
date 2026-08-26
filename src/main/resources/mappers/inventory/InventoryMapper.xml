@@ -77,9 +77,17 @@
               <include refid="candidateFilterOperator"/>
             </if>
             <if test="channelTypes != null and channelTypes.size() > 0">
-              <foreach collection="channelTypes" item="channelType">
-                EXISTS (
-                    SELECT 1
+              <bind name="channelTypeCount" value="channelTypes.size()" />
+              <choose>
+                <when test="filterOperator == 'AND' and channelTypes.size() > 1">
+                  (
+                    SELECT COUNT(DISTINCT CASE
+                      WHEN channel_sp.sales_point_code = 'GREETING' THEN 'GREETING'
+                      WHEN channel_sp.sales_point_code = 'MODU_MATJIP' THEN 'ECOMMERCE'
+                      WHEN channel_sp.sales_point_code LIKE 'DEPT_%' THEN 'HYUNDAI_DEPT'
+                      WHEN channel_sp.sales_point_code LIKE 'HMART_%' THEN 'HMART'
+                      ELSE channel_sc.channel_code
+                    END)
                     FROM inventory_balance channel_ib
                     INNER JOIN sales_point channel_sp
                             ON channel_sp.sales_point_id = NVL(channel_ib.stock_sales_point_id, channel_ib.allocated_sales_point_id)
@@ -97,16 +105,63 @@
                           WHEN channel_sp.sales_point_code LIKE 'DEPT_%' THEN 'HYUNDAI_DEPT'
                           WHEN channel_sp.sales_point_code LIKE 'HMART_%' THEN 'HMART'
                           ELSE channel_sc.channel_code
-                        END = #{channelType}
+                        END IN
+                        <foreach collection="channelTypes" item="channelType" open="(" separator="," close=")">
+                          #{channelType}
+                        </foreach>
                       )
-                )
-                <include refid="candidateFilterOperator"/>
-              </foreach>
+                  ) = #{channelTypeCount}
+                  <include refid="candidateFilterOperator"/>
+                </when>
+                <otherwise>
+                  EXISTS (
+                      SELECT 1
+                      FROM inventory_balance channel_ib
+                      INNER JOIN sales_point channel_sp
+                              ON channel_sp.sales_point_id = NVL(channel_ib.stock_sales_point_id, channel_ib.allocated_sales_point_id)
+                             AND channel_sp.is_deleted = 0
+                             AND channel_sp.active_yn = 'Y'
+                      LEFT JOIN sales_channel channel_sc
+                                 ON channel_sc.sales_channel_id = channel_sp.sales_channel_id
+                      WHERE channel_ib.is_deleted = 0
+                        AND channel_ib.sku_id = ib.sku_id
+                        AND (channel_sc.sales_channel_id IS NULL OR (channel_sc.is_deleted = 0 AND channel_sc.active_yn = 'Y'))
+                        AND (
+                          <choose>
+                            <when test="channelTypes.size() == 1">
+                              CASE
+                                WHEN channel_sp.sales_point_code = 'GREETING' THEN 'GREETING'
+                                WHEN channel_sp.sales_point_code = 'MODU_MATJIP' THEN 'ECOMMERCE'
+                                WHEN channel_sp.sales_point_code LIKE 'DEPT_%' THEN 'HYUNDAI_DEPT'
+                                WHEN channel_sp.sales_point_code LIKE 'HMART_%' THEN 'HMART'
+                                ELSE channel_sc.channel_code
+                              END = #{channelTypes[0]}
+                            </when>
+                            <otherwise>
+                              CASE
+                                WHEN channel_sp.sales_point_code = 'GREETING' THEN 'GREETING'
+                                WHEN channel_sp.sales_point_code = 'MODU_MATJIP' THEN 'ECOMMERCE'
+                                WHEN channel_sp.sales_point_code LIKE 'DEPT_%' THEN 'HYUNDAI_DEPT'
+                                WHEN channel_sp.sales_point_code LIKE 'HMART_%' THEN 'HMART'
+                                ELSE channel_sc.channel_code
+                              END IN
+                              <foreach collection="channelTypes" item="channelType" open="(" separator="," close=")">
+                                #{channelType}
+                              </foreach>
+                            </otherwise>
+                          </choose>
+                        )
+                  )
+                  <include refid="candidateFilterOperator"/>
+                </otherwise>
+              </choose>
             </if>
             <if test="salesPointCodes != null and salesPointCodes.size() > 0">
-              <foreach collection="salesPointCodes" item="salesPointCode">
-                EXISTS (
-                    SELECT 1
+              <bind name="salesPointCodeCount" value="salesPointCodes.size()" />
+              <choose>
+                <when test="filterOperator == 'AND' and salesPointCodes.size() > 1">
+                  (
+                    SELECT COUNT(DISTINCT filter_sp.sales_point_code)
                     FROM inventory_balance filter_sp_ib
                     INNER JOIN sales_point filter_sp
                             ON filter_sp.sales_point_id = NVL(filter_sp_ib.stock_sales_point_id, filter_sp_ib.allocated_sales_point_id)
@@ -114,15 +169,45 @@
                            AND filter_sp.active_yn = 'Y'
                     WHERE filter_sp_ib.is_deleted = 0
                       AND filter_sp_ib.sku_id = ib.sku_id
-                      AND filter_sp.sales_point_code = #{salesPointCode}
-                )
-                <include refid="candidateFilterOperator"/>
-              </foreach>
+                      AND filter_sp.sales_point_code IN
+                      <foreach collection="salesPointCodes" item="salesPointCode" open="(" separator="," close=")">
+                        #{salesPointCode}
+                      </foreach>
+                  ) = #{salesPointCodeCount}
+                  <include refid="candidateFilterOperator"/>
+                </when>
+                <otherwise>
+                  EXISTS (
+                      SELECT 1
+                      FROM inventory_balance filter_sp_ib
+                      INNER JOIN sales_point filter_sp
+                              ON filter_sp.sales_point_id = NVL(filter_sp_ib.stock_sales_point_id, filter_sp_ib.allocated_sales_point_id)
+                             AND filter_sp.is_deleted = 0
+                             AND filter_sp.active_yn = 'Y'
+                      WHERE filter_sp_ib.is_deleted = 0
+                        AND filter_sp_ib.sku_id = ib.sku_id
+                        <choose>
+                          <when test="salesPointCodes.size() == 1">
+                            AND filter_sp.sales_point_code = #{salesPointCodes[0]}
+                          </when>
+                          <otherwise>
+                            AND filter_sp.sales_point_code IN
+                            <foreach collection="salesPointCodes" item="salesPointCode" open="(" separator="," close=")">
+                              #{salesPointCode}
+                            </foreach>
+                          </otherwise>
+                        </choose>
+                  )
+                  <include refid="candidateFilterOperator"/>
+                </otherwise>
+              </choose>
             </if>
             <if test="regionCodes != null and regionCodes.size() > 0">
-              <foreach collection="regionCodes" item="regionCode">
-                EXISTS (
-                    SELECT 1
+              <bind name="regionCodeCount" value="regionCodes.size()" />
+              <choose>
+                <when test="filterOperator == 'AND' and regionCodes.size() > 1">
+                  (
+                    SELECT COUNT(DISTINCT filter_region_sp.region_code)
                     FROM inventory_balance filter_region_ib
                     INNER JOIN sales_point filter_region_sp
                             ON filter_region_sp.sales_point_id = NVL(filter_region_ib.stock_sales_point_id, filter_region_ib.allocated_sales_point_id)
@@ -130,10 +215,38 @@
                            AND filter_region_sp.active_yn = 'Y'
                     WHERE filter_region_ib.is_deleted = 0
                       AND filter_region_ib.sku_id = ib.sku_id
-                      AND filter_region_sp.region_code = #{regionCode}
-                )
-                <include refid="candidateFilterOperator"/>
-              </foreach>
+                      AND filter_region_sp.region_code IN
+                      <foreach collection="regionCodes" item="regionCode" open="(" separator="," close=")">
+                        #{regionCode}
+                      </foreach>
+                  ) = #{regionCodeCount}
+                  <include refid="candidateFilterOperator"/>
+                </when>
+                <otherwise>
+                  EXISTS (
+                      SELECT 1
+                      FROM inventory_balance filter_region_ib
+                      INNER JOIN sales_point filter_region_sp
+                              ON filter_region_sp.sales_point_id = NVL(filter_region_ib.stock_sales_point_id, filter_region_ib.allocated_sales_point_id)
+                             AND filter_region_sp.is_deleted = 0
+                             AND filter_region_sp.active_yn = 'Y'
+                      WHERE filter_region_ib.is_deleted = 0
+                        AND filter_region_ib.sku_id = ib.sku_id
+                        <choose>
+                          <when test="regionCodes.size() == 1">
+                            AND filter_region_sp.region_code = #{regionCodes[0]}
+                          </when>
+                          <otherwise>
+                            AND filter_region_sp.region_code IN
+                            <foreach collection="regionCodes" item="regionCode" open="(" separator="," close=")">
+                              #{regionCode}
+                            </foreach>
+                          </otherwise>
+                        </choose>
+                  )
+                  <include refid="candidateFilterOperator"/>
+                </otherwise>
+              </choose>
             </if>
             <if test="categoryIds != null and categoryIds.size() > 0">
               <foreach collection="categoryIds" item="categoryFilterId">
@@ -151,29 +264,78 @@
               </foreach>
             </if>
             <if test="storageTypes != null and storageTypes.size() > 0">
-              <foreach collection="storageTypes" item="storageType">
-                s.storage_type = CASE
-                    WHEN #{storageType} = 'ROOM_TEMP' THEN 'AMBIENT'
-                    ELSE #{storageType}
-                  END
-                <include refid="candidateFilterOperator"/>
-              </foreach>
+              <choose>
+                <when test="storageTypes.size() == 1">
+                  s.storage_type = CASE
+                      WHEN #{storageTypes[0]} = 'ROOM_TEMP' THEN 'AMBIENT'
+                      ELSE #{storageTypes[0]}
+                    END
+                  <include refid="candidateFilterOperator"/>
+                </when>
+                <when test="filterOperator == 'AND'">
+                  <foreach collection="storageTypes" item="storageType">
+                    s.storage_type = CASE
+                        WHEN #{storageType} = 'ROOM_TEMP' THEN 'AMBIENT'
+                        ELSE #{storageType}
+                      END
+                    <include refid="candidateFilterOperator"/>
+                  </foreach>
+                </when>
+                <otherwise>
+                  s.storage_type IN (
+                    <foreach collection="storageTypes" item="storageType" separator=",">
+                      CASE WHEN #{storageType} = 'ROOM_TEMP' THEN 'AMBIENT' ELSE #{storageType} END
+                    </foreach>
+                  )
+                  <include refid="candidateFilterOperator"/>
+                </otherwise>
+              </choose>
             </if>
             <if test="warehouseCodes != null and warehouseCodes.size() > 0">
-              <foreach collection="warehouseCodes" item="warehouseCode">
-                EXISTS (
-                  SELECT 1
-                  FROM inventory_balance filtered_ib
-                  INNER JOIN warehouse filtered_w
-                          ON filtered_w.warehouse_id = filtered_ib.warehouse_id
-                         AND filtered_w.is_deleted = 0
-                         AND filtered_w.active_yn = 'Y'
-                  WHERE filtered_ib.is_deleted = 0
-                    AND filtered_ib.sku_id = ib.sku_id
-                    AND filtered_w.warehouse_code = #{warehouseCode}
-                )
-                <include refid="candidateFilterOperator"/>
-              </foreach>
+              <bind name="warehouseCodeCount" value="warehouseCodes.size()" />
+              <choose>
+                <when test="filterOperator == 'AND' and warehouseCodes.size() > 1">
+                  (
+                    SELECT COUNT(DISTINCT filtered_w.warehouse_code)
+                    FROM inventory_balance filtered_ib
+                    INNER JOIN warehouse filtered_w
+                            ON filtered_w.warehouse_id = filtered_ib.warehouse_id
+                           AND filtered_w.is_deleted = 0
+                           AND filtered_w.active_yn = 'Y'
+                    WHERE filtered_ib.is_deleted = 0
+                      AND filtered_ib.sku_id = ib.sku_id
+                      AND filtered_w.warehouse_code IN
+                      <foreach collection="warehouseCodes" item="warehouseCode" open="(" separator="," close=")">
+                        #{warehouseCode}
+                      </foreach>
+                  ) = #{warehouseCodeCount}
+                  <include refid="candidateFilterOperator"/>
+                </when>
+                <otherwise>
+                  EXISTS (
+                    SELECT 1
+                    FROM inventory_balance filtered_ib
+                    INNER JOIN warehouse filtered_w
+                            ON filtered_w.warehouse_id = filtered_ib.warehouse_id
+                           AND filtered_w.is_deleted = 0
+                           AND filtered_w.active_yn = 'Y'
+                    WHERE filtered_ib.is_deleted = 0
+                      AND filtered_ib.sku_id = ib.sku_id
+                      <choose>
+                        <when test="warehouseCodes.size() == 1">
+                          AND filtered_w.warehouse_code = #{warehouseCodes[0]}
+                        </when>
+                        <otherwise>
+                          AND filtered_w.warehouse_code IN
+                          <foreach collection="warehouseCodes" item="warehouseCode" open="(" separator="," close=")">
+                            #{warehouseCode}
+                          </foreach>
+                        </otherwise>
+                      </choose>
+                  )
+                  <include refid="candidateFilterOperator"/>
+                </otherwise>
+              </choose>
             </if>
             <if test="riskGrades != null and riskGrades.size() > 0">
               <foreach collection="riskGrades" item="riskGrade">
@@ -267,19 +429,7 @@
             <include refid="candidateBaseWhere"/>
             <include refid="candidateFilterWhere"/>
         ),
-        owner_sales_point_counts AS (
-            SELECT ib.sku_id,
-                   COUNT(DISTINCT CASE
-                       WHEN NVL(ib.stock_sales_point_id, NVL(ib.allocated_sales_point_id, -1)) &lt;&gt; -1
-                       THEN NVL(ib.stock_sales_point_id, NVL(ib.allocated_sales_point_id, -1))
-                   END) AS owner_sales_point_count
-            FROM inventory_balance ib
-            LEFT JOIN sales_point sp ON sp.sales_point_id = NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id)
-            WHERE ib.is_deleted = 0
-              AND (sp.sales_point_id IS NULL OR (sp.is_deleted = 0 AND sp.active_yn = 'Y'))
-            GROUP BY ib.sku_id
-        ),
-        balance_base AS (
+        candidate_balance_base AS (
             SELECT ib.sku_id,
                    NVL(ib.stock_sales_point_id, NVL(ib.allocated_sales_point_id, -1)) AS sales_point_id,
                    CASE
@@ -305,6 +455,112 @@
             LEFT JOIN lot l ON l.lot_id = ib.lot_id AND l.is_deleted = 0
             WHERE ib.is_deleted = 0
         ),
+        candidate_sku_agg AS (
+            SELECT cbb.sku_id,
+                   SUM(cbb.on_hand_qty + cbb.reserved_qty) AS current_qty,
+                   SUM(cbb.on_hand_qty) AS available_qty,
+                   SUM(cbb.reserved_qty) AS reserved_qty,
+                   COUNT(DISTINCT cbb.lot_id) AS lot_count,
+                   TRUNC(MIN(CASE WHEN cbb.expiry_date IS NOT NULL THEN TRUNC(cbb.expiry_date) - TRUNC(CAST(#{asOfDate} AS DATE)) END)) AS nearest_expiry_days,
+                   MIN(cbb.expiry_date) AS nearest_expiry_date,
+                   CASE
+                     WHEN SUM(CASE WHEN cbb.lot_status = 'EXPIRED' OR (cbb.expiry_date IS NOT NULL AND cbb.expiry_date &lt; #{asOfDate}) THEN 1 ELSE 0 END) &gt; 0 THEN 'EXPIRED_INCLUDED'
+                     WHEN SUM(CASE WHEN cbb.lot_status = 'SALE_STOPPED' OR (cbb.sale_stop_date IS NOT NULL AND cbb.sale_stop_date &lt;= #{asOfDate}) THEN 1 ELSE 0 END) &gt; 0 THEN 'SALE_STOPPED_INCLUDED'
+                     WHEN SUM(CASE WHEN cbb.lot_status = 'DEPLETED' THEN 1 ELSE 0 END) = COUNT(*) THEN 'DEPLETED_ONLY'
+                     WHEN SUM(cbb.on_hand_qty) = 0 THEN 'OUT_OF_STOCK'
+                     ELSE 'AVAILABLE'
+                   END AS inventory_fact_state,
+                   sr.risk_grade,
+                   sr.assessment_status,
+                   sr.shortage_yn,
+                   MAX(cbb.updated_at) AS updated_at
+            FROM candidate_balance_base cbb
+            LEFT JOIN sku_risk_agg sr ON sr.sku_id = cbb.sku_id
+            GROUP BY cbb.sku_id, sr.risk_grade, sr.assessment_status, sr.shortage_yn
+        ),
+        paged_candidates AS (
+            SELECT q.*,
+                   COUNT(*) OVER () AS total_count
+            FROM (
+                SELECT csa.sku_id,
+                       p.product_code,
+                       p.product_name,
+                       s.sku_code,
+                       s.sku_name,
+                       CASE WHEN s.storage_type = 'AMBIENT' THEN 'ROOM_TEMP' ELSE s.storage_type END AS storage_type,
+                       csa.current_qty,
+                       csa.available_qty,
+                       csa.reserved_qty,
+                       csa.lot_count,
+                       csa.nearest_expiry_days,
+                       csa.nearest_expiry_date,
+                       csa.inventory_fact_state,
+                       csa.risk_grade,
+                       csa.assessment_status,
+                       csa.shortage_yn,
+                       csa.updated_at
+                FROM candidate_sku_agg csa
+                INNER JOIN sku s ON s.sku_id = csa.sku_id
+                INNER JOIN product p ON p.product_id = s.product_id
+            ) q
+            <choose>
+                <when test="sortColumn == 'risk_grade'">
+                    ORDER BY CASE WHEN q.risk_grade IS NULL THEN 1 ELSE 0 END,
+                             CASE q.risk_grade
+                                 WHEN 'DANGER' THEN 4
+                                 WHEN 'CAUTION' THEN 3
+                                 WHEN 'NORMAL' THEN 2
+                                 WHEN 'SAFE' THEN 1
+                                 ELSE 0
+                             END ${sortDirection},
+                             q.sku_code ASC
+                </when>
+                <otherwise>
+                    ORDER BY CASE WHEN q.${sortColumn} IS NULL THEN 1 ELSE 0 END, q.${sortColumn} ${sortDirection}, q.sku_code ASC
+                </otherwise>
+            </choose>
+            OFFSET #{offset} ROWS FETCH NEXT #{size} ROWS ONLY
+        ),
+        owner_sales_point_counts AS (
+            SELECT ib.sku_id,
+                   COUNT(DISTINCT CASE
+                       WHEN NVL(ib.stock_sales_point_id, NVL(ib.allocated_sales_point_id, -1)) &lt;&gt; -1
+                       THEN NVL(ib.stock_sales_point_id, NVL(ib.allocated_sales_point_id, -1))
+                   END) AS owner_sales_point_count
+            FROM inventory_balance ib
+            INNER JOIN paged_candidates pc ON pc.sku_id = ib.sku_id
+            LEFT JOIN sales_point sp ON sp.sales_point_id = NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id)
+            WHERE ib.is_deleted = 0
+              AND (sp.sales_point_id IS NULL OR (sp.is_deleted = 0 AND sp.active_yn = 'Y'))
+            GROUP BY ib.sku_id
+        ),
+        balance_base AS (
+            SELECT ib.sku_id,
+                   NVL(ib.stock_sales_point_id, NVL(ib.allocated_sales_point_id, -1)) AS sales_point_id,
+                   CASE
+                       WHEN ib.stock_sales_point_id IS NOT NULL THEN 'OWNED'
+                       WHEN ib.allocated_sales_point_id IS NOT NULL THEN 'ALLOCATED_ONLY'
+                       ELSE 'CENTER_ONLY'
+                   END AS sales_point_state,
+                   ib.warehouse_id,
+                   ib.lot_id,
+                   ib.on_hand_qty,
+                   ib.reserved_qty,
+                   ib.updated_at,
+                   l.lot_status,
+                   l.expiry_date,
+                   l.sale_stop_date
+            FROM inventory_balance ib
+            INNER JOIN candidate_keys ck ON ck.sku_id = ib.sku_id
+                                        AND ck.sales_point_id = NVL(ib.stock_sales_point_id, NVL(ib.allocated_sales_point_id, -1))
+            INNER JOIN paged_candidates pc ON pc.sku_id = ib.sku_id
+            LEFT JOIN warehouse active_w
+                    ON active_w.warehouse_id = ib.warehouse_id
+                   AND active_w.is_deleted = 0
+                   AND active_w.active_yn = 'Y'
+            LEFT JOIN lot l ON l.lot_id = ib.lot_id AND l.is_deleted = 0
+            WHERE ib.is_deleted = 0
+        ),
         unassigned_balance_base AS (
             SELECT ib.sku_id,
                    ib.warehouse_id,
@@ -316,9 +572,7 @@
                    l.expiry_date,
                    l.sale_stop_date
             FROM inventory_balance ib
-            INNER JOIN sku s ON s.sku_id = ib.sku_id
-                            AND s.is_deleted = 0
-                            AND s.active_yn = 'Y'
+            INNER JOIN paged_candidates pc ON pc.sku_id = ib.sku_id
             LEFT JOIN lot l ON l.lot_id = ib.lot_id AND l.is_deleted = 0
             WHERE ib.is_deleted = 0
               AND ib.allocated_sales_point_id IS NULL
@@ -389,15 +643,16 @@
             GROUP BY sku_id
         ),
         latest_policy AS (
-            SELECT sku_id,
-                   COALESCE(stock_sales_point_id, allocated_sales_point_id, -1) AS sales_point_id,
-                   safety_stock_qty,
+            SELECT ip.sku_id,
+                   COALESCE(ip.stock_sales_point_id, ip.allocated_sales_point_id, -1) AS sales_point_id,
+                   ip.safety_stock_qty,
                    ROW_NUMBER() OVER (
-                       PARTITION BY sku_id, COALESCE(stock_sales_point_id, allocated_sales_point_id, -1)
+                       PARTITION BY ip.sku_id, COALESCE(ip.stock_sales_point_id, ip.allocated_sales_point_id, -1)
                        ORDER BY effective_from DESC NULLS LAST, inventory_policy_id DESC
                    ) AS rn
-            FROM inventory_policy
-            WHERE is_deleted = 0
+            FROM inventory_policy ip
+            INNER JOIN paged_candidates pc ON pc.sku_id = ip.sku_id
+            WHERE ip.is_deleted = 0
               AND (effective_from IS NULL OR effective_from &lt;= #{asOfDate})
               AND (effective_to IS NULL OR effective_to &gt;= #{asOfDate})
         ),
@@ -409,15 +664,16 @@
             WHERE rn = 1
         ),
         latest_price AS (
-            SELECT sku_id, sales_point_id, selling_price,
+            SELECT sp.sku_id, sp.sales_point_id, sp.selling_price,
                    ROW_NUMBER() OVER (
-                       PARTITION BY sku_id, sales_point_id
-                       ORDER BY effective_from DESC, sku_channel_price_id DESC
+                       PARTITION BY sp.sku_id, sp.sales_point_id
+                       ORDER BY sp.effective_from DESC, sp.sku_channel_price_id DESC
                    ) AS rn
-            FROM sku_channel_price
-            WHERE is_deleted = 0
-              AND effective_from &lt;= #{asOfDate}
-              AND (effective_to IS NULL OR effective_to &gt;= #{asOfDate})
+            FROM sku_channel_price sp
+            INNER JOIN paged_candidates pc ON pc.sku_id = sp.sku_id
+            WHERE sp.is_deleted = 0
+              AND sp.effective_from &lt;= #{asOfDate}
+              AND (sp.effective_to IS NULL OR sp.effective_to &gt;= #{asOfDate})
         ),
         seller_facts AS (
             SELECT ra.*, p.safety_qty, r.risk_grade, r.assessment_status, r.shortage_yn, r.risk_reason, lp.selling_price
@@ -492,86 +748,83 @@
             LEFT JOIN sku_risk_agg sr ON sr.sku_id = sf.sku_id
             GROUP BY sf.sku_id, sr.risk_grade, sr.assessment_status, sr.shortage_yn
         )
-        SELECT q.*,
-               COUNT(*) OVER () AS total_count
-        FROM (
-            SELECT sa.sku_id,
-                   p.product_code,
-                   p.product_name,
-                   sup.supplier_name AS supplier_name,
-                   p.image_url,
-                   s.sku_code,
-                   s.sku_name,
-                   c.category_id,
-                   c.category_name,
-                   c.category_level,
-                   cp.category_id AS parent_category_id,
-                   cp.category_name AS parent_category_name,
-                   cp.category_level AS parent_category_level,
-                   cg.category_id AS grandparent_category_id,
-                   cg.category_name AS grandparent_category_name,
-                   cg.category_level AS grandparent_category_level,
-                   CAST(NULL AS VARCHAR2(50)) AS channel_type,
-                   CAST(NULL AS VARCHAR2(100)) AS sales_point_code,
-                   CAST(NULL AS VARCHAR2(200)) AS sales_point_name,
-                   CASE WHEN s.storage_type = 'AMBIENT' THEN 'ROOM_TEMP' ELSE s.storage_type END AS storage_type,
-                   CAST(NULL AS NUMBER(15,3)) AS selling_price,
-                   sa.current_qty,
-                   sa.available_qty,
-                   sa.reserved_qty,
-                   sa.safety_qty,
-                   sa.inventory_fact_state,
-                   sa.risk_grade,
-                   sa.assessment_status,
-                   sa.shortage_yn,
-                   CAST(NULL AS VARCHAR2(1000)) AS risk_reason,
-                   swa.locations_json,
-                   swa.locations_json AS unassigned_locations_json,
-                   swa.location_count,
-                   swa.location_count AS unassigned_location_count,
-                   owner_counts.owner_sales_point_count,
-                   sellers.sales_points_json,
-                   uf.current_qty AS unassigned_current_qty,
-                   uf.available_qty AS unassigned_available_qty,
-                   uf.reserved_qty AS unassigned_reserved_qty,
-                   uf.inventory_fact_state AS unassigned_inventory_fact_state,
-                   uf.shortage_yn AS unassigned_shortage_yn,
-                   uf.risk_grade AS unassigned_risk_grade,
-                   uf.assessment_status AS unassigned_assessment_status,
-                   uf.risk_reason AS unassigned_risk_reason,
-                   sa.lot_count,
-                   sa.nearest_expiry_days,
-                   sa.nearest_expiry_date,
-                   sa.updated_at
-            FROM sku_agg sa
-            INNER JOIN sku s ON s.sku_id = sa.sku_id
-            INNER JOIN product p ON p.product_id = s.product_id
-            LEFT JOIN supplier sup ON sup.supplier_id = p.supplier_id AND sup.is_deleted = 0
-            LEFT JOIN category c ON c.category_id = p.category_id
-            LEFT JOIN category cp ON cp.category_id = c.parent_category_id AND cp.is_deleted = 0
-            LEFT JOIN category cg ON cg.category_id = cp.parent_category_id AND cg.is_deleted = 0
-            LEFT JOIN sku_warehouse_agg swa ON swa.sku_id = sa.sku_id
-            INNER JOIN seller_agg sellers ON sellers.sku_id = sa.sku_id
-            LEFT JOIN owner_sales_point_counts owner_counts ON owner_counts.sku_id = sa.sku_id
-            LEFT JOIN unassigned_facts uf ON uf.sku_id = sa.sku_id
-        ) q
+        SELECT sa.sku_id,
+               pc.product_code,
+               pc.product_name,
+               sup.supplier_name AS supplier_name,
+               p.image_url,
+               pc.sku_code,
+               pc.sku_name,
+               c.category_id,
+               c.category_name,
+               c.category_level,
+               cp.category_id AS parent_category_id,
+               cp.category_name AS parent_category_name,
+               cp.category_level AS parent_category_level,
+               cg.category_id AS grandparent_category_id,
+               cg.category_name AS grandparent_category_name,
+               cg.category_level AS grandparent_category_level,
+               CAST(NULL AS VARCHAR2(50)) AS channel_type,
+               CAST(NULL AS VARCHAR2(100)) AS sales_point_code,
+               CAST(NULL AS VARCHAR2(200)) AS sales_point_name,
+               pc.storage_type,
+               CAST(NULL AS NUMBER(15,3)) AS selling_price,
+               sa.current_qty,
+               sa.available_qty,
+               sa.reserved_qty,
+               sa.safety_qty,
+               sa.inventory_fact_state,
+               sa.risk_grade,
+               sa.assessment_status,
+               sa.shortage_yn,
+               CAST(NULL AS VARCHAR2(1000)) AS risk_reason,
+               swa.locations_json,
+               swa.locations_json AS unassigned_locations_json,
+               swa.location_count,
+               swa.location_count AS unassigned_location_count,
+               owner_counts.owner_sales_point_count,
+               sellers.sales_points_json,
+               uf.current_qty AS unassigned_current_qty,
+               uf.available_qty AS unassigned_available_qty,
+               uf.reserved_qty AS unassigned_reserved_qty,
+               uf.inventory_fact_state AS unassigned_inventory_fact_state,
+               uf.shortage_yn AS unassigned_shortage_yn,
+               uf.risk_grade AS unassigned_risk_grade,
+               uf.assessment_status AS unassigned_assessment_status,
+               uf.risk_reason AS unassigned_risk_reason,
+               sa.lot_count,
+               sa.nearest_expiry_days,
+               sa.nearest_expiry_date,
+               sa.updated_at,
+               pc.total_count
+        FROM paged_candidates pc
+        INNER JOIN sku_agg sa ON sa.sku_id = pc.sku_id
+        INNER JOIN sku s ON s.sku_id = pc.sku_id
+        INNER JOIN product p ON p.product_id = s.product_id
+        LEFT JOIN supplier sup ON sup.supplier_id = p.supplier_id AND sup.is_deleted = 0
+        LEFT JOIN category c ON c.category_id = p.category_id
+        LEFT JOIN category cp ON cp.category_id = c.parent_category_id AND cp.is_deleted = 0
+        LEFT JOIN category cg ON cg.category_id = cp.parent_category_id AND cg.is_deleted = 0
+        LEFT JOIN sku_warehouse_agg swa ON swa.sku_id = pc.sku_id
+        LEFT JOIN seller_agg sellers ON sellers.sku_id = pc.sku_id
+        LEFT JOIN owner_sales_point_counts owner_counts ON owner_counts.sku_id = pc.sku_id
+        LEFT JOIN unassigned_facts uf ON uf.sku_id = pc.sku_id
         <choose>
             <when test="sortColumn == 'risk_grade'">
-                ORDER BY CASE WHEN q.risk_grade IS NULL THEN 1 ELSE 0 END,
-                         CASE q.risk_grade
+                ORDER BY CASE WHEN pc.risk_grade IS NULL THEN 1 ELSE 0 END,
+                         CASE pc.risk_grade
                              WHEN 'DANGER' THEN 4
                              WHEN 'CAUTION' THEN 3
                              WHEN 'NORMAL' THEN 2
                              WHEN 'SAFE' THEN 1
                              ELSE 0
                          END ${sortDirection},
-                         q.sku_code ASC
+                         pc.sku_code ASC
             </when>
             <otherwise>
-                ORDER BY CASE WHEN q.${sortColumn} IS NULL THEN 1 ELSE 0 END, q.${sortColumn} ${sortDirection}, q.sku_code ASC
+                ORDER BY CASE WHEN pc.${sortColumn} IS NULL THEN 1 ELSE 0 END, pc.${sortColumn} ${sortDirection}, pc.sku_code ASC
             </otherwise>
         </choose>
-        OFFSET #{offset} ROWS FETCH NEXT #{size} ROWS ONLY
     </select>
 
     <select id="countInventory" resultType="long">
