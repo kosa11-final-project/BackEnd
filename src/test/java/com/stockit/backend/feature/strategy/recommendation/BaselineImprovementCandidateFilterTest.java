@@ -45,12 +45,16 @@ class BaselineImprovementCandidateFilterTest {
 
     @Test
     void removesPhysicalTransferWhenEconomicNetEffectIsNotPositive() {
-        var candidate = evaluated("RT-LOSS", "10", "10", "10", "-1");
-        when(candidate.candidate().strategyTypes()).thenReturn(
+        var loss = evaluated("RT-LOSS", "10", "10", "10", "-1");
+        var zero = evaluated("RT-ZERO", "10", "10", "10", "0");
+        when(loss.candidate().strategyTypes()).thenReturn(
+                List.of(StrategyType.RT_TRANSFER)
+        );
+        when(zero.candidate().strategyTypes()).thenReturn(
                 List.of(StrategyType.RT_TRANSFER)
         );
 
-        assertThat(filter.filter(List.of(candidate))).isEmpty();
+        assertThat(filter.filter(List.of(loss, zero))).isEmpty();
     }
 
     private static StrategyCandidateEvaluationResult.EvaluatedCandidate evaluated(
