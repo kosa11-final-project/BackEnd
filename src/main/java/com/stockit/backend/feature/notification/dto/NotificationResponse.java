@@ -8,6 +8,7 @@ public record NotificationResponse(
         String severity,
         String title,
         String message,
+        Long strategyCaseId,
         Long forecastRunId,
         boolean read,
         LocalDateTime createdAt
