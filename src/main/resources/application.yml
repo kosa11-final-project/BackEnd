@@ -132,6 +132,15 @@ app:
       connect-timeout: ${DEMAND_FORECAST_CONNECT_TIMEOUT:3s}
       read-timeout: ${DEMAND_FORECAST_READ_TIMEOUT:30s}
       job-timeout: ${DEMAND_FORECAST_JOB_TIMEOUT:2h}
+    alert:
+      teams:
+        enabled: ${DEMAND_FORECAST_TEAMS_ALERT_ENABLED:false}
+        webhook-url: ${DEMAND_FORECAST_TEAMS_WEBHOOK_URL:}
+        connect-timeout: ${DEMAND_FORECAST_TEAMS_CONNECT_TIMEOUT:3s}
+        read-timeout: ${DEMAND_FORECAST_TEAMS_READ_TIMEOUT:10s}
+        scheduler-cooldown: ${DEMAND_FORECAST_TEAMS_SCHEDULER_COOLDOWN:10m}
+        environment: ${APP_ENVIRONMENT:local}
+        dashboard-url: ${DEMAND_FORECAST_DASHBOARD_URL:}
   ai-strategy:
     messaging:
       enabled: ${AI_STRATEGY_MESSAGING_ENABLED:true}

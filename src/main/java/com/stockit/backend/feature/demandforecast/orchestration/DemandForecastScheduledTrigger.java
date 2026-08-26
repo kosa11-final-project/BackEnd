@@ -1,6 +1,7 @@
 package com.stockit.backend.feature.demandforecast.orchestration;
 
 import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 
@@ -9,8 +10,11 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+
+import com.stockit.backend.feature.demandforecast.domain.DemandForecastSchedulerFailureEvent;
 
 /** 매일 01:00 KST에 당일을 예측 시작일로 하는 수요예측 실행을 등록합니다. */
 @Component
@@ -24,19 +28,27 @@ public class DemandForecastScheduledTrigger {
 
     private final DemandForecastOrchestrationWorker worker;
     private final Clock clock;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Autowired
     public DemandForecastScheduledTrigger(
             DemandForecastOrchestrationWorker worker,
-            @Value("${app.demand-forecast.orchestration.zone:Asia/Seoul}") String zone
+            @Value("${app.demand-forecast.orchestration.zone:Asia/Seoul}") String zone,
+            ApplicationEventPublisher eventPublisher
     ) {
         this.worker = worker;
         this.clock = Clock.system(ZoneId.of(zone));
+        this.eventPublisher = eventPublisher;
     }
 
-    DemandForecastScheduledTrigger(DemandForecastOrchestrationWorker worker, Clock clock) {
+    DemandForecastScheduledTrigger(
+            DemandForecastOrchestrationWorker worker,
+            Clock clock,
+            ApplicationEventPublisher eventPublisher
+    ) {
         this.worker = worker;
         this.clock = clock;
+        this.eventPublisher = eventPublisher;
     }
 
     @Scheduled(
@@ -45,7 +57,29 @@ public class DemandForecastScheduledTrigger {
     )
     public void trigger() {
         LocalDate baseDate = LocalDate.now(clock);
-        boolean launched = worker.launchScheduled(baseDate);
-        log.info("Daily demand forecast schedule handled. baseDate={}, launched={}", baseDate, launched);
+        try {
+            boolean launched = worker.launchScheduled(baseDate);
+            log.info("Daily demand forecast schedule handled. baseDate={}, launched={}",
+                    baseDate, launched);
+        } catch (RuntimeException exception) {
+            log.error("Daily demand forecast scheduling failed. baseDate={}",
+                    baseDate, exception);
+            eventPublisher.publishEvent(new DemandForecastSchedulerFailureEvent(
+                    "daily-demand-forecast-trigger",
+                    baseDate,
+                    "SCHEDULER_TRIGGER_FAILED",
+                    safeMessage(exception),
+                    "DEMAND_FORECAST:SCHEDULER:TRIGGER_FAILED",
+                    Instant.now(clock)
+            ));
+            throw exception;
+        }
+    }
+
+    private static String safeMessage(RuntimeException exception) {
+        String message = exception.getMessage();
+        return message == null || message.isBlank()
+                ? exception.getClass().getSimpleName()
+                : message.substring(0, Math.min(2000, message.length()));
     }
 }
