@@ -62,10 +62,12 @@ class GeminiRecommendationProviderTest {
         assertThat(body.path("model").asText()).isEqualTo("gemini-3.7-flash");
         assertThat(body.path("store").asBoolean()).isFalse();
         assertThat(body.path("input").asText())
-                .contains("\"schemaVersion\":\"ai-strategy-recommendation-v3\"")
+                .contains("\"schemaVersion\":\"ai-strategy-recommendation-v4\"")
                 .contains("\"strategyFamilyId\":\"PRICE_DISCOUNT|")
                 .contains("\"strategyPrioritySource\":\"USER\"")
-                .contains("\"targetPrioritySource\":\"USER\"");
+                .contains("\"targetPrioritySource\":\"USER\"")
+                .contains("\"expectedDisposalCost\":2")
+                .contains("\"avoidedHoldingCost\":2");
         JsonNode enumValues = body.path("response_format").path("schema")
                 .path("properties").path("recommendations").path("items")
                 .path("properties").path("candidateId").path("enum");
@@ -182,11 +184,13 @@ class GeminiRecommendationProviderTest {
                 new AiRecommendationRequest.SummaryInput(
                         BigDecimal.TEN, BigDecimal.TEN, BigDecimal.TEN,
                         BigDecimal.ONE, 1, BigDecimal.ZERO, BigDecimal.ZERO,
+                        new BigDecimal("2"), new BigDecimal("3"),
                         BigDecimal.ONE, BigDecimal.TEN
                 ),
                 new AiRecommendationRequest.ComparisonInput(
                         BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ONE,
-                        BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ONE
+                        BigDecimal.ONE, BigDecimal.ONE,
+                        BigDecimal.ONE, new BigDecimal("2"), BigDecimal.ONE
                 ), List.of(), new AiRecommendationRequest.PreferenceInput(
                         1, AiRecommendationRequest.PrioritySource.USER,
                         1, AiRecommendationRequest.PrioritySource.USER, 100
@@ -194,10 +198,11 @@ class GeminiRecommendationProviderTest {
                 BigDecimal.TEN
         );
         return new AiRecommendationRequest(
-                "ai-strategy-recommendation-v3", 1L, 1, 1,
+                "ai-strategy-recommendation-v4", 1L, 1, 1,
                 new AiRecommendationRequest.BaselineInput(
                         BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
-                        BigDecimal.ZERO, null, BigDecimal.TEN, BigDecimal.ZERO
+                        BigDecimal.ZERO, null, BigDecimal.TEN, BigDecimal.ZERO,
+                        new BigDecimal("2"), new BigDecimal("3")
                 ), List.of(candidate)
         );
     }

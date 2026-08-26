@@ -34,8 +34,26 @@ public record AiRecommendationRequest(
             BigDecimal contributionMarginRate,
             Integer expectedSellThroughDays,
             BigDecimal expectedRemainingQty,
-            BigDecimal expectedDisposalQty
+            BigDecimal expectedDisposalQty,
+            BigDecimal expectedDisposalCost,
+            BigDecimal expectedHoldingCost
     ) {
+        public BaselineInput(
+                BigDecimal expectedSalesQty,
+                BigDecimal expectedRevenue,
+                BigDecimal totalContributionMargin,
+                BigDecimal contributionMarginRate,
+                Integer expectedSellThroughDays,
+                BigDecimal expectedRemainingQty,
+                BigDecimal expectedDisposalQty
+        ) {
+            this(
+                    expectedSalesQty, expectedRevenue, totalContributionMargin,
+                    contributionMarginRate, expectedSellThroughDays,
+                    expectedRemainingQty, expectedDisposalQty,
+                    BigDecimal.ZERO, BigDecimal.ZERO
+            );
+        }
     }
 
     public record CandidateInput(
@@ -83,9 +101,30 @@ public record AiRecommendationRequest(
             Integer expectedSellThroughDays,
             BigDecimal expectedRemainingQty,
             BigDecimal expectedDisposalQty,
+            BigDecimal expectedDisposalCost,
+            BigDecimal expectedHoldingCost,
             BigDecimal estimatedActionCost,
             BigDecimal netEffect
     ) {
+        public SummaryInput(
+                BigDecimal expectedSalesQty,
+                BigDecimal expectedRevenue,
+                BigDecimal totalContributionMargin,
+                BigDecimal contributionMarginRate,
+                Integer expectedSellThroughDays,
+                BigDecimal expectedRemainingQty,
+                BigDecimal expectedDisposalQty,
+                BigDecimal estimatedActionCost,
+                BigDecimal netEffect
+        ) {
+            this(
+                    expectedSalesQty, expectedRevenue, totalContributionMargin,
+                    contributionMarginRate, expectedSellThroughDays,
+                    expectedRemainingQty, expectedDisposalQty,
+                    BigDecimal.ZERO, BigDecimal.ZERO,
+                    estimatedActionCost, netEffect
+            );
+        }
     }
 
     public record ComparisonInput(
@@ -94,8 +133,24 @@ public record AiRecommendationRequest(
             BigDecimal contributionMarginDelta,
             BigDecimal remainingQtyReduction,
             BigDecimal disposalQtyReduction,
+            BigDecimal avoidedDisposalCost,
+            BigDecimal avoidedHoldingCost,
             BigDecimal netEffect
     ) {
+        public ComparisonInput(
+                BigDecimal salesQtyDelta,
+                BigDecimal revenueDelta,
+                BigDecimal contributionMarginDelta,
+                BigDecimal remainingQtyReduction,
+                BigDecimal disposalQtyReduction,
+                BigDecimal netEffect
+        ) {
+            this(
+                    salesQtyDelta, revenueDelta, contributionMarginDelta,
+                    remainingQtyReduction, disposalQtyReduction,
+                    BigDecimal.ZERO, BigDecimal.ZERO, netEffect
+            );
+        }
     }
 
     public record PreferenceInput(

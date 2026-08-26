@@ -45,6 +45,15 @@ public class StrategyCandidateIdGenerator {
                     .append(':').append(plain(action.strategyPrice()))
                     .append(':').append(plain(action.discountRate()))
                     .append(':').append(plain(action.estimatedActionCost()));
+            if (action.movementCost() != null) {
+                StrategyCandidate.MovementCost movement = action.movementCost();
+                canonical.append(":MOVE:")
+                        .append(movement.transferRouteId()).append(':')
+                        .append(movement.transferCostPolicyId()).append(':')
+                        .append(plain(movement.weightKg())).append(':')
+                        .append(plain(movement.distanceKm())).append(':')
+                        .append(plain(movement.costPerKgKm()));
+            }
             for (StrategyCandidate.LotAllocation allocation : action.lotAllocations()) {
                 canonical.append('[')
                         .append(allocation.inventoryBalanceId()).append(':')

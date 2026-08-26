@@ -144,6 +144,7 @@
             expected_revenue, unit_contribution_margin,
             contribution_margin_rate, total_contribution_margin,
             expected_remaining_qty, expected_sell_through_days,
+            avoided_disposal_cost, avoided_holding_cost, net_effect,
             created_at, updated_at, created_by, updated_by, is_deleted
         ) VALUES (
             #{strategyOptionId,jdbcType=NUMERIC}, #{inputSourceType,jdbcType=VARCHAR},
@@ -154,6 +155,9 @@
             #{totalContributionMargin,jdbcType=NUMERIC},
             #{expectedRemainingQty,jdbcType=NUMERIC},
             #{expectedSellThroughDays,jdbcType=NUMERIC},
+            #{avoidedDisposalCost,jdbcType=NUMERIC},
+            #{avoidedHoldingCost,jdbcType=NUMERIC},
+            #{netEffect,jdbcType=NUMERIC},
             SYSTIMESTAMP, SYSTIMESTAMP,
             #{createdBy,jdbcType=NUMERIC}, #{updatedBy,jdbcType=NUMERIC}, 0
         )
@@ -166,6 +170,8 @@
             source_warehouse_id, destination_warehouse_id, action_type,
             action_quantity, strategy_price, discount_rate,
             start_date, end_date, estimated_action_cost, action_order,
+            transfer_route_id, transfer_cost_policy_id, movement_cost_status,
+            movement_weight_kg, movement_distance_km, movement_cost_per_kg_km,
             created_at, updated_at, created_by, updated_by, is_deleted
         ) VALUES (
             #{strategyOptionId,jdbcType=NUMERIC}, #{sourceSalesPointId,jdbcType=NUMERIC},
@@ -175,6 +181,12 @@
             #{discountRate,jdbcType=NUMERIC}, #{startDate,jdbcType=DATE},
             #{endDate,jdbcType=DATE}, #{estimatedActionCost,jdbcType=NUMERIC},
             #{actionOrder,jdbcType=NUMERIC},
+            #{transferRouteId,jdbcType=NUMERIC},
+            #{transferCostPolicyId,jdbcType=NUMERIC},
+            #{movementCostStatus,jdbcType=VARCHAR},
+            #{movementWeightKg,jdbcType=NUMERIC},
+            #{movementDistanceKm,jdbcType=NUMERIC},
+            #{movementCostPerKgKm,jdbcType=NUMERIC},
             SYSTIMESTAMP, SYSTIMESTAMP,
             #{createdBy,jdbcType=NUMERIC}, #{updatedBy,jdbcType=NUMERIC}, 0
         )

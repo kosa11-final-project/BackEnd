@@ -24,8 +24,31 @@ public record BaselineSimulation(
             BigDecimal contributionMarginRate,
             Integer expectedSellThroughDays,
             BigDecimal expectedRemainingQty,
-            BigDecimal expectedDisposalQty
+            BigDecimal expectedDisposalQty,
+            BigDecimal expectedDisposalCost,
+            BigDecimal expectedHoldingCost
     ) {
+        public Summary(
+                BigDecimal expectedSalesQty,
+                BigDecimal expectedRevenue,
+                BigDecimal totalContributionMargin,
+                BigDecimal contributionMarginRate,
+                Integer expectedSellThroughDays,
+                BigDecimal expectedRemainingQty,
+                BigDecimal expectedDisposalQty
+        ) {
+            this(
+                    expectedSalesQty,
+                    expectedRevenue,
+                    totalContributionMargin,
+                    contributionMarginRate,
+                    expectedSellThroughDays,
+                    expectedRemainingQty,
+                    expectedDisposalQty,
+                    BigDecimal.ZERO,
+                    BigDecimal.ZERO
+            );
+        }
     }
 
     public record DailyPoint(

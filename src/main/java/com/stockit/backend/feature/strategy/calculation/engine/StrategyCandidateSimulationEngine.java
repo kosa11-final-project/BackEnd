@@ -69,6 +69,7 @@ public class StrategyCandidateSimulationEngine {
             SimulationDetailLevel detailLevel
     ) {
         validateRange(context, candidate);
+        validateTransferCostPolicies(context, candidate);
         CandidatePlan plan = CandidatePlan.create(candidate);
         List<LotState> lots = plan.createLotStates(context.evaluationInventory());
         Map<Long, Map<LocalDate, BigDecimal>> demandBySalesPoint = demandBySalesPoint(
@@ -84,6 +85,8 @@ public class StrategyCandidateSimulationEngine {
         BigDecimal cumulativeRevenue = ZERO_MONEY;
         BigDecimal cumulativeContributionMargin = ZERO_MONEY;
         BigDecimal cumulativeDisposal = ZERO_QUANTITY;
+        BigDecimal cumulativeDisposalCost = ZERO_MONEY;
+        BigDecimal cumulativeHoldingCost = ZERO_MONEY;
         BigDecimal allocatedDisposal = ZERO_QUANTITY;
         Integer sellThroughDays = null;
         boolean strategyApplied = false;
@@ -92,8 +95,11 @@ public class StrategyCandidateSimulationEngine {
         for (LocalDate date = context.forecastStartDate();
                 !date.isAfter(context.forecastEndDate());
                 date = date.plusDays(1)) {
-            DisposalResult disposal = disposeExpired(lots, date);
+            DisposalResult disposal = disposeExpired(context, lots, date);
             cumulativeDisposal = quantity(cumulativeDisposal.add(disposal.total()));
+            cumulativeDisposalCost = money(
+                    cumulativeDisposalCost.add(disposal.cost())
+            );
             allocatedDisposal = quantity(allocatedDisposal.add(disposal.allocated()));
 
             // 시작일 당일 수요에는 이동·할인 조건이 적용되도록 판매 전에 액션 반영
@@ -117,6 +123,9 @@ public class StrategyCandidateSimulationEngine {
                             dailySales.contributionMargin()
                     )
             );
+            cumulativeHoldingCost = money(cumulativeHoldingCost.add(
+                    holdingCost(context, lots)
+            ));
 
             if (strategyApplied && sellThroughDays == null
                     && allocatedDisposal.signum() == 0
@@ -159,7 +168,20 @@ public class StrategyCandidateSimulationEngine {
                         baseline.summary().totalContributionMargin()
                 )
         );
-        BigDecimal netEffect = money(contributionMarginDelta.subtract(actionCost));
+        BigDecimal avoidedDisposalCost = money(
+                baseline.summary().expectedDisposalCost()
+                        .subtract(cumulativeDisposalCost)
+        );
+        BigDecimal avoidedHoldingCost = money(
+                baseline.summary().expectedHoldingCost()
+                        .subtract(cumulativeHoldingCost)
+        );
+        BigDecimal netEffect = money(
+                contributionMarginDelta
+                        .add(avoidedDisposalCost)
+                        .add(avoidedHoldingCost)
+                        .subtract(actionCost)
+        );
         StrategyCandidateSimulation.Summary summary =
                 new StrategyCandidateSimulation.Summary(
                         cumulativeSales,
@@ -169,6 +191,8 @@ public class StrategyCandidateSimulationEngine {
                         sellThroughDays,
                         totalRemaining(lots),
                         cumulativeDisposal,
+                        cumulativeDisposalCost,
+                        cumulativeHoldingCost,
                         actionCost,
                         netEffect
                 );
@@ -185,6 +209,8 @@ public class StrategyCandidateSimulationEngine {
                                 .subtract(totalRemaining(lots))),
                         quantity(baseline.summary().expectedDisposalQty()
                                 .subtract(cumulativeDisposal)),
+                        avoidedDisposalCost,
+                        avoidedHoldingCost,
                         netEffect
                 );
         return new StrategyCandidateSimulation(
@@ -444,21 +470,57 @@ public class StrategyCandidateSimulationEngine {
     }
 
     private static DisposalResult disposeExpired(
+            StrategyCalculationContext context,
             List<LotState> lots,
             LocalDate date
     ) {
         BigDecimal total = ZERO_QUANTITY;
         BigDecimal allocated = ZERO_QUANTITY;
+        BigDecimal cost = ZERO_MONEY;
         for (LotState lot : lots) {
             if (lot.isExpiredAt(date) && lot.remaining.signum() > 0) {
                 total = total.add(lot.remaining);
+                InventoryCostPolicyResolver.Cost policy =
+                        InventoryCostPolicyResolver.resolve(
+                                context.inventoryPolicies(),
+                                lot.warehouseId,
+                                lot.salesPointId
+                        );
+                cost = cost.add(lot.remaining.multiply(policy.unitDisposalCost()));
                 if (lot.strategyAllocated) {
                     allocated = allocated.add(lot.remaining);
                 }
                 lot.remaining = ZERO_QUANTITY;
             }
         }
-        return new DisposalResult(quantity(total), quantity(allocated));
+        return new DisposalResult(
+                quantity(total),
+                quantity(allocated),
+                money(cost)
+        );
+    }
+
+    /** 당일 판매·폐기 이후 각 LOT의 실제 위치 기준으로 1일 보관비를 계산한다. */
+    private static BigDecimal holdingCost(
+            StrategyCalculationContext context,
+            List<LotState> lots
+    ) {
+        BigDecimal result = ZERO_MONEY;
+        for (LotState lot : lots) {
+            if (lot.remaining.signum() == 0) {
+                continue;
+            }
+            InventoryCostPolicyResolver.Cost policy =
+                    InventoryCostPolicyResolver.resolve(
+                            context.inventoryPolicies(),
+                            lot.warehouseId,
+                            lot.salesPointId
+                    );
+            result = result.add(
+                    lot.remaining.multiply(policy.dailyUnitHoldingCost())
+            );
+        }
+        return money(result);
     }
 
     private static void applyStrategy(
@@ -497,10 +559,11 @@ public class StrategyCandidateSimulationEngine {
                     allocation.quantity(),
                     true
             );
-            if (allocation.targetWarehouseId() != null) {
+            if (allocation.targetWarehouseId() != null
+                    || allocation.targetSalesPointId() != null) {
+                // 직접 판매처 이동은 targetWarehouseId=null 자체가 의미 있는 값이므로
+                // 기존 출발 창고를 남기지 않고 물리 위치를 함께 교체한다.
                 allocated.warehouseId = allocation.targetWarehouseId();
-            }
-            if (allocation.targetSalesPointId() != null) {
                 allocated.salesPointId = allocation.targetSalesPointId();
             }
             allocated.discountPrice = allocation.discountPrice();
@@ -523,6 +586,36 @@ public class StrategyCandidateSimulationEngine {
                     "Candidate period must be inside the forecast range"
             );
         }
+    }
+
+    /** 이동 전후 위치 중 비용 정책이 누락되면 가상의 비용 절감액을 만들지 않는다. */
+    private static void validateTransferCostPolicies(
+            StrategyCalculationContext context,
+            StrategyCandidate candidate
+    ) {
+        for (StrategyCandidate.Action action : candidate.actions()) {
+            if (action.actionType() != StrategyType.RT_TRANSFER) {
+                continue;
+            }
+            if (!hasInventoryCostPolicy(context, action.source())
+                    || !hasInventoryCostPolicy(context, action.target())) {
+                throw new CandidateSimulationException(
+                        "CANDIDATE_INVENTORY_COST_POLICY_NOT_FOUND",
+                        "Inventory cost policy is required for both transfer locations"
+                );
+            }
+        }
+    }
+
+    private static boolean hasInventoryCostPolicy(
+            StrategyCalculationContext context,
+            StrategyCandidate.Location location
+    ) {
+        return InventoryCostPolicyResolver.resolve(
+                context.inventoryPolicies(),
+                location.warehouseId(),
+                location.salesPointId()
+        ).matched();
     }
 
     private static BigDecimal estimatedActionCost(StrategyCandidate candidate) {
@@ -560,7 +653,11 @@ public class StrategyCandidateSimulationEngine {
     ) {
     }
 
-    private record DisposalResult(BigDecimal total, BigDecimal allocated) {
+    private record DisposalResult(
+            BigDecimal total,
+            BigDecimal allocated,
+            BigDecimal cost
+    ) {
     }
 
     private record CommercialTerms(

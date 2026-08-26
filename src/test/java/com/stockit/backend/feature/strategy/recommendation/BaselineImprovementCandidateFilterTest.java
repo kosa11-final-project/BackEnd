@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import com.stockit.backend.feature.strategy.calculation.candidate.domain.StrategyCandidate;
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCandidateEvaluationResult;
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCandidateSimulation;
+import com.stockit.backend.feature.strategy.domain.StrategyType;
 
 class BaselineImprovementCandidateFilterTest {
 
@@ -40,6 +41,20 @@ class BaselineImprovementCandidateFilterTest {
 
         assertThat(filter.filter(List.of(sales, remaining, netEffect)))
                 .containsExactly(sales, remaining, netEffect);
+    }
+
+    @Test
+    void removesPhysicalTransferWhenEconomicNetEffectIsNotPositive() {
+        var loss = evaluated("RT-LOSS", "10", "10", "10", "-1");
+        var zero = evaluated("RT-ZERO", "10", "10", "10", "0");
+        when(loss.candidate().strategyTypes()).thenReturn(
+                List.of(StrategyType.RT_TRANSFER)
+        );
+        when(zero.candidate().strategyTypes()).thenReturn(
+                List.of(StrategyType.RT_TRANSFER)
+        );
+
+        assertThat(filter.filter(List.of(loss, zero))).isEmpty();
     }
 
     private static StrategyCandidateEvaluationResult.EvaluatedCandidate evaluated(

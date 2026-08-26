@@ -39,7 +39,8 @@ class InventoryMovementCandidateFactoryTest {
                 new SourceInventoryCapacityPolicy(new SafetyStockPolicyResolver()),
                 new TargetAdditionalDemandPolicy(),
                 new MovementLotAllocationPolicy(),
-                new StrategyCandidateIdGenerator()
+                new StrategyCandidateIdGenerator(),
+                new InventoryTransferCostCalculator()
         );
     }
 
@@ -113,7 +114,7 @@ class InventoryMovementCandidateFactoryTest {
     }
 
     @Test
-    void generatesPhysicalTransferToPrimaryWarehouseAndLeavesCostUnknown() {
+    void generatesPhysicalTransferWithCalculatedMovementCost() {
         StrategyCalculationContext context = context(
                 List.of(lot(1L, 1001L, 501L, 10L, "100", null)),
                 List.of(),
@@ -133,11 +134,94 @@ class InventoryMovementCandidateFactoryTest {
         assertThat(maximum.endDate()).isNull();
         assertThat(maximum.actions()).singleElement().satisfies(action -> {
             assertThat(action.target().warehouseId()).isEqualTo(502L);
-            assertThat(action.estimatedActionCost()).isNull();
+            assertThat(action.estimatedActionCost()).isEqualByComparingTo("10000");
+            assertThat(action.movementCost()).isNotNull();
+            assertThat(action.movementCost().distanceKm()).isEqualByComparingTo("100");
         });
         assertThat(maximum.assumptions()).containsExactly(
-                CandidateAssumption.SAFETY_STOCK_DEFAULTED_TO_ZERO,
-                CandidateAssumption.TRANSFER_COST_EXCLUDED
+                CandidateAssumption.SAFETY_STOCK_DEFAULTED_TO_ZERO
+        );
+    }
+
+    @Test
+    void generatesDirectSalesPointToSalesPointTransferWithoutWarehouseRoute() {
+        StrategyCalculationContext original = context(
+                List.of(lot(1L, 1001L, null, 10L, "100", null)),
+                List.of(policy(1L, null, 10L, "0")),
+                List.of(),
+                forecasts("10"),
+                StrategyType.RT_TRANSFER
+        );
+        StrategyCalculationContext context = withTransferRoutes(
+                original,
+                List.of(new StrategyCalculationContext.TransferRoute(
+                        9002L,
+                        new StrategyCalculationContext.PhysicalLocation(null, 10L),
+                        new StrategyCalculationContext.PhysicalLocation(null, 20L),
+                        new BigDecimal("10"),
+                        "DUMMY",
+                        null,
+                        null
+                ))
+        );
+
+        CandidateGenerationResult result = factory.generate(
+                context,
+                StrategyType.RT_TRANSFER,
+                1
+        );
+
+        assertThat(result.candidates()).hasSize(10);
+        assertThat(result.candidates().get(9).actions()).singleElement()
+                .satisfies(action -> {
+                    assertThat(action.source().warehouseId()).isNull();
+                    assertThat(action.source().salesPointId()).isEqualTo(10L);
+                    assertThat(action.target().warehouseId()).isNull();
+                    assertThat(action.target().salesPointId()).isEqualTo(20L);
+                    assertThat(action.estimatedActionCost())
+                            .isEqualByComparingTo("1000");
+                });
+    }
+
+    @Test
+    void limitsPhysicalTransferDestinationsPerTargetToThree() {
+        StrategyCalculationContext original = context(
+                List.of(lot(1L, 1001L, 501L, 10L, "100", null)),
+                List.of(),
+                List.of(
+                        route(20L, 502L, 1),
+                        route(20L, 503L, 2),
+                        route(20L, 504L, 3),
+                        route(20L, 505L, 4)
+                ),
+                forecasts("10"),
+                StrategyType.RT_TRANSFER
+        );
+        StrategyCalculationContext context = withTransferRoutes(
+                original,
+                List.of(
+                        transferRoute(9001L, 501L, null, null, 20L),
+                        transferRoute(9002L, 501L, null, 502L, null),
+                        transferRoute(9003L, 501L, null, 503L, null),
+                        transferRoute(9004L, 501L, null, 504L, null),
+                        transferRoute(9005L, 501L, null, 505L, null)
+                )
+        );
+
+        CandidateGenerationResult result = factory.generate(
+                context,
+                StrategyType.RT_TRANSFER,
+                1
+        );
+
+        assertThat(result.candidates()).hasSize(30);
+        assertThat(result.candidates().stream()
+                .map(candidate -> candidate.actions().get(0).target())
+                .distinct())
+                .containsExactlyInAnyOrder(
+                        new StrategyCandidate.Location(null, 20L),
+                        new StrategyCandidate.Location(502L, 20L),
+                        new StrategyCandidate.Location(503L, 20L)
                 );
     }
 
@@ -374,7 +458,8 @@ class InventoryMovementCandidateFactoryTest {
                 START,
                 END,
                 new StrategyCalculationContext.Sku(
-                        101L, "SKU-101", "테스트 SKU", "EA", BigDecimal.ONE
+                        101L, "SKU-101", "테스트 SKU", "EA", BigDecimal.ONE,
+                        new BigDecimal("0.5"), "KG"
                 ),
                 decimal("50"),
                 new StrategyCalculationContext.RequestConstraints(
@@ -394,7 +479,23 @@ class InventoryMovementCandidateFactoryTest {
                                 2026, 8, 20, 9, 0, 0, 0,
                                 ZoneOffset.ofHours(9)
                         )
-                )
+                ),
+                List.of(new StrategyCalculationContext.TransferRoute(
+                        9001L,
+                        new StrategyCalculationContext.PhysicalLocation(501L, null),
+                        new StrategyCalculationContext.PhysicalLocation(502L, null),
+                        new BigDecimal("100"),
+                        "DUMMY",
+                        null,
+                        null
+                )),
+                List.of(new StrategyCalculationContext.TransferCostPolicy(
+                        8001L,
+                        "DUMMY-COMMON",
+                        new BigDecimal("2"),
+                        START.minusDays(1),
+                        null
+                ))
         );
     }
 
@@ -418,6 +519,29 @@ class InventoryMovementCandidateFactoryTest {
                 ),
                 forecast,
                 routes
+        );
+    }
+
+    private static StrategyCalculationContext withTransferRoutes(
+            StrategyCalculationContext original,
+            List<StrategyCalculationContext.TransferRoute> routes
+    ) {
+        return new StrategyCalculationContext(
+                original.strategyCaseId(),
+                original.sourceSalesPointId(),
+                original.calculatedAt(),
+                original.forecastStartDate(),
+                original.forecastEndDate(),
+                original.sku(),
+                original.unitCost(),
+                original.requestConstraints(),
+                original.evaluationInventory(),
+                original.referenceInventory(),
+                original.inventoryPolicies(),
+                original.salesPoints(),
+                original.forecastMetadata(),
+                routes,
+                original.transferCostPolicies()
         );
     }
 
@@ -493,6 +617,30 @@ class InventoryMovementCandidateFactoryTest {
                 salesPointId,
                 warehouseId,
                 priority,
+                null
+        );
+    }
+
+    private static StrategyCalculationContext.TransferRoute transferRoute(
+            Long routeId,
+            Long sourceWarehouseId,
+            Long sourceSalesPointId,
+            Long destinationWarehouseId,
+            Long destinationSalesPointId
+    ) {
+        return new StrategyCalculationContext.TransferRoute(
+                routeId,
+                new StrategyCalculationContext.PhysicalLocation(
+                        sourceWarehouseId,
+                        sourceSalesPointId
+                ),
+                new StrategyCalculationContext.PhysicalLocation(
+                        destinationWarehouseId,
+                        destinationSalesPointId
+                ),
+                new BigDecimal("10"),
+                "DUMMY",
+                null,
                 null
         );
     }

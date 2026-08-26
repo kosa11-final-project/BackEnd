@@ -18,6 +18,7 @@ import com.stockit.backend.feature.strategy.calculation.candidate.domain.Candida
 import com.stockit.backend.feature.strategy.calculation.candidate.domain.CandidateGenerationResult;
 import com.stockit.backend.feature.strategy.calculation.candidate.domain.CandidateExclusionReason;
 import com.stockit.backend.feature.strategy.calculation.candidate.domain.StrategyCandidate;
+import com.stockit.backend.feature.strategy.calculation.candidate.calculator.InventoryTransferCostCalculator;
 import com.stockit.backend.feature.strategy.calculation.candidate.policy.StrategyPeriodEligibilityPolicy;
 import com.stockit.backend.feature.strategy.calculation.candidate.policy.StrategyPeriodEligibilityPolicy.PeriodConstraints;
 import com.stockit.backend.feature.strategy.calculation.candidate.service.StrategyCandidateGenerationService;
@@ -57,6 +58,7 @@ public class StrategyAdjustmentSimulationServiceImpl
     private final StrategyPeriodEligibilityPolicy periodEligibilityPolicy;
     private final StrategyCaseLifecycleGuard lifecycleGuard;
     private final StrategyDateTimeProvider dateTimeProvider;
+    private final InventoryTransferCostCalculator transferCostCalculator;
 
     public StrategyAdjustmentSimulationServiceImpl(
             StrategyResultStore resultStore,
@@ -66,7 +68,8 @@ public class StrategyAdjustmentSimulationServiceImpl
             SalesPointDiscountPolicy salesPointDiscountPolicy,
             StrategyPeriodEligibilityPolicy periodEligibilityPolicy,
             StrategyCaseLifecycleGuard lifecycleGuard,
-            StrategyDateTimeProvider dateTimeProvider
+            StrategyDateTimeProvider dateTimeProvider,
+            InventoryTransferCostCalculator transferCostCalculator
     ) {
         this.resultStore = resultStore;
         this.contextStore = contextStore;
@@ -76,6 +79,7 @@ public class StrategyAdjustmentSimulationServiceImpl
         this.periodEligibilityPolicy = periodEligibilityPolicy;
         this.lifecycleGuard = lifecycleGuard;
         this.dateTimeProvider = dateTimeProvider;
+        this.transferCostCalculator = transferCostCalculator;
     }
 
     @Override
@@ -305,7 +309,9 @@ public class StrategyAdjustmentSimulationServiceImpl
                 context.referenceInventory(),
                 context.inventoryPolicies(),
                 context.salesPoints(),
-                context.forecastMetadata()
+                context.forecastMetadata(),
+                context.transferRoutes(),
+                context.transferCostPolicies()
         );
     }
 
@@ -404,8 +410,10 @@ public class StrategyAdjustmentSimulationServiceImpl
             AdjustStrategySimulationCommand command
     ) {
         List<StrategyCandidate.Action> resized = resizeActions(
+                context,
                 base.actions(),
-                command.actionQuantity()
+                command.actionQuantity(),
+                command.startDate()
         );
         if (template.strategyTypes().contains(StrategyType.PRICE_DISCOUNT)
                 && !base.strategyTypes().contains(StrategyType.PRICE_DISCOUNT)) {
@@ -430,9 +438,11 @@ public class StrategyAdjustmentSimulationServiceImpl
         );
     }
 
-    private static List<StrategyCandidate.Action> resizeActions(
+    private List<StrategyCandidate.Action> resizeActions(
+            StrategyCalculationContext context,
             List<StrategyCandidate.Action> actions,
-            BigDecimal requestedQuantity
+            BigDecimal requestedQuantity,
+            LocalDate startDate
     ) {
         BigDecimal remaining = CalculationPrecisionPolicy.executableQuantity(
                 requestedQuantity
@@ -465,10 +475,24 @@ public class StrategyAdjustmentSimulationServiceImpl
             BigDecimal actionQuantity = allocations.stream()
                     .map(StrategyCandidate.LotAllocation::quantity)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
+            StrategyCandidate.MovementCost movementCost =
+                    action.actionType() == StrategyType.RT_TRANSFER
+                            ? transferCostCalculator.calculate(
+                                    context,
+                                    action.source(),
+                                    action.target(),
+                                    actionQuantity,
+                                    startDate
+                            )
+                            : null;
             result.add(new StrategyCandidate.Action(
                     action.actionType(), action.source(), action.target(),
-                    actionQuantity, action.estimatedActionCost(),
-                    action.strategyPrice(), action.discountRate(), allocations
+                    actionQuantity,
+                    movementCost == null
+                            ? action.estimatedActionCost()
+                            : movementCost.estimatedCost(),
+                    action.strategyPrice(), action.discountRate(), allocations,
+                    movementCost
             ));
         }
         if (remaining.signum() != 0) {

@@ -22,7 +22,7 @@ public record StrategyGenerationResult(
         NoRecommendation noRecommendation,
         ProviderMetadata providerMetadata
 ) {
-    public static final int CURRENT_SCHEMA_VERSION = 1;
+    public static final int CURRENT_SCHEMA_VERSION = 2;
 
     public StrategyGenerationResult {
         if (schemaVersion != CURRENT_SCHEMA_VERSION || strategyCaseId == null
@@ -103,11 +103,42 @@ public record StrategyGenerationResult(
             BigDecimal estimatedActionCost,
             BigDecimal strategyPrice,
             BigDecimal discountRate,
-            List<LotAllocation> lotAllocations
+            List<LotAllocation> lotAllocations,
+            MovementCost movementCost
     ) {
+        public Action(
+                StrategyType actionType,
+                Long sourceWarehouseId,
+                Long sourceSalesPointId,
+                Long targetWarehouseId,
+                Long targetSalesPointId,
+                BigDecimal actionQuantity,
+                BigDecimal estimatedActionCost,
+                BigDecimal strategyPrice,
+                BigDecimal discountRate,
+                List<LotAllocation> lotAllocations
+        ) {
+            this(
+                    actionType, sourceWarehouseId, sourceSalesPointId,
+                    targetWarehouseId, targetSalesPointId, actionQuantity,
+                    estimatedActionCost, strategyPrice, discountRate,
+                    lotAllocations, null
+            );
+        }
+
         public Action {
             lotAllocations = List.copyOf(lotAllocations);
         }
+    }
+
+    public record MovementCost(
+            Long transferRouteId,
+            Long transferCostPolicyId,
+            BigDecimal weightKg,
+            BigDecimal distanceKm,
+            BigDecimal costPerKgKm,
+            BigDecimal estimatedCost
+    ) {
     }
 
     public record LotAllocation(

@@ -21,7 +21,7 @@ public class RedisStrategySimulationContextStore
         implements StrategySimulationContextStore {
 
     private static final String KEY_FORMAT =
-            "ai-strategy:case:%d:simulation-context:v1";
+            "ai-strategy:case:%d:simulation-context:v2";
 
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;

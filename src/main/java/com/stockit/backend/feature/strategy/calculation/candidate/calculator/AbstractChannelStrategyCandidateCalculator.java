@@ -274,7 +274,9 @@ abstract class AbstractChannelStrategyCandidateCalculator
                 context.referenceInventory(),
                 context.inventoryPolicies(),
                 context.salesPoints(),
-                context.forecastMetadata()
+                context.forecastMetadata(),
+                context.transferRoutes(),
+                context.transferCostPolicies()
         );
     }
 

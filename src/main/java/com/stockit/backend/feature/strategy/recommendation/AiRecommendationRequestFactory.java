@@ -14,7 +14,7 @@ import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculati
 @Component
 public class AiRecommendationRequestFactory {
 
-    private static final String SCHEMA_VERSION = "ai-strategy-recommendation-v3";
+    private static final String SCHEMA_VERSION = "ai-strategy-recommendation-v4";
     private static final int MIN_RECOMMENDATIONS = 3;
     private static final int MAX_RECOMMENDATIONS = 4;
 
@@ -43,7 +43,8 @@ public class AiRecommendationRequestFactory {
                         summary.expectedSalesQty(), summary.expectedRevenue(),
                         summary.totalContributionMargin(), summary.contributionMarginRate(),
                         summary.expectedSellThroughDays(), summary.expectedRemainingQty(),
-                        summary.expectedDisposalQty()
+                        summary.expectedDisposalQty(), summary.expectedDisposalCost(),
+                        summary.expectedHoldingCost()
                 ),
                 selection.candidates().stream()
                         .map(candidate -> mapCandidate(candidate, requestConstraints))
@@ -77,13 +78,16 @@ public class AiRecommendationRequestFactory {
                         summary.expectedSalesQty(), summary.expectedRevenue(),
                         summary.totalContributionMargin(), summary.contributionMarginRate(),
                         summary.expectedSellThroughDays(), summary.expectedRemainingQty(),
-                        summary.expectedDisposalQty(), summary.estimatedActionCost(),
+                        summary.expectedDisposalQty(), summary.expectedDisposalCost(),
+                        summary.expectedHoldingCost(), summary.estimatedActionCost(),
                         summary.netEffect()
                 ),
                 new AiRecommendationRequest.ComparisonInput(
                         comparison.salesQtyDelta(), comparison.revenueDelta(),
                         comparison.contributionMarginDelta(),
                         comparison.remainingQtyReduction(), comparison.disposalQtyReduction(),
+                        comparison.avoidedDisposalCost(),
+                        comparison.avoidedHoldingCost(),
                         comparison.netEffect()
                 ),
                 candidate.assumptions().stream().map(Enum::name).toList(),
