@@ -6,6 +6,7 @@ import java.net.http.HttpTimeoutException;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
@@ -39,12 +40,19 @@ class DemandForecastTeamsAlertSender {
         DemandForecastTeamsAlertCardFactory.TeamsWebhookRequest payload =
                 cardFactory.create(message);
         try {
-            restClient.post()
+            ResponseEntity<Void> response = restClient.post()
                     .uri(webhookUri)
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(payload)
                     .retrieve()
                     .toBodilessEntity();
+            if (!response.getStatusCode().is2xxSuccessful()) {
+                throw new DemandForecastTeamsAlertDeliveryException(
+                        "TEAMS_ALERT_REJECTED",
+                        "Teams alert webhook returned HTTP "
+                                + response.getStatusCode().value()
+                );
+            }
         } catch (ResourceAccessException exception) {
             String code = containsCause(exception, HttpTimeoutException.class)
                     ? "TEAMS_ALERT_TIMEOUT"
