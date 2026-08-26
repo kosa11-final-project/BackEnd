@@ -595,6 +595,25 @@ public class StrategyAdjustmentSimulationServiceImpl
                                 ? null
                                 : discountPolicy.maximumDiscountRate()
                 ),
+                java.util.stream.IntStream.range(0, adjusted.actions().size())
+                        .mapToObj(index -> {
+                            StrategyCandidate.Action action = adjusted.actions().get(index);
+                            StrategyCandidate.MovementCost movement = action.movementCost();
+                            return new AdjustedAiStrategySimulationResponse.AdjustedAction(
+                                    index + 1,
+                                    action.actionType(),
+                                    action.actionQuantity(),
+                                    action.estimatedActionCost(),
+                                    movement == null ? null
+                                            : new AdjustedAiStrategySimulationResponse.MovementCost(
+                                                    movement.weightKg(),
+                                                    movement.distanceKm(),
+                                                    movement.costPerKgKm(),
+                                                    movement.estimatedCost()
+                                            )
+                            );
+                        })
+                        .toList(),
                 AiStrategyPeriodConstraintsResponse.from(periodConstraints),
                 new AiStrategyChartRangeResponse(
                         command.startDate(),

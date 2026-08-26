@@ -126,6 +126,13 @@ class StrategyAdjustmentSimulationServiceImplTest {
                 .isEqualByComparingTo("6");
         assertThat(response.adjustedConditions().strategyPrice())
                 .isEqualByComparingTo("85");
+        assertThat(response.actions()).singleElement().satisfies(action -> {
+            assertThat(action.actionOrder()).isEqualTo(1);
+            assertThat(action.actionType()).isEqualTo(
+                    StrategyType.PRICE_DISCOUNT
+            );
+            assertThat(action.movementCost()).isNull();
+        });
         assertThat(response.adjustedConditions().salesPointGroup())
                 .isEqualTo(SalesPointDiscountPolicy.SalesPointGroup.DEPARTMENT_STORE);
         assertThat(response.adjustedConditions().maximumDiscountRate())
@@ -164,7 +171,7 @@ class StrategyAdjustmentSimulationServiceImplTest {
                 any(), any(), eq(baseline), eq(SimulationDetailLevel.WITH_DAILY_SERIES)
         )).thenReturn(simulation);
 
-        service.simulate(
+        var response = service.simulate(
                 1L,
                 "CAND-RT",
                 new AdjustStrategySimulationCommand(
@@ -183,6 +190,18 @@ class StrategyAdjustmentSimulationServiceImplTest {
         assertThat(adjusted.actionQuantity()).isEqualByComparingTo("6");
         assertThat(adjusted.movementCost().weightKg()).isEqualByComparingTo("3");
         assertThat(adjusted.estimatedActionCost()).isEqualByComparingTo("600");
+        assertThat(response.actions()).singleElement().satisfies(action -> {
+            assertThat(action.actionOrder()).isEqualTo(1);
+            assertThat(action.actionType()).isEqualTo(StrategyType.RT_TRANSFER);
+            assertThat(action.actionQuantity()).isEqualByComparingTo("6");
+            assertThat(action.estimatedActionCost()).isEqualByComparingTo("600");
+            assertThat(action.movementCost()).satisfies(cost -> {
+                assertThat(cost.weightKg()).isEqualByComparingTo("3");
+                assertThat(cost.distanceKm()).isEqualByComparingTo("100");
+                assertThat(cost.costPerKgKm()).isEqualByComparingTo("2");
+                assertThat(cost.estimatedCost()).isEqualByComparingTo("600");
+            });
+        });
     }
 
     @Test

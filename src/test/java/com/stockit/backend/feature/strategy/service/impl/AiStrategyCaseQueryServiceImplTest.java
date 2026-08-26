@@ -123,8 +123,23 @@ class AiStrategyCaseQueryServiceImplTest {
                     .isEqualTo("SALES_POINT");
             assertThat(action.sourceLocation().locationName()).isEqualTo("목동점");
             assertThat(action.targetLocation().locationType().name())
-                    .isEqualTo("WAREHOUSE");
-            assertThat(action.targetLocation().locationName()).isEqualTo("수지센터");
+                    .isEqualTo("SALES_POINT");
+            assertThat(action.targetLocation().locationName()).isEqualTo("판교점");
+            assertThat(action.physicalSourceLocation().locationName())
+                    .isEqualTo("경인센터");
+            assertThat(action.physicalDestinationLocation().locationName())
+                    .isEqualTo("수지센터");
+            assertThat(action.allocationSourceSalesPoint().locationName())
+                    .isEqualTo("목동점");
+            assertThat(action.allocationTargetSalesPoint().locationName())
+                    .isEqualTo("판교점");
+            assertThat(action.movementCost()).satisfies(cost -> {
+                assertThat(cost.weightKg()).isEqualByComparingTo("5");
+                assertThat(cost.distanceKm()).isEqualByComparingTo("10");
+                assertThat(cost.costPerKgKm()).isEqualByComparingTo("2");
+                assertThat(cost.estimatedCost()).isEqualByComparingTo("100");
+                assertThat(cost.distanceSource()).isEqualTo("DUMMY");
+            });
             assertThat(action.lotAllocations()).singleElement()
                     .satisfies(allocation -> {
                         assertThat(allocation.lotCode()).isEqualTo("LOT-260801-A");
@@ -255,12 +270,20 @@ class AiStrategyCaseQueryServiceImplTest {
                 500L,
                 10L,
                 600L,
-                null,
+                20L,
                 decimal("10"),
-                decimal("12000"),
+                decimal("100"),
                 null,
                 null,
-                List.of(allocation)
+                List.of(allocation),
+                new StrategyGenerationResult.MovementCost(
+                        800L,
+                        700L,
+                        decimal("5"),
+                        decimal("10"),
+                        decimal("2"),
+                        decimal("100")
+                )
         );
         StrategyGenerationResult.Candidate candidate =
                 new StrategyGenerationResult.Candidate(
@@ -329,7 +352,7 @@ class AiStrategyCaseQueryServiceImplTest {
                 123L, 10L, NOW.minusMinutes(2), start, end,
                 new StrategyCalculationContext.Sku(
                         6032L, "GF-SOUP-MSH-06", "버섯 들깨탕 6팩",
-                        "EA", BigDecimal.ONE
+                        "EA", BigDecimal.ONE, decimal("500"), "G"
                 ),
                 decimal("70"),
                 new StrategyCalculationContext.RequestConstraints(
@@ -349,7 +372,23 @@ class AiStrategyCaseQueryServiceImplTest {
                                 2026, 8, 20, 8, 0, 0, 0,
                                 ZoneOffset.ofHours(9)
                         )
-                )
+                ),
+                List.of(new StrategyCalculationContext.TransferRoute(
+                        800L,
+                        new StrategyCalculationContext.PhysicalLocation(500L, null),
+                        new StrategyCalculationContext.PhysicalLocation(600L, null),
+                        decimal("10"),
+                        "DUMMY",
+                        "FASTEST",
+                        NOW.minusDays(1)
+                )),
+                List.of(new StrategyCalculationContext.TransferCostPolicy(
+                        700L,
+                        "GLOBAL",
+                        decimal("2"),
+                        LocalDate.of(2026, 1, 1),
+                        null
+                ))
         );
     }
 

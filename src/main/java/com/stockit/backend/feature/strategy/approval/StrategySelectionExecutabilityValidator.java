@@ -31,13 +31,16 @@ public class StrategySelectionExecutabilityValidator {
 
     private final StrategyCalculationInputMapper inputMapper;
     private final SafetyStockPolicyResolver safetyStockResolver;
+    private final StrategyTransferInputFreshnessValidator transferFreshnessValidator;
 
     public StrategySelectionExecutabilityValidator(
             StrategyCalculationInputMapper inputMapper,
-            SafetyStockPolicyResolver safetyStockResolver
+            SafetyStockPolicyResolver safetyStockResolver,
+            StrategyTransferInputFreshnessValidator transferFreshnessValidator
     ) {
         this.inputMapper = inputMapper;
         this.safetyStockResolver = safetyStockResolver;
+        this.transferFreshnessValidator = transferFreshnessValidator;
     }
 
     public void validate(ResolvedStrategySelection resolved, LocalDate businessDate) {
@@ -71,6 +74,7 @@ public class StrategySelectionExecutabilityValidator {
         );
         validateSalesPointsAndRoutes(candidate);
         validateCommercialInputs(resolved, businessDate, skuId);
+        transferFreshnessValidator.validate(resolved);
     }
 
     private void validateSafetyStock(

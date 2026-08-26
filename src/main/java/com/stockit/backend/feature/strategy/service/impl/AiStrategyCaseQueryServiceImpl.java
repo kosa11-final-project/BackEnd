@@ -143,7 +143,8 @@ public class AiStrategyCaseQueryServiceImpl implements AiStrategyCaseQueryServic
                     salesPoints,
                     warehouses,
                     lots,
-                    periodPresentations(result, payload, context)
+                    periodPresentations(result, payload, context),
+                    context
             );
         } catch (IllegalArgumentException | IllegalStateException exception) {
             throw new AppException(ErrorCode.AI_STRATEGY_RESULT_EXPIRED);
