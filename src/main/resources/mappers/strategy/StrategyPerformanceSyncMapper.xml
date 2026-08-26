@@ -269,10 +269,10 @@
             actual_contribution_margin = #{row.actualContributionMargin},
             actual_remaining_qty = #{row.actualRemainingQuantity},
             updated_at = SYSTIMESTAMP,
-            updated_by = #{actorId}
+            updated_by = #{actorId},
+            is_deleted = 0
         WHERE strategy_option_id = #{row.strategyOptionId}
           AND performance_date = #{row.performanceDate,jdbcType=DATE}
-          AND is_deleted = 0
     </update>
 
     <insert id="insertPerformanceIfAbsent">
@@ -306,7 +306,6 @@
             FROM strategy_performance existing
             WHERE existing.strategy_option_id = #{row.strategyOptionId}
               AND existing.performance_date = #{row.performanceDate,jdbcType=DATE}
-              AND existing.is_deleted = 0
         )
     </insert>
 
