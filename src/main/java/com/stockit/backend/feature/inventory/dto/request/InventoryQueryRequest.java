@@ -154,6 +154,7 @@ public class InventoryQueryRequest {
             case "currentQuantity", "currentQty" -> "current_qty";
             case "availableQuantity", "availableQty" -> "available_qty";
             case "reservedQuantity", "reservedQty" -> "reserved_qty";
+            case "expectedDisposalQuantity", "expectedDisposalQty" -> "expected_disposal_qty";
             case "riskGrade" -> "risk_grade";
             case "shortageYn" -> "shortage_yn";
             case "nearestExpiryDays", "expiryDate", "nearestExpiryDate", "expiryDays" -> "nearest_expiry_days";

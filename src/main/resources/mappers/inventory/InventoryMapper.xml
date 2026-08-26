@@ -437,6 +437,7 @@
                        WHEN ib.allocated_sales_point_id IS NOT NULL THEN 'ALLOCATED_ONLY'
                        ELSE 'CENTER_ONLY'
                    END AS sales_point_state,
+                   ib.allocated_sales_point_id,
                    ib.warehouse_id,
                    ib.lot_id,
                    ib.on_hand_qty,
@@ -455,17 +456,126 @@
             LEFT JOIN lot l ON l.lot_id = ib.lot_id AND l.is_deleted = 0
             WHERE ib.is_deleted = 0
         ),
+        disposal_candidate_skus AS (
+            SELECT DISTINCT sku_id
+            FROM candidate_balance_base
+        ),
+        ranked_disposal_forecast AS (
+            SELECT df.forecast_id,
+                   df.sku_id,
+                   df.sales_point_id,
+                   df.predicted_qty_d7,
+                   df.predicted_qty_d14,
+                   df.predicted_qty_d30,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY df.sku_id, df.sales_point_id
+                       ORDER BY df.base_date DESC,
+                                df.updated_at DESC,
+                                df.forecast_id DESC
+                   ) AS rn
+            FROM demand_forecast df
+            INNER JOIN ml_model_version mv
+                    ON mv.model_version_id = df.model_version_id
+                   AND mv.status = 'ACTIVE'
+                   AND mv.is_deleted = 0
+            INNER JOIN disposal_candidate_skus dcs ON dcs.sku_id = df.sku_id
+            WHERE df.is_deleted = 0
+              AND df.base_date &lt;= TRUNC(CAST(#{asOfDate} AS DATE))
+              AND df.forecast_source &lt;&gt; 'DUMMY_BASELINE'
+        ),
+        latest_disposal_forecast AS (
+            SELECT forecast_id,
+                   sku_id,
+                   sales_point_id,
+                   predicted_qty_d7,
+                   predicted_qty_d14,
+                   predicted_qty_d30
+            FROM ranked_disposal_forecast
+            WHERE rn = 1
+        ),
+        disposal_lot_dates AS (
+            SELECT cbb.sku_id,
+                   cbb.allocated_sales_point_id,
+                   cbb.on_hand_qty,
+                   cbb.lot_status,
+                   CASE
+                       WHEN cbb.expiry_date IS NOT NULL AND cbb.sale_stop_date IS NOT NULL
+                           THEN LEAST(TRUNC(cbb.expiry_date), TRUNC(cbb.sale_stop_date))
+                       WHEN cbb.expiry_date IS NOT NULL THEN TRUNC(cbb.expiry_date)
+                       WHEN cbb.sale_stop_date IS NOT NULL THEN TRUNC(cbb.sale_stop_date)
+                   END AS sale_end_date
+            FROM candidate_balance_base cbb
+        ),
+        disposal_lots AS (
+            SELECT sku_id,
+                   allocated_sales_point_id,
+                   on_hand_qty,
+                   sale_end_date
+            FROM disposal_lot_dates
+            WHERE on_hand_qty > 0
+              AND (lot_status IS NULL OR lot_status NOT IN ('EXPIRED', 'SALE_STOPPED', 'DEPLETED'))
+              AND sale_end_date > TRUNC(CAST(#{asOfDate} AS DATE))
+              AND sale_end_date &lt;= TRUNC(CAST(#{asOfDate} AS DATE)) + 30
+        ),
+        disposal_scope AS (
+            SELECT sku_id,
+                   allocated_sales_point_id,
+                   SUM(CASE WHEN sale_end_date &lt;= TRUNC(CAST(#{asOfDate} AS DATE)) + 7 THEN on_hand_qty ELSE 0 END) AS expiring_qty_d7,
+                   SUM(CASE WHEN sale_end_date &lt;= TRUNC(CAST(#{asOfDate} AS DATE)) + 14 THEN on_hand_qty ELSE 0 END) AS expiring_qty_d14,
+                   SUM(on_hand_qty) AS expiring_qty_d30
+            FROM disposal_lots
+            GROUP BY sku_id, allocated_sales_point_id
+        ),
+        disposal_by_sku AS (
+            SELECT ds.sku_id,
+                   SUM(CASE
+                           WHEN ds.allocated_sales_point_id IS NULL
+                                OR lf.forecast_id IS NULL
+                                OR lf.predicted_qty_d7 IS NULL
+                                OR lf.predicted_qty_d14 IS NULL
+                                OR lf.predicted_qty_d30 IS NULL
+                                OR lf.predicted_qty_d7 &lt; 0
+                                OR lf.predicted_qty_d14 &lt; 0
+                                OR lf.predicted_qty_d30 &lt; 0
+                                OR lf.predicted_qty_d7 &gt; lf.predicted_qty_d14
+                                OR lf.predicted_qty_d14 &gt; lf.predicted_qty_d30
+                           THEN ds.expiring_qty_d30
+                           ELSE GREATEST(
+                               0,
+                               ds.expiring_qty_d7 - lf.predicted_qty_d7,
+                               ds.expiring_qty_d14 - lf.predicted_qty_d14,
+                               ds.expiring_qty_d30 - lf.predicted_qty_d30
+                           )
+                       END) AS expected_disposal_qty
+            FROM disposal_scope ds
+            LEFT JOIN latest_disposal_forecast lf
+                   ON lf.sku_id = ds.sku_id
+                  AND lf.sales_point_id = ds.allocated_sales_point_id
+            GROUP BY ds.sku_id
+        ),
         candidate_sku_agg AS (
             SELECT cbb.sku_id,
                    SUM(cbb.on_hand_qty + cbb.reserved_qty) AS current_qty,
-                   SUM(cbb.on_hand_qty) AS available_qty,
-                   SUM(cbb.reserved_qty) AS reserved_qty,
+                   SUM(CASE
+                           WHEN cbb.lot_status IN ('EXPIRED', 'SALE_STOPPED', 'DEPLETED')
+                                OR (cbb.expiry_date IS NOT NULL AND TRUNC(cbb.expiry_date) &lt;= TRUNC(CAST(#{asOfDate} AS DATE)))
+                                OR (cbb.sale_stop_date IS NOT NULL AND TRUNC(cbb.sale_stop_date) &lt;= TRUNC(CAST(#{asOfDate} AS DATE)))
+                           THEN 0
+                           ELSE cbb.on_hand_qty
+                       END) AS available_qty,
+                   SUM(CASE
+                           WHEN cbb.lot_status IN ('EXPIRED', 'SALE_STOPPED', 'DEPLETED')
+                                OR (cbb.expiry_date IS NOT NULL AND TRUNC(cbb.expiry_date) &lt;= TRUNC(CAST(#{asOfDate} AS DATE)))
+                                OR (cbb.sale_stop_date IS NOT NULL AND TRUNC(cbb.sale_stop_date) &lt;= TRUNC(CAST(#{asOfDate} AS DATE)))
+                           THEN 0
+                           ELSE cbb.reserved_qty
+                       END) AS reserved_qty,
                    COUNT(DISTINCT cbb.lot_id) AS lot_count,
                    TRUNC(MIN(CASE WHEN cbb.expiry_date IS NOT NULL THEN TRUNC(cbb.expiry_date) - TRUNC(CAST(#{asOfDate} AS DATE)) END)) AS nearest_expiry_days,
                    MIN(cbb.expiry_date) AS nearest_expiry_date,
                    CASE
-                     WHEN SUM(CASE WHEN cbb.lot_status = 'EXPIRED' OR (cbb.expiry_date IS NOT NULL AND cbb.expiry_date &lt; #{asOfDate}) THEN 1 ELSE 0 END) &gt; 0 THEN 'EXPIRED_INCLUDED'
-                     WHEN SUM(CASE WHEN cbb.lot_status = 'SALE_STOPPED' OR (cbb.sale_stop_date IS NOT NULL AND cbb.sale_stop_date &lt;= #{asOfDate}) THEN 1 ELSE 0 END) &gt; 0 THEN 'SALE_STOPPED_INCLUDED'
+                     WHEN SUM(CASE WHEN cbb.lot_status = 'EXPIRED' OR (cbb.expiry_date IS NOT NULL AND TRUNC(cbb.expiry_date) &lt;= TRUNC(CAST(#{asOfDate} AS DATE))) THEN 1 ELSE 0 END) &gt; 0 THEN 'EXPIRED_INCLUDED'
+                     WHEN SUM(CASE WHEN cbb.lot_status = 'SALE_STOPPED' OR (cbb.sale_stop_date IS NOT NULL AND TRUNC(cbb.sale_stop_date) &lt;= TRUNC(CAST(#{asOfDate} AS DATE))) THEN 1 ELSE 0 END) &gt; 0 THEN 'SALE_STOPPED_INCLUDED'
                      WHEN SUM(CASE WHEN cbb.lot_status = 'DEPLETED' THEN 1 ELSE 0 END) = COUNT(*) THEN 'DEPLETED_ONLY'
                      WHEN SUM(cbb.on_hand_qty) = 0 THEN 'OUT_OF_STOCK'
                      ELSE 'AVAILABLE'
@@ -491,6 +601,7 @@
                        csa.current_qty,
                        csa.available_qty,
                        csa.reserved_qty,
+                       NVL(db.expected_disposal_qty, 0) AS expected_disposal_qty,
                        csa.lot_count,
                        csa.nearest_expiry_days,
                        csa.nearest_expiry_date,
@@ -502,6 +613,7 @@
                 FROM candidate_sku_agg csa
                 INNER JOIN sku s ON s.sku_id = csa.sku_id
                 INNER JOIN product p ON p.product_id = s.product_id
+                LEFT JOIN disposal_by_sku db ON db.sku_id = csa.sku_id
             ) q
             <choose>
                 <when test="sortColumn == 'risk_grade'">
@@ -542,6 +654,7 @@
                        WHEN ib.allocated_sales_point_id IS NOT NULL THEN 'ALLOCATED_ONLY'
                        ELSE 'CENTER_ONLY'
                    END AS sales_point_state,
+                   ib.allocated_sales_point_id,
                    ib.warehouse_id,
                    ib.lot_id,
                    ib.on_hand_qty,
@@ -581,8 +694,20 @@
             SELECT sku_id,
                    sales_point_id,
                    SUM(on_hand_qty + reserved_qty) AS current_qty,
-                   SUM(reserved_qty) AS reserved_qty,
-                   SUM(on_hand_qty) AS available_qty,
+                   SUM(CASE
+                           WHEN lot_status IN ('EXPIRED', 'SALE_STOPPED', 'DEPLETED')
+                                OR (expiry_date IS NOT NULL AND TRUNC(expiry_date) &lt;= TRUNC(CAST(#{asOfDate} AS DATE)))
+                                OR (sale_stop_date IS NOT NULL AND TRUNC(sale_stop_date) &lt;= TRUNC(CAST(#{asOfDate} AS DATE)))
+                           THEN 0
+                           ELSE reserved_qty
+                       END) AS reserved_qty,
+                   SUM(CASE
+                           WHEN lot_status IN ('EXPIRED', 'SALE_STOPPED', 'DEPLETED')
+                                OR (expiry_date IS NOT NULL AND TRUNC(expiry_date) &lt;= TRUNC(CAST(#{asOfDate} AS DATE)))
+                                OR (sale_stop_date IS NOT NULL AND TRUNC(sale_stop_date) &lt;= TRUNC(CAST(#{asOfDate} AS DATE)))
+                           THEN 0
+                           ELSE on_hand_qty
+                       END) AS available_qty,
                    CASE
                        WHEN SUM(CASE WHEN sales_point_state = 'OWNED' THEN 1 ELSE 0 END) > 0 THEN 'OWNED'
                        WHEN SUM(CASE WHEN sales_point_state = 'ALLOCATED_ONLY' THEN 1 ELSE 0 END) > 0 THEN 'ALLOCATED_ONLY'
@@ -592,8 +717,8 @@
                    TRUNC(MIN(CASE WHEN expiry_date IS NOT NULL THEN TRUNC(expiry_date) - TRUNC(CAST(#{asOfDate} AS DATE)) END)) AS nearest_expiry_days,
                    MIN(expiry_date) AS nearest_expiry_date,
                    CASE
-                     WHEN SUM(CASE WHEN lot_status = 'EXPIRED' OR (expiry_date IS NOT NULL AND expiry_date &lt; #{asOfDate}) THEN 1 ELSE 0 END) &gt; 0 THEN 'EXPIRED_INCLUDED'
-                     WHEN SUM(CASE WHEN lot_status = 'SALE_STOPPED' OR (sale_stop_date IS NOT NULL AND sale_stop_date &lt;= #{asOfDate}) THEN 1 ELSE 0 END) &gt; 0 THEN 'SALE_STOPPED_INCLUDED'
+                     WHEN SUM(CASE WHEN lot_status = 'EXPIRED' OR (expiry_date IS NOT NULL AND TRUNC(expiry_date) &lt;= TRUNC(CAST(#{asOfDate} AS DATE))) THEN 1 ELSE 0 END) &gt; 0 THEN 'EXPIRED_INCLUDED'
+                     WHEN SUM(CASE WHEN lot_status = 'SALE_STOPPED' OR (sale_stop_date IS NOT NULL AND TRUNC(sale_stop_date) &lt;= TRUNC(CAST(#{asOfDate} AS DATE))) THEN 1 ELSE 0 END) &gt; 0 THEN 'SALE_STOPPED_INCLUDED'
                      WHEN SUM(CASE WHEN lot_status = 'DEPLETED' THEN 1 ELSE 0 END) = COUNT(*) THEN 'DEPLETED_ONLY'
                      WHEN SUM(on_hand_qty) = 0 THEN 'OUT_OF_STOCK'
                      ELSE 'AVAILABLE'
@@ -605,14 +730,26 @@
         unassigned_agg AS (
             SELECT sku_id,
                    SUM(on_hand_qty + reserved_qty) AS current_qty,
-                   SUM(on_hand_qty) AS available_qty,
-                   SUM(reserved_qty) AS reserved_qty,
+                   SUM(CASE
+                           WHEN lot_status IN ('EXPIRED', 'SALE_STOPPED', 'DEPLETED')
+                                OR (expiry_date IS NOT NULL AND TRUNC(expiry_date) &lt;= TRUNC(CAST(#{asOfDate} AS DATE)))
+                                OR (sale_stop_date IS NOT NULL AND TRUNC(sale_stop_date) &lt;= TRUNC(CAST(#{asOfDate} AS DATE)))
+                           THEN 0
+                           ELSE on_hand_qty
+                       END) AS available_qty,
+                   SUM(CASE
+                           WHEN lot_status IN ('EXPIRED', 'SALE_STOPPED', 'DEPLETED')
+                                OR (expiry_date IS NOT NULL AND TRUNC(expiry_date) &lt;= TRUNC(CAST(#{asOfDate} AS DATE)))
+                                OR (sale_stop_date IS NOT NULL AND TRUNC(sale_stop_date) &lt;= TRUNC(CAST(#{asOfDate} AS DATE)))
+                           THEN 0
+                           ELSE reserved_qty
+                       END) AS reserved_qty,
                    CASE
                        WHEN SUM(CASE WHEN lot_status = 'EXPIRED'
-                                          OR (expiry_date IS NOT NULL AND expiry_date &lt; #{asOfDate})
+                                          OR (expiry_date IS NOT NULL AND TRUNC(expiry_date) &lt;= TRUNC(CAST(#{asOfDate} AS DATE)))
                                      THEN 1 ELSE 0 END) &gt; 0 THEN 'EXPIRED_INCLUDED'
                        WHEN SUM(CASE WHEN lot_status = 'SALE_STOPPED'
-                                          OR (sale_stop_date IS NOT NULL AND sale_stop_date &lt;= #{asOfDate})
+                                          OR (sale_stop_date IS NOT NULL AND TRUNC(sale_stop_date) &lt;= TRUNC(CAST(#{asOfDate} AS DATE)))
                                      THEN 1 ELSE 0 END) &gt; 0 THEN 'SALE_STOPPED_INCLUDED'
                        WHEN SUM(CASE WHEN lot_status = 'DEPLETED' THEN 1 ELSE 0 END) = COUNT(*) THEN 'DEPLETED_ONLY'
                        WHEN SUM(on_hand_qty) = 0 THEN 'OUT_OF_STOCK'
@@ -772,6 +909,7 @@
                sa.current_qty,
                sa.available_qty,
                sa.reserved_qty,
+               pc.expected_disposal_qty,
                sa.safety_qty,
                sa.inventory_fact_state,
                sa.risk_grade,
@@ -1008,8 +1146,20 @@
             SELECT bb.sku_id,
                    bb.sales_point_id,
                    SUM(bb.on_hand_qty + bb.reserved_qty) AS current_qty,
-                   SUM(bb.reserved_qty) AS reserved_qty,
-                   SUM(bb.on_hand_qty) AS available_qty,
+                   SUM(CASE
+                           WHEN bb.lot_status IN ('EXPIRED', 'SALE_STOPPED', 'DEPLETED')
+                                OR (bb.expiry_date IS NOT NULL AND TRUNC(bb.expiry_date) &lt;= TRUNC(CAST(#{asOfDate} AS DATE)))
+                                OR (bb.sale_stop_date IS NOT NULL AND TRUNC(bb.sale_stop_date) &lt;= TRUNC(CAST(#{asOfDate} AS DATE)))
+                           THEN 0
+                           ELSE bb.reserved_qty
+                       END) AS reserved_qty,
+                   SUM(CASE
+                           WHEN bb.lot_status IN ('EXPIRED', 'SALE_STOPPED', 'DEPLETED')
+                                OR (bb.expiry_date IS NOT NULL AND TRUNC(bb.expiry_date) &lt;= TRUNC(CAST(#{asOfDate} AS DATE)))
+                                OR (bb.sale_stop_date IS NOT NULL AND TRUNC(bb.sale_stop_date) &lt;= TRUNC(CAST(#{asOfDate} AS DATE)))
+                           THEN 0
+                           ELSE bb.on_hand_qty
+                       END) AS available_qty,
                    MAX(CASE WHEN ls.shortage_yn = 'Y' THEN 1 ELSE 0 END) AS shortage_count,
                    MAX(bb.updated_at) AS updated_at
             FROM balance_base bb
@@ -1200,6 +1350,7 @@
                        WHEN ib.allocated_sales_point_id IS NOT NULL THEN 'ALLOCATED_ONLY'
                        ELSE 'CENTER_ONLY'
                    END AS sales_point_state,
+                   ib.allocated_sales_point_id,
                    ib.warehouse_id,
                    ib.lot_id,
                    ib.on_hand_qty,
@@ -1227,6 +1378,93 @@
                       AND ib.allocated_sales_point_id IS NULL)
               )
         ),
+        detail_disposal_forecast_ranked AS (
+            SELECT df.forecast_id,
+                   df.sku_id,
+                   df.sales_point_id,
+                   df.predicted_qty_d7,
+                   df.predicted_qty_d14,
+                   df.predicted_qty_d30,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY df.sku_id, df.sales_point_id
+                       ORDER BY df.base_date DESC,
+                                df.updated_at DESC,
+                                df.forecast_id DESC
+                   ) AS rn
+            FROM demand_forecast df
+            INNER JOIN ml_model_version mv
+                    ON mv.model_version_id = df.model_version_id
+                   AND mv.status = 'ACTIVE'
+                   AND mv.is_deleted = 0
+            INNER JOIN (SELECT DISTINCT sku_id FROM balance_base) detail_sku
+                    ON detail_sku.sku_id = df.sku_id
+            WHERE df.is_deleted = 0
+              AND df.base_date &lt;= TRUNC(CAST(#{asOfDate} AS DATE))
+              AND df.forecast_source &lt;&gt; 'DUMMY_BASELINE'
+        ),
+        detail_latest_disposal_forecast AS (
+            SELECT forecast_id,
+                   sku_id,
+                   sales_point_id,
+                   predicted_qty_d7,
+                   predicted_qty_d14,
+                   predicted_qty_d30
+            FROM detail_disposal_forecast_ranked
+            WHERE rn = 1
+        ),
+        detail_disposal_lot_dates AS (
+            SELECT bb.sku_id,
+                   bb.allocated_sales_point_id,
+                   bb.on_hand_qty,
+                   bb.lot_status,
+                   CASE
+                       WHEN bb.expiry_date IS NOT NULL AND bb.sale_stop_date IS NOT NULL
+                           THEN LEAST(TRUNC(bb.expiry_date), TRUNC(bb.sale_stop_date))
+                       WHEN bb.expiry_date IS NOT NULL THEN TRUNC(bb.expiry_date)
+                       WHEN bb.sale_stop_date IS NOT NULL THEN TRUNC(bb.sale_stop_date)
+                   END AS sale_end_date
+            FROM balance_base bb
+        ),
+        detail_disposal_scope AS (
+            SELECT sku_id,
+                   allocated_sales_point_id,
+                   SUM(CASE WHEN sale_end_date &lt;= TRUNC(CAST(#{asOfDate} AS DATE)) + 7 THEN on_hand_qty ELSE 0 END) AS expiring_qty_d7,
+                   SUM(CASE WHEN sale_end_date &lt;= TRUNC(CAST(#{asOfDate} AS DATE)) + 14 THEN on_hand_qty ELSE 0 END) AS expiring_qty_d14,
+                   SUM(on_hand_qty) AS expiring_qty_d30
+            FROM detail_disposal_lot_dates
+            WHERE on_hand_qty &gt; 0
+              AND (lot_status IS NULL OR lot_status NOT IN ('EXPIRED', 'SALE_STOPPED', 'DEPLETED'))
+              AND sale_end_date &gt; TRUNC(CAST(#{asOfDate} AS DATE))
+              AND sale_end_date &lt;= TRUNC(CAST(#{asOfDate} AS DATE)) + 30
+            GROUP BY sku_id, allocated_sales_point_id
+        ),
+        detail_disposal AS (
+            SELECT ds.sku_id,
+                   SUM(CASE
+                           WHEN ds.allocated_sales_point_id IS NULL
+                                OR lf.forecast_id IS NULL
+                                OR lf.predicted_qty_d7 IS NULL
+                                OR lf.predicted_qty_d14 IS NULL
+                                OR lf.predicted_qty_d30 IS NULL
+                                OR lf.predicted_qty_d7 &lt; 0
+                                OR lf.predicted_qty_d14 &lt; 0
+                                OR lf.predicted_qty_d30 &lt; 0
+                                OR lf.predicted_qty_d7 &gt; lf.predicted_qty_d14
+                                OR lf.predicted_qty_d14 &gt; lf.predicted_qty_d30
+                           THEN ds.expiring_qty_d30
+                           ELSE GREATEST(
+                               0,
+                               ds.expiring_qty_d7 - lf.predicted_qty_d7,
+                               ds.expiring_qty_d14 - lf.predicted_qty_d14,
+                               ds.expiring_qty_d30 - lf.predicted_qty_d30
+                           )
+                       END) AS expected_disposal_qty
+            FROM detail_disposal_scope ds
+            LEFT JOIN detail_latest_disposal_forecast lf
+                   ON lf.sku_id = ds.sku_id
+                  AND lf.sales_point_id = ds.allocated_sales_point_id
+            GROUP BY ds.sku_id
+        ),
         unassigned_balance_base AS (
             SELECT ib.sku_id,
                    ib.warehouse_id,
@@ -1249,14 +1487,26 @@
         unassigned_agg AS (
             SELECT sku_id,
                    SUM(on_hand_qty + reserved_qty) AS current_qty,
-                   SUM(on_hand_qty) AS available_qty,
-                   SUM(reserved_qty) AS reserved_qty,
+                   SUM(CASE
+                           WHEN lot_status IN ('EXPIRED', 'SALE_STOPPED', 'DEPLETED')
+                                OR (expiry_date IS NOT NULL AND TRUNC(expiry_date) &lt;= TRUNC(CAST(#{asOfDate} AS DATE)))
+                                OR (sale_stop_date IS NOT NULL AND TRUNC(sale_stop_date) &lt;= TRUNC(CAST(#{asOfDate} AS DATE)))
+                           THEN 0
+                           ELSE on_hand_qty
+                       END) AS available_qty,
+                   SUM(CASE
+                           WHEN lot_status IN ('EXPIRED', 'SALE_STOPPED', 'DEPLETED')
+                                OR (expiry_date IS NOT NULL AND TRUNC(expiry_date) &lt;= TRUNC(CAST(#{asOfDate} AS DATE)))
+                                OR (sale_stop_date IS NOT NULL AND TRUNC(sale_stop_date) &lt;= TRUNC(CAST(#{asOfDate} AS DATE)))
+                           THEN 0
+                           ELSE reserved_qty
+                       END) AS reserved_qty,
                    CASE
                        WHEN SUM(CASE WHEN lot_status = 'EXPIRED'
-                                          OR (expiry_date IS NOT NULL AND expiry_date &lt; #{asOfDate})
+                                          OR (expiry_date IS NOT NULL AND TRUNC(expiry_date) &lt;= TRUNC(CAST(#{asOfDate} AS DATE)))
                                      THEN 1 ELSE 0 END) &gt; 0 THEN 'EXPIRED_INCLUDED'
                        WHEN SUM(CASE WHEN lot_status = 'SALE_STOPPED'
-                                          OR (sale_stop_date IS NOT NULL AND sale_stop_date &lt;= #{asOfDate})
+                                          OR (sale_stop_date IS NOT NULL AND TRUNC(sale_stop_date) &lt;= TRUNC(CAST(#{asOfDate} AS DATE)))
                                      THEN 1 ELSE 0 END) &gt; 0 THEN 'SALE_STOPPED_INCLUDED'
                        WHEN SUM(CASE WHEN lot_status = 'DEPLETED' THEN 1 ELSE 0 END) = COUNT(*) THEN 'DEPLETED_ONLY'
                        WHEN SUM(on_hand_qty) = 0 THEN 'OUT_OF_STOCK'
@@ -1269,8 +1519,20 @@
             SELECT sku_id,
                    sales_point_id,
                    SUM(on_hand_qty + reserved_qty) AS current_qty,
-                   SUM(reserved_qty) AS reserved_qty,
-                   SUM(on_hand_qty) AS available_qty,
+                   SUM(CASE
+                           WHEN lot_status IN ('EXPIRED', 'SALE_STOPPED', 'DEPLETED')
+                                OR (expiry_date IS NOT NULL AND TRUNC(expiry_date) &lt;= TRUNC(CAST(#{asOfDate} AS DATE)))
+                                OR (sale_stop_date IS NOT NULL AND TRUNC(sale_stop_date) &lt;= TRUNC(CAST(#{asOfDate} AS DATE)))
+                           THEN 0
+                           ELSE reserved_qty
+                       END) AS reserved_qty,
+                   SUM(CASE
+                           WHEN lot_status IN ('EXPIRED', 'SALE_STOPPED', 'DEPLETED')
+                                OR (expiry_date IS NOT NULL AND TRUNC(expiry_date) &lt;= TRUNC(CAST(#{asOfDate} AS DATE)))
+                                OR (sale_stop_date IS NOT NULL AND TRUNC(sale_stop_date) &lt;= TRUNC(CAST(#{asOfDate} AS DATE)))
+                           THEN 0
+                           ELSE on_hand_qty
+                       END) AS available_qty,
                    CASE
                        WHEN SUM(CASE WHEN sales_point_state = 'OWNED' THEN 1 ELSE 0 END) > 0 THEN 'OWNED'
                        WHEN SUM(CASE WHEN sales_point_state = 'ALLOCATED_ONLY' THEN 1 ELSE 0 END) > 0 THEN 'ALLOCATED_ONLY'
@@ -1282,10 +1544,10 @@
                    MIN(expiry_date) AS nearest_expiry_date,
                    CASE
                        WHEN SUM(CASE WHEN lot_status = 'EXPIRED'
-                                          OR (expiry_date IS NOT NULL AND expiry_date &lt; #{asOfDate})
+                                          OR (expiry_date IS NOT NULL AND TRUNC(expiry_date) &lt;= TRUNC(CAST(#{asOfDate} AS DATE)))
                                      THEN 1 ELSE 0 END) &gt; 0 THEN 'EXPIRED_INCLUDED'
                        WHEN SUM(CASE WHEN lot_status = 'SALE_STOPPED'
-                                          OR (sale_stop_date IS NOT NULL AND sale_stop_date &lt;= #{asOfDate})
+                                          OR (sale_stop_date IS NOT NULL AND TRUNC(sale_stop_date) &lt;= TRUNC(CAST(#{asOfDate} AS DATE)))
                                      THEN 1 ELSE 0 END) &gt; 0 THEN 'SALE_STOPPED_INCLUDED'
                        WHEN SUM(CASE WHEN lot_status = 'DEPLETED' THEN 1 ELSE 0 END) = COUNT(*) THEN 'DEPLETED_ONLY'
                      WHEN SUM(on_hand_qty) = 0 THEN 'OUT_OF_STOCK'
@@ -1455,7 +1717,8 @@
                ra.lot_count,
                ra.nearest_expiry_days,
                ra.nearest_expiry_date,
-               ra.updated_at
+               ra.updated_at,
+               NVL(disposal.expected_disposal_qty, 0) AS expected_disposal_qty
         FROM row_agg ra
         INNER JOIN sku s ON s.sku_id = ra.sku_id
         INNER JOIN product p ON p.product_id = s.product_id
@@ -1470,6 +1733,7 @@
         LEFT JOIN latest_price price ON price.sku_id = ra.sku_id AND price.sales_point_id = ra.sales_point_id AND price.rn = 1
         LEFT JOIN policy_agg policy ON policy.sku_id = ra.sku_id AND policy.sales_point_id = ra.sales_point_id
         LEFT JOIN risk_agg risk ON risk.sku_id = ra.sku_id AND risk.sales_point_id = ra.sales_point_id
+        LEFT JOIN detail_disposal disposal ON disposal.sku_id = ra.sku_id
     </select>
 
     <!--
@@ -1508,8 +1772,20 @@
                    l.expiry_date,
                    l.sale_stop_date,
                    SUM(ib.on_hand_qty + ib.reserved_qty) AS quantity,
-                   SUM(ib.reserved_qty) AS reserved_quantity,
-                   SUM(ib.on_hand_qty) AS available_quantity,
+                   SUM(CASE
+                           WHEN l.lot_status IN ('EXPIRED', 'SALE_STOPPED', 'DEPLETED')
+                                OR (l.expiry_date IS NOT NULL AND TRUNC(l.expiry_date) &lt;= TRUNC(CAST(#{asOfDate} AS DATE)))
+                                OR (l.sale_stop_date IS NOT NULL AND TRUNC(l.sale_stop_date) &lt;= TRUNC(CAST(#{asOfDate} AS DATE)))
+                           THEN 0
+                           ELSE ib.reserved_qty
+                       END) AS reserved_quantity,
+                   SUM(CASE
+                           WHEN l.lot_status IN ('EXPIRED', 'SALE_STOPPED', 'DEPLETED')
+                                OR (l.expiry_date IS NOT NULL AND TRUNC(l.expiry_date) &lt;= TRUNC(CAST(#{asOfDate} AS DATE)))
+                                OR (l.sale_stop_date IS NOT NULL AND TRUNC(l.sale_stop_date) &lt;= TRUNC(CAST(#{asOfDate} AS DATE)))
+                           THEN 0
+                           ELSE ib.on_hand_qty
+                       END) AS available_quantity,
                    TRUNC(CASE WHEN l.expiry_date IS NULL THEN NULL
                               ELSE TRUNC(l.expiry_date) - TRUNC(CAST(#{asOfDate} AS DATE)) END) AS expiry_days,
             CASE WHEN #{salesPointCode} = 'UNASSIGNED'

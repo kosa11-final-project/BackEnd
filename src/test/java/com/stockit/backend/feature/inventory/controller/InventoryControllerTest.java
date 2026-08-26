@@ -74,7 +74,8 @@ class InventoryControllerTest {
                 null,
                 null,
                 null,
-                null
+                null,
+                new BigDecimal("3")
         );
         given(inventoryQueryService.find(any(InventoryQuery.class)))
                 .willReturn(new InventoryListResponse(List.of(item), 1, 1, 20, 1, false));
@@ -96,6 +97,7 @@ class InventoryControllerTest {
                 .andExpect(jsonPath("$.data.items[0].salesPoints[0].salesPointCode").value("SP-1"))
                 .andExpect(jsonPath("$.data.items[0].salesPoints[0].salesPointId").value(77))
                 .andExpect(jsonPath("$.data.items[0].unassignedInventory").exists())
+                .andExpect(jsonPath("$.data.items[0].expectedDisposalQuantity").value(3))
                 .andExpect(jsonPath("$.data.items[0].risk.assessmentStatus").value("UNASSESSED"))
                 .andExpect(jsonPath("$.data.totalCount").value(1));
 

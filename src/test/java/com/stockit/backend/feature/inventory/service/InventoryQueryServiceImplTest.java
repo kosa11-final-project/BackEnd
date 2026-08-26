@@ -50,6 +50,7 @@ class InventoryQueryServiceImplTest {
     void detailReturnsHeaderWithoutAssemblingLots() {
         InventoryItemVO item = createItemVO("SKU-1", "GREETING");
         item.setSkuId(1001L);
+        item.setExpectedDisposalQty(new BigDecimal("4"));
         item.setSalesPointsJson("[{\"salesPointId\":77,\"salesPointCode\":\"GREETING\",\"salesPointName\":\"그리팅\",\"channelType\":\"GREETING\"}]");
         item.setSupplierName("테스트 공급사");
         item.setAssessmentStatus("ASSESSED");
@@ -73,6 +74,8 @@ class InventoryQueryServiceImplTest {
                 .containsExactly("식품", "베이커리/간식", "베이커리");
         assertThat(response.risk().reason()).contains("SHORTAGE_D30", "산식: 가용재고=100");
         assertThat(response.lots()).isEmpty();
+        assertThat(new ObjectMapper().valueToTree(response).path("expectedDisposalQuantity").asText())
+                .isEqualTo("4");
     }
 
     @Test
@@ -125,6 +128,7 @@ class InventoryQueryServiceImplTest {
     void findReturnsSkuRowIdAndServerPaginationMetadata() {
         InventoryItemVO item = createItemVO("SKU-1", "GREETING");
         item.setTotalCount(5L);
+        item.setExpectedDisposalQty(new BigDecimal("7"));
         item.setSalesPointsJson("[{\"salesPointCode\":\"GREETING\",\"salesPointName\":\"그리팅\",\"channelType\":\"GREETING\",\"currentQuantity\":50,\"availableQuantity\":40,\"reservedQuantity\":10,\"riskGrade\":\"SAFE\",\"warehouseName\":\"경인 1센터\"}]");
         var query = new InventoryQueryRequest();
         query.setPage(2);
@@ -138,6 +142,7 @@ class InventoryQueryServiceImplTest {
         assertThat(response.items().get(0).rowId()).isEqualTo("SKU-1");
         assertThat(response.items().get(0).salesPoints()).extracting(point -> point.salesPointCode())
                 .containsExactly("GREETING");
+        assertThat(response.items().get(0).expectedDisposalQuantity()).isEqualByComparingTo("7");
         assertThat(response.page()).isEqualTo(2);
         assertThat(response.size()).isEqualTo(2);
         assertThat(response.totalCount()).isEqualTo(5);
