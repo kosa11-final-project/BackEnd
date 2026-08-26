@@ -33,6 +33,7 @@ import com.stockit.backend.common.exception.AppException;
 import com.stockit.backend.common.exception.ErrorCode;
 import com.stockit.backend.feature.strategy.domain.StrategyCaseCreated;
 import com.stockit.backend.feature.strategy.domain.StrategyCaseStatus;
+import com.stockit.backend.feature.strategy.domain.StrategyType;
 import com.stockit.backend.feature.strategy.approval.StrategyReviewStatus;
 import com.stockit.backend.feature.strategy.dto.response.AiStrategyReviewerListResponse;
 import com.stockit.backend.feature.strategy.dto.response.AiStrategyTeamsRequestResponse;
@@ -180,6 +181,16 @@ class AiStrategyControllerTest {
                                 SalesPointDiscountPolicy.SalesPointGroup.DEPARTMENT_STORE,
                                 decimal("0.20")
                         ),
+                        List.of(new AdjustedAiStrategySimulationResponse.AdjustedAction(
+                                1,
+                                StrategyType.RT_TRANSFER,
+                                decimal("10"),
+                                decimal("200"),
+                                new AdjustedAiStrategySimulationResponse.MovementCost(
+                                        decimal("5"), decimal("20"),
+                                        decimal("2"), decimal("200")
+                                )
+                        )),
                         new AiStrategyPeriodConstraintsResponse(
                                 start, end, 90, false
                         ),
@@ -212,6 +223,12 @@ class AiStrategyControllerTest {
                         .value("2026-08-20"))
                 .andExpect(jsonPath("$.data.chartRange.endDate")
                         .value("2026-08-27"))
+                .andExpect(jsonPath("$.data.actions[0].actionType")
+                        .value("RT_TRANSFER"))
+                .andExpect(jsonPath("$.data.actions[0].movementCost.weightKg")
+                        .value(5))
+                .andExpect(jsonPath("$.data.actions[0].movementCost.estimatedCost")
+                        .value(200))
                 .andExpect(jsonPath("$.data.simulation.dailySeries[0].date")
                         .value("2026-08-20"));
     }
