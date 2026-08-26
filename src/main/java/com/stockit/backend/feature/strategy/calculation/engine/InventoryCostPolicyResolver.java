@@ -28,10 +28,15 @@ final class InventoryCostPolicyResolver {
                         .thenComparing(scored -> -scored.policy().inventoryPolicyId()))
                 .map(scored -> new Cost(
                         nonNegative(scored.policy().dailyUnitHoldingCost()),
-                        nonNegative(scored.policy().unitDisposalCost())
+                        nonNegative(scored.policy().unitDisposalCost()),
+                        true
                 ))
-                // 누락 비용은 절감액을 만들어내지 않도록 0으로 보수적 처리한다.
-                .orElseGet(() -> new Cost(BigDecimal.ZERO, BigDecimal.ZERO));
+                // 수치상 0과 정책 누락을 구분해 이동 전후 비용 비교에 사용한다.
+                .orElseGet(() -> new Cost(
+                        BigDecimal.ZERO,
+                        BigDecimal.ZERO,
+                        false
+                ));
     }
 
     private static int matchScore(
@@ -67,7 +72,11 @@ final class InventoryCostPolicyResolver {
         return value == null || value.signum() < 0 ? BigDecimal.ZERO : value;
     }
 
-    record Cost(BigDecimal dailyUnitHoldingCost, BigDecimal unitDisposalCost) {
+    record Cost(
+            BigDecimal dailyUnitHoldingCost,
+            BigDecimal unitDisposalCost,
+            boolean matched
+    ) {
     }
 
     private record ScoredPolicy(InventoryPolicy policy, int score) {

@@ -69,6 +69,7 @@ public class StrategyCandidateSimulationEngine {
             SimulationDetailLevel detailLevel
     ) {
         validateRange(context, candidate);
+        validateTransferCostPolicies(context, candidate);
         CandidatePlan plan = CandidatePlan.create(candidate);
         List<LotState> lots = plan.createLotStates(context.evaluationInventory());
         Map<Long, Map<LocalDate, BigDecimal>> demandBySalesPoint = demandBySalesPoint(
@@ -585,6 +586,36 @@ public class StrategyCandidateSimulationEngine {
                     "Candidate period must be inside the forecast range"
             );
         }
+    }
+
+    /** 이동 전후 위치 중 비용 정책이 누락되면 가상의 비용 절감액을 만들지 않는다. */
+    private static void validateTransferCostPolicies(
+            StrategyCalculationContext context,
+            StrategyCandidate candidate
+    ) {
+        for (StrategyCandidate.Action action : candidate.actions()) {
+            if (action.actionType() != StrategyType.RT_TRANSFER) {
+                continue;
+            }
+            if (!hasInventoryCostPolicy(context, action.source())
+                    || !hasInventoryCostPolicy(context, action.target())) {
+                throw new CandidateSimulationException(
+                        "CANDIDATE_INVENTORY_COST_POLICY_NOT_FOUND",
+                        "Inventory cost policy is required for both transfer locations"
+                );
+            }
+        }
+    }
+
+    private static boolean hasInventoryCostPolicy(
+            StrategyCalculationContext context,
+            StrategyCandidate.Location location
+    ) {
+        return InventoryCostPolicyResolver.resolve(
+                context.inventoryPolicies(),
+                location.warehouseId(),
+                location.salesPointId()
+        ).matched();
     }
 
     private static BigDecimal estimatedActionCost(StrategyCandidate candidate) {

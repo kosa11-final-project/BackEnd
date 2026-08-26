@@ -144,10 +144,16 @@ class StrategyCandidateSimulationEngineTest {
                         price(20L, "110", "70"),
                         true
                 ),
-                List.of(new StrategyCalculationContext.InventoryPolicy(
-                        1L, 501L, 10L, 10L, BigDecimal.ZERO, null,
-                        new BigDecimal("2"), new BigDecimal("30")
-                ))
+                List.of(
+                        new StrategyCalculationContext.InventoryPolicy(
+                                1L, 501L, 10L, 10L, BigDecimal.ZERO, null,
+                                new BigDecimal("2"), new BigDecimal("30")
+                        ),
+                        new StrategyCalculationContext.InventoryPolicy(
+                                2L, 502L, 20L, 20L, BigDecimal.ZERO, null,
+                                BigDecimal.ZERO, BigDecimal.ZERO
+                        )
+                )
         );
         StrategyCandidate.Action action = new StrategyCandidate.Action(
                 StrategyType.RT_TRANSFER,
@@ -191,6 +197,56 @@ class StrategyCandidateSimulationEngineTest {
         assertThat(result.summary().estimatedActionCost())
                 .isEqualByComparingTo("100");
         assertThat(result.summary().netEffect()).isEqualByComparingTo("670");
+    }
+
+    @Test
+    void rejectsTransferWhenDestinationInventoryCostPolicyIsMissing() {
+        StrategyCalculationContext context = withInventoryPolicies(
+                context(
+                        lot("10", null),
+                        forecasts("0", "0", "0"),
+                        forecasts("10", "10", "10"),
+                        price(10L, "100", "70"),
+                        price(20L, "110", "70"),
+                        true
+                ),
+                List.of(new StrategyCalculationContext.InventoryPolicy(
+                        1L, 501L, 10L, 10L, BigDecimal.ZERO, null,
+                        new BigDecimal("2"), new BigDecimal("30")
+                ))
+        );
+        StrategyCandidate.Action action = new StrategyCandidate.Action(
+                StrategyType.RT_TRANSFER,
+                new StrategyCandidate.Location(501L, 10L),
+                new StrategyCandidate.Location(502L, 20L),
+                decimal("10"),
+                decimal("100"),
+                List.of(allocation("10"))
+        );
+        StrategyCandidate candidate = new StrategyCandidate(
+                "CAND-RT-MISSING-COST-POLICY",
+                List.of(StrategyType.RT_TRANSFER),
+                START,
+                null,
+                List.of(action),
+                List.of(),
+                preference(),
+                new StrategyCandidate.MovementEvidence(
+                        decimal("10"), decimal("10"), decimal("30"), decimal("10")
+                )
+        );
+
+        assertThatThrownBy(() -> engine.simulate(
+                context,
+                candidate,
+                baselineEngine.simulate(context),
+                SimulationDetailLevel.SUMMARY_ONLY
+        )).isInstanceOfSatisfying(
+                CandidateSimulationException.class,
+                exception -> assertThat(exception.getCode()).isEqualTo(
+                        "CANDIDATE_INVENTORY_COST_POLICY_NOT_FOUND"
+                )
+        );
     }
 
     @Test
