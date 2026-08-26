@@ -158,6 +158,44 @@ class DiscountAndChannelCandidateCalculatorTest {
     }
 
     @Test
+    void generatesDiscountForInventoryHeldDirectlyAtSalesPoint() {
+        StrategyCalculationContext original = context(
+                null,
+                List.of(StrategyType.PRICE_DISCOUNT)
+        );
+        StrategyCalculationContext.InventoryLot directInventory =
+                new StrategyCalculationContext.InventoryLot(
+                        1L,
+                        1001L,
+                        null,
+                        10L,
+                        10L,
+                        decimal("100"),
+                        BigDecimal.ZERO,
+                        null,
+                        LocalDate.of(2026, 8, 1),
+                        null,
+                        null,
+                        "AVAILABLE"
+                );
+        StrategyCalculationContext context = original.withInventory(
+                List.of(directInventory),
+                List.of(directInventory)
+        );
+
+        CandidateGenerationResult result = discountCalculator.generate(context, 1);
+
+        assertThat(result.candidates()).isNotEmpty();
+        assertThat(result.candidates()).allSatisfy(candidate ->
+                assertThat(candidate.actions()).singleElement().satisfies(action -> {
+                    assertThat(action.source().warehouseId()).isNull();
+                    assertThat(action.source().salesPointId()).isEqualTo(10L);
+                    assertThat(action.target()).isEqualTo(action.source());
+                })
+        );
+    }
+
+    @Test
     void limitsFutureDiscountQuantityToProjectedRemainingInventory() {
         StrategyCalculationContext original = context(
                 null,
