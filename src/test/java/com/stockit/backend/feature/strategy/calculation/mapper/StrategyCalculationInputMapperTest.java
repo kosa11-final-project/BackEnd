@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.stream.LongStream;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -74,10 +75,10 @@ class StrategyCalculationInputMapperTest {
                             .isEqualByComparingTo("2.5");
                 });
         assertThat(mapper.selectActiveTransferRoutes(
-                List.of(501L),
+                List.of(List.of(501L)),
                 List.of(),
-                List.of(502L),
-                List.of(20L)
+                List.of(List.of(502L)),
+                List.of(List.of(20L))
         ))
                 .singleElement()
                 .satisfies(route -> {
@@ -86,9 +87,9 @@ class StrategyCalculationInputMapperTest {
                     assertThat(route.getDistanceKm()).isEqualByComparingTo("25.5");
                 });
         assertThat(mapper.selectActiveTransferRoutes(
-                List.of(999L),
+                List.of(List.of(999L)),
                 List.of(),
-                List.of(998L),
+                List.of(List.of(998L)),
                 List.of()
         )).isEmpty();
         assertThat(mapper.selectTransferCostPolicies(
@@ -97,6 +98,26 @@ class StrategyCalculationInputMapperTest {
                 .singleElement()
                 .satisfies(policy -> assertThat(policy.getCostPerKgKm())
                         .isEqualByComparingTo("2"));
+    }
+
+    @Test
+    void readsTransferRouteWhenDestinationIdsSpanMultipleOracleInChunks() {
+        List<Long> destinationIds = LongStream.rangeClosed(1, 1001)
+                .boxed()
+                .toList();
+        List<List<Long>> destinationIdChunks = List.of(
+                destinationIds.subList(0, 900),
+                destinationIds.subList(900, destinationIds.size())
+        );
+
+        assertThat(mapper.selectActiveTransferRoutes(
+                List.of(List.of(501L)),
+                List.of(),
+                List.of(),
+                destinationIdChunks
+        )).singleElement().satisfies(route ->
+                assertThat(route.getDestinationSalesPointId()).isEqualTo(20L)
+        );
     }
 
     @Test

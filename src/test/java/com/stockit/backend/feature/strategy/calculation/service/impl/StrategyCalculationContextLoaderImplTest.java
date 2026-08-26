@@ -15,6 +15,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.LongStream;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -138,11 +139,24 @@ class StrategyCalculationContextLoaderImplTest {
         verify(checkpointStore).find(12345L, "request-hash", List.of(10L, 20L));
         verify(responseValidator).validate(requestContext(10L), forecastResponse(10L));
         verify(inputMapper).selectActiveTransferRoutes(
-                List.of(501L),
+                List.of(List.of(501L)),
                 List.of(),
-                List.of(501L),
-                List.of(10L, 20L)
+                List.of(List.of(501L)),
+                List.of(List.of(10L, 20L))
         );
+    }
+
+    @Test
+    void partitionsOracleInValuesWithoutDroppingIds() {
+        List<Long> ids = LongStream.rangeClosed(1, 1001).boxed().toList();
+
+        List<List<Long>> chunks = StrategyCalculationContextLoaderImpl.partitionIds(ids);
+
+        assertThat(chunks).hasSize(2);
+        assertThat(chunks.get(0)).hasSize(900);
+        assertThat(chunks.get(1)).hasSize(101);
+        assertThat(chunks.stream().flatMap(List::stream).toList())
+                .containsExactlyElementsOf(ids);
     }
 
     @Test

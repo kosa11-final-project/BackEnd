@@ -51,10 +51,14 @@ public interface StrategyCalculationInputMapper {
     );
 
     List<StrategyCalculationTransferRouteVO> selectActiveTransferRoutes(
-            @Param("sourceWarehouseIds") List<Long> sourceWarehouseIds,
-            @Param("sourceSalesPointIds") List<Long> sourceSalesPointIds,
-            @Param("destinationWarehouseIds") List<Long> destinationWarehouseIds,
-            @Param("destinationSalesPointIds") List<Long> destinationSalesPointIds
+            @Param("sourceWarehouseIdChunks")
+            List<List<Long>> sourceWarehouseIdChunks,
+            @Param("sourceSalesPointIdChunks")
+            List<List<Long>> sourceSalesPointIdChunks,
+            @Param("destinationWarehouseIdChunks")
+            List<List<Long>> destinationWarehouseIdChunks,
+            @Param("destinationSalesPointIdChunks")
+            List<List<Long>> destinationSalesPointIdChunks
     );
 
     List<StrategyCalculationTransferCostPolicyVO> selectTransferCostPolicies(

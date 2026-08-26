@@ -3,6 +3,7 @@ package com.stockit.backend.feature.strategy.calculation.service.impl;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -55,6 +56,8 @@ import com.stockit.backend.feature.strategy.vo.StrategyCaseVO;
 @Service
 public class StrategyCalculationContextLoaderImpl
         implements StrategyCalculationContextLoader {
+
+    static final int ORACLE_IN_CHUNK_SIZE = 900;
 
     private final StrategyCaseMapper strategyCaseMapper;
     private final StrategyCaseRequestPayloadSerializer payloadSerializer;
@@ -306,10 +309,10 @@ public class StrategyCalculationContextLoaderImpl
         List<StrategyCalculationTransferRouteVO> transferRoutes =
                 relevantTransferRoutes(
                         inputMapper.selectActiveTransferRoutes(
-                                transferRouteScope.sourceWarehouseIds(),
-                                transferRouteScope.sourceSalesPointIds(),
-                                transferRouteScope.destinationWarehouseIds(),
-                                transferRouteScope.destinationSalesPointIds()
+                                transferRouteScope.sourceWarehouseIdChunks(),
+                                transferRouteScope.sourceSalesPointIdChunks(),
+                                transferRouteScope.destinationWarehouseIdChunks(),
+                                transferRouteScope.destinationSalesPointIdChunks()
                         ),
                         evaluationInventory,
                         salesPoints
@@ -402,15 +405,28 @@ public class StrategyCalculationContextLoaderImpl
                 .map(StrategyCalculationContext.WarehouseRoute::warehouseId)
                 .collect(Collectors.toSet());
         return new TransferRouteScope(
-                sortedIds(sourceWarehouseIds),
-                sortedIds(sourceSalesPointIds),
-                sortedIds(destinationWarehouseIds),
-                sortedIds(destinationSalesPointIds)
+                partitionIds(sortedIds(sourceWarehouseIds)),
+                partitionIds(sortedIds(sourceSalesPointIds)),
+                partitionIds(sortedIds(destinationWarehouseIds)),
+                partitionIds(sortedIds(destinationSalesPointIds))
         );
     }
 
     private static List<Long> sortedIds(Collection<Long> ids) {
         return ids.stream().sorted().toList();
+    }
+
+    /** Oracle IN 절의 1,000개 표현식 제한을 넘지 않도록 ID 목록을 분할한다. */
+    static List<List<Long>> partitionIds(List<Long> ids) {
+        if (ids.isEmpty()) {
+            return List.of();
+        }
+        List<List<Long>> chunks = new ArrayList<>();
+        for (int start = 0; start < ids.size(); start += ORACLE_IN_CHUNK_SIZE) {
+            int end = Math.min(start + ORACLE_IN_CHUNK_SIZE, ids.size());
+            chunks.add(List.copyOf(ids.subList(start, end)));
+        }
+        return List.copyOf(chunks);
     }
 
     /** DB 범위 축소 후에도 잘못된 방향이나 위치 조합이 문맥에 섞이지 않게 재검증한다. */
@@ -647,10 +663,10 @@ public class StrategyCalculationContextLoaderImpl
     }
 
     private record TransferRouteScope(
-            List<Long> sourceWarehouseIds,
-            List<Long> sourceSalesPointIds,
-            List<Long> destinationWarehouseIds,
-            List<Long> destinationSalesPointIds
+            List<List<Long>> sourceWarehouseIdChunks,
+            List<List<Long>> sourceSalesPointIdChunks,
+            List<List<Long>> destinationWarehouseIdChunks,
+            List<List<Long>> destinationSalesPointIdChunks
     ) {
     }
 }
