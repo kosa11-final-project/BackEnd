@@ -86,7 +86,7 @@ class StrategyCalculationInputMapperTest {
                     assertThat(route.getDestinationSalesPointId()).isEqualTo(20L);
                     assertThat(route.getDistanceKm()).isEqualByComparingTo("25.5");
                 });
-        assertThat(mapper.selectActiveTransferRoutesByIds(List.of(1L)))
+        assertThat(mapper.selectActiveTransferRoutesByIds(List.of(List.of(1L))))
                 .singleElement()
                 .satisfies(route -> {
                     assertThat(route.getTransferRouteId()).isEqualTo(1L);
@@ -124,6 +124,22 @@ class StrategyCalculationInputMapperTest {
         )).singleElement().satisfies(route ->
                 assertThat(route.getDestinationSalesPointId()).isEqualTo(20L)
         );
+    }
+
+    @Test
+    void readsTransferRouteByIdsWhenIdsSpanMultipleOracleInChunks() {
+        List<Long> routeIds = LongStream.rangeClosed(1, 1001)
+                .boxed()
+                .toList();
+        List<List<Long>> routeIdChunks = List.of(
+                routeIds.subList(0, 900),
+                routeIds.subList(900, routeIds.size())
+        );
+
+        assertThat(mapper.selectActiveTransferRoutesByIds(routeIdChunks))
+                .singleElement()
+                .satisfies(route -> assertThat(route.getTransferRouteId())
+                        .isEqualTo(1L));
     }
 
     @Test

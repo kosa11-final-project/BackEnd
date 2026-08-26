@@ -2,6 +2,7 @@ package com.stockit.backend.feature.strategy.approval;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -15,6 +16,7 @@ import org.springframework.stereotype.Component;
 import com.stockit.backend.common.exception.AppException;
 import com.stockit.backend.common.exception.ErrorCode;
 import com.stockit.backend.feature.strategy.calculation.candidate.calculator.InventoryTransferCostCalculator;
+import com.stockit.backend.feature.strategy.calculation.candidate.calculator.InventoryTransferCostCalculationException;
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculationContext;
 import com.stockit.backend.feature.strategy.calculation.mapper.StrategyCalculationInputMapper;
 import com.stockit.backend.feature.strategy.calculation.vo.StrategyCalculationSkuVO;
@@ -26,6 +28,8 @@ import com.stockit.backend.feature.strategy.result.StrategyGenerationResult;
 /** 최종 선택 직전 RT_TRANSFER의 경로·요율·중량 Snapshot 최신성을 검증한다. */
 @Component
 public class StrategyTransferInputFreshnessValidator {
+
+    private static final int ORACLE_IN_CHUNK_SIZE = 900;
 
     private final StrategyCalculationInputMapper inputMapper;
     private final InventoryTransferCostCalculator transferCostCalculator;
@@ -97,7 +101,9 @@ public class StrategyTransferInputFreshnessValidator {
             conflict("재고 이동비 계산 근거가 없습니다. 전략을 다시 생성해 주세요.");
         }
         List<StrategyCalculationTransferRouteVO> rows =
-                inputMapper.selectActiveTransferRoutesByIds(routeIds);
+                inputMapper.selectActiveTransferRoutesByIds(
+                        partitionRouteIds(routeIds)
+                );
         if (rows.size() != routeIds.size()) {
             conflict(
                     "생성 이후 재고 이동 경로가 비활성화되었습니다. 전략을 다시 생성해 주세요."
@@ -181,7 +187,8 @@ public class StrategyTransferInputFreshnessValidator {
                     route.getDistanceKm(),
                     currentPolicy.getCostPerKgKm()
             );
-        } catch (RuntimeException exception) {
+        } catch (InventoryTransferCostCalculationException
+                 | IllegalArgumentException exception) {
             conflict(
                     "현재 재고 이동비를 다시 계산할 수 없습니다. 전략을 다시 생성해 주세요."
             );
@@ -221,6 +228,18 @@ public class StrategyTransferInputFreshnessValidator {
 
     private static boolean different(BigDecimal left, BigDecimal right) {
         return left == null || right == null || left.compareTo(right) != 0;
+    }
+
+    /** Oracle IN 절의 1,000개 표현식 제한을 넘지 않도록 경로 ID를 분할한다. */
+    static List<List<Long>> partitionRouteIds(List<Long> routeIds) {
+        List<List<Long>> chunks = new ArrayList<>();
+        for (int start = 0;
+                start < routeIds.size();
+                start += ORACLE_IN_CHUNK_SIZE) {
+            int end = Math.min(start + ORACLE_IN_CHUNK_SIZE, routeIds.size());
+            chunks.add(List.copyOf(routeIds.subList(start, end)));
+        }
+        return List.copyOf(chunks);
     }
 
     private static void conflict(String message) {

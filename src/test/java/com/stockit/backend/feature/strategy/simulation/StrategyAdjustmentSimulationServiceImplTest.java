@@ -126,6 +126,13 @@ class StrategyAdjustmentSimulationServiceImplTest {
                 .isEqualByComparingTo("6");
         assertThat(response.adjustedConditions().strategyPrice())
                 .isEqualByComparingTo("85");
+        assertThat(response.actions()).singleElement().satisfies(action -> {
+            assertThat(action.actionOrder()).isEqualTo(1);
+            assertThat(action.actionType()).isEqualTo(
+                    StrategyType.PRICE_DISCOUNT
+            );
+            assertThat(action.movementCost()).isNull();
+        });
         assertThat(response.adjustedConditions().salesPointGroup())
                 .isEqualTo(SalesPointDiscountPolicy.SalesPointGroup.DEPARTMENT_STORE);
         assertThat(response.adjustedConditions().maximumDiscountRate())

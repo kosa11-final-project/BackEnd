@@ -2,6 +2,7 @@ package com.stockit.backend.feature.strategy.approval;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -56,7 +57,7 @@ class StrategyTransferInputFreshnessValidatorTest {
                 StrategyCalculationInputMapper.class
         );
         stubCurrentInputs(mapper, "10", "2", "500");
-        when(mapper.selectActiveTransferRoutesByIds(List.of(900L)))
+        when(mapper.selectActiveTransferRoutesByIds(List.of(List.of(900L))))
                 .thenReturn(List.of());
 
         assertConflict(
@@ -73,7 +74,7 @@ class StrategyTransferInputFreshnessValidatorTest {
         stubCurrentInputs(mapper, "10", "2", "500");
         StrategyCalculationTransferRouteVO changedRoute = route("10");
         changedRoute.setDestinationWarehouseId(503L);
-        when(mapper.selectActiveTransferRoutesByIds(List.of(900L)))
+        when(mapper.selectActiveTransferRoutesByIds(List.of(List.of(900L))))
                 .thenReturn(List.of(changedRoute));
 
         assertConflict(
@@ -149,12 +150,51 @@ class StrategyTransferInputFreshnessValidatorTest {
         verifyNoInteractions(mapper);
     }
 
+    @Test
+    void partitionsRouteIdsToStayBelowOracleInLimit() {
+        List<Long> routeIds = java.util.stream.LongStream.rangeClosed(1, 1001)
+                .boxed()
+                .toList();
+
+        assertThat(StrategyTransferInputFreshnessValidator.partitionRouteIds(routeIds))
+                .satisfies(chunks -> {
+                    assertThat(chunks).hasSize(2);
+                    assertThat(chunks.get(0)).hasSize(900);
+                    assertThat(chunks.get(1)).hasSize(101);
+                    assertThat(chunks.stream().flatMap(List::stream).toList())
+                            .containsExactlyElementsOf(routeIds);
+                });
+    }
+
+    @Test
+    void propagatesUnexpectedRuntimeDefectInsteadOfMaskingItAsConflict() {
+        StrategyCalculationInputMapper mapper = mock(
+                StrategyCalculationInputMapper.class
+        );
+        stubCurrentInputs(mapper, "10", "2", "500");
+        InventoryTransferCostCalculator calculator = mock(
+                InventoryTransferCostCalculator.class
+        );
+        when(calculator.unitWeightKg(any(), any()))
+                .thenThrow(new NullPointerException("unexpected defect"));
+
+        assertThatThrownBy(() -> validator(mapper, calculator)
+                .validate(resolved(transferCandidate())))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage("unexpected defect");
+    }
+
     private static StrategyTransferInputFreshnessValidator validator(
             StrategyCalculationInputMapper mapper
     ) {
-        return new StrategyTransferInputFreshnessValidator(
-                mapper, new InventoryTransferCostCalculator()
-        );
+        return validator(mapper, new InventoryTransferCostCalculator());
+    }
+
+    private static StrategyTransferInputFreshnessValidator validator(
+            StrategyCalculationInputMapper mapper,
+            InventoryTransferCostCalculator calculator
+    ) {
+        return new StrategyTransferInputFreshnessValidator(mapper, calculator);
     }
 
     private static void stubCurrentInputs(
@@ -168,7 +208,7 @@ class StrategyTransferInputFreshnessValidatorTest {
         sku.setNetWeight(decimal(netWeight));
         sku.setWeightUnit("G");
         when(mapper.selectActiveSku(100L)).thenReturn(sku);
-        when(mapper.selectActiveTransferRoutesByIds(List.of(900L)))
+        when(mapper.selectActiveTransferRoutesByIds(List.of(List.of(900L))))
                 .thenReturn(List.of(route(distance)));
         when(mapper.selectTransferCostPolicies(START_DATE, START_DATE))
                 .thenReturn(List.of(policy(700L, rate)));

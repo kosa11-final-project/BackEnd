@@ -217,13 +217,18 @@
                itr.distance_route_option,
                itr.distance_calculated_at
         FROM inventory_transfer_route itr
-        WHERE itr.transfer_route_id IN
-        <foreach collection="transferRouteIds" item="transferRouteId"
-                 open="(" separator="," close=")">
-            #{transferRouteId}
-        </foreach>
-          AND itr.active_yn = 'Y'
+        WHERE itr.active_yn = 'Y'
           AND itr.is_deleted = 0
+          AND (
+        <foreach collection="transferRouteIdChunks" item="idChunk"
+                 separator=" OR ">
+            itr.transfer_route_id IN
+            <foreach collection="idChunk" item="transferRouteId"
+                     open="(" separator="," close=")">
+                #{transferRouteId}
+            </foreach>
+        </foreach>
+          )
         ORDER BY itr.transfer_route_id
     </select>
 </mapper>

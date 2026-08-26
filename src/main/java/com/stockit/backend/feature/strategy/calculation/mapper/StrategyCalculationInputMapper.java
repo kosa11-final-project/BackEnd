@@ -63,7 +63,8 @@ public interface StrategyCalculationInputMapper {
 
     /** 최종 선택 시 생성 당시 경로 ID의 현재 활성 Snapshot을 재검증한다. */
     List<StrategyCalculationTransferRouteVO> selectActiveTransferRoutesByIds(
-            @Param("transferRouteIds") List<Long> transferRouteIds
+            @Param("transferRouteIdChunks")
+            List<List<Long>> transferRouteIdChunks
     );
 
     List<StrategyCalculationTransferCostPolicyVO> selectTransferCostPolicies(
