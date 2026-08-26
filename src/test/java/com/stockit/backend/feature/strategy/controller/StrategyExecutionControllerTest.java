@@ -145,11 +145,19 @@ class StrategyExecutionControllerTest {
     }
 
     @Test
-    void publishesBothEndpointsInOpenApi() throws Exception {
+    void publishesStrategyExecutionEndpointsInOpenApi() throws Exception {
+        String syncOperation = "$.paths['/api/v1/strategy-executions/sync'].post";
         String detailOperation = "$.paths['/api/v1/strategy-executions/{strategyCaseId}'].get";
 
         mockMvc.perform(get("/v3/api-docs"))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath(syncOperation + ".responses['200']").exists())
+                .andExpect(jsonPath(syncOperation + ".responses['401'].content['*/*'].schema['$ref']")
+                        .value("#/components/schemas/ApiErrorResponse"))
+                .andExpect(jsonPath(syncOperation + ".responses['403'].content['*/*'].schema['$ref']")
+                        .value("#/components/schemas/ApiErrorResponse"))
+                .andExpect(jsonPath(syncOperation + ".responses['409'].content['*/*'].schema['$ref']")
+                        .value("#/components/schemas/ApiErrorResponse"))
                 .andExpect(jsonPath("$.paths['/api/v1/strategy-executions'].get.summary")
                         .value("AI 전략 실행 관제 목록 조회"))
                 .andExpect(jsonPath("$.paths['/api/v1/strategy-executions'].get.parameters[?(@.name == 'page')]").exists())

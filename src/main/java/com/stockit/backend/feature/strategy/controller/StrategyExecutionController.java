@@ -50,6 +50,24 @@ public class StrategyExecutionController {
             summary = "AI 전략 성과 수동 동기화",
             description = "최종 선택 전략의 실제 판매량·매출·기여이익과 최신 잔여재고를 운영 데이터에서 다시 집계합니다."
     )
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "성과 동기화 성공"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "401",
+                    description = "세션이 없거나 만료됨",
+                    content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "403",
+                    description = "동기화 권한이 없음",
+                    content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "409",
+                    description = "성과 동기화 충돌",
+                    content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))
+            )
+    })
     public ApiResponse<StrategyPerformanceSyncResponse> synchronize(
             @AuthenticationPrincipal AuthPrincipal principal
     ) {
