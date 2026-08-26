@@ -83,7 +83,7 @@ public class DemandForecastOrchestrationWorker {
             executor.submit(() -> exportAndSubmit(run));
             return true;
         } catch (RejectedExecutionException exception) {
-            runControl.fail(run.getForecastRunId(), "ORCHESTRATOR_QUEUE_FULL", exception.getMessage());
+            runControl.fail(run, "ORCHESTRATOR_QUEUE_FULL", exception.getMessage());
             return false;
         }
     }
@@ -112,11 +112,13 @@ public class DemandForecastOrchestrationWorker {
             ) != 1) {
                 throw new IllegalStateException("forecast run is no longer exportable");
             }
+            run.setCurrentStage("AZURE_SUBMITTING");
 
             DemandForecastFastApiClient.SubmitResponse response = fastApiClient.submit(run.getBaseDate());
             if (response == null || response.azureJobId() == null || response.azureJobId().isBlank()) {
                 throw new IllegalStateException("FastAPI did not return an Azure Job ID");
             }
+            run.setAzureJobId(response.azureJobId());
             if (orchestrationMapper.markAzureSubmitted(
                     run.getForecastRunId(), response.azureJobId(), systemUserId
             ) != 1) {
@@ -125,7 +127,7 @@ public class DemandForecastOrchestrationWorker {
             log.info("Demand forecast Azure job submitted. runId={}, azureJobId={}",
                     run.getForecastRunId(), response.azureJobId());
         } catch (Exception exception) {
-            runControl.fail(run.getForecastRunId(), "EXPORT_OR_SUBMIT_FAILED", safeMessage(exception));
+            runControl.fail(run, "EXPORT_OR_SUBMIT_FAILED", safeMessage(exception));
         }
     }
 

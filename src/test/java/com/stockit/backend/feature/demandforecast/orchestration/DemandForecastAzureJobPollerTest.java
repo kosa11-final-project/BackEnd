@@ -4,12 +4,15 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.any;
 
 import java.time.Duration;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.context.ApplicationEventPublisher;
 
+import com.stockit.backend.feature.demandforecast.domain.DemandForecastSchedulerFailureEvent;
 import com.stockit.backend.feature.demandforecast.mapper.DemandForecastOrchestrationMapper;
 import com.stockit.backend.feature.demandforecast.vo.DemandForecastRunVO;
 
@@ -24,13 +27,16 @@ class DemandForecastAzureJobPollerTest {
             mock(DemandForecastRunControlService.class);
     private final DemandForecastFastApiClient fastApiClient =
             mock(DemandForecastFastApiClient.class);
+    private final ApplicationEventPublisher eventPublisher =
+            mock(ApplicationEventPublisher.class);
     private final DemandForecastAzureJobPoller poller = new DemandForecastAzureJobPoller(
             mapper,
             runControl,
             fastApiClient,
             new DemandForecastOrchestrationProperties(
                     true, null, null, null, null, null, null, null, Duration.ofHours(2)
-            )
+            ),
+            eventPublisher
     );
 
     @Test
@@ -42,14 +48,14 @@ class DemandForecastAzureJobPollerTest {
                 .thenReturn(List.of(failedTimeoutRun, nextTimeoutRun));
         when(mapper.selectAzurePollingRuns()).thenReturn(List.of(azurePollingRun));
         doThrow(new IllegalStateException("timeout failure"))
-                .when(runControl).fail(1L, "PIPELINE_TIMED_OUT", TIMEOUT_MESSAGE);
+                .when(runControl).fail(failedTimeoutRun, "PIPELINE_TIMED_OUT", TIMEOUT_MESSAGE);
         when(fastApiClient.status("azure-job-3"))
                 .thenReturn(new DemandForecastFastApiClient.StatusResponse("RUNNING", null));
         when(runControl.requiredSystemUserId()).thenReturn(99L);
 
         poller.poll();
 
-        verify(runControl).fail(2L, "PIPELINE_TIMED_OUT", TIMEOUT_MESSAGE);
+        verify(runControl).fail(nextTimeoutRun, "PIPELINE_TIMED_OUT", TIMEOUT_MESSAGE);
         verify(fastApiClient).status("azure-job-3");
         verify(mapper).touchAzurePolling(3L, 99L);
     }
@@ -70,6 +76,16 @@ class DemandForecastAzureJobPollerTest {
 
         verify(fastApiClient).status("azure-job-2");
         verify(mapper).touchAzurePolling(2L, 99L);
+    }
+
+    @Test
+    void publishesSchedulerFailureWhenPollingQueryFails() {
+        when(mapper.selectTimedOutRuns(7200L))
+                .thenThrow(new IllegalStateException("database unavailable"));
+
+        poller.poll();
+
+        verify(eventPublisher).publishEvent(any(DemandForecastSchedulerFailureEvent.class));
     }
 
     private static DemandForecastRunVO run(Long runId, String azureJobId) {
