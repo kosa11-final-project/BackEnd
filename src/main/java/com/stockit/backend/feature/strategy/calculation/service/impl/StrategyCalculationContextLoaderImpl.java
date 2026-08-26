@@ -299,9 +299,18 @@ public class StrategyCalculationContextLoaderImpl
                 strategyCase.getSkuId(),
                 asOfDate
         );
+        TransferRouteScope transferRouteScope = transferRouteScope(
+                evaluationInventory,
+                salesPoints
+        );
         List<StrategyCalculationTransferRouteVO> transferRoutes =
                 relevantTransferRoutes(
-                        inputMapper.selectActiveTransferRoutes(),
+                        inputMapper.selectActiveTransferRoutes(
+                                transferRouteScope.sourceWarehouseIds(),
+                                transferRouteScope.sourceSalesPointIds(),
+                                transferRouteScope.destinationWarehouseIds(),
+                                transferRouteScope.destinationSalesPointIds()
+                        ),
                         evaluationInventory,
                         salesPoints
                 );
@@ -374,6 +383,37 @@ public class StrategyCalculationContextLoaderImpl
     }
 
     /** Case에서 실제로 출발·도착 가능성이 있는 방향성 경로만 Redis 문맥에 보존한다. */
+    private static TransferRouteScope transferRouteScope(
+            List<StrategyCalculationInventoryVO> evaluationInventory,
+            Map<Long, StrategyCalculationContext.SalesPoint> salesPoints
+    ) {
+        Set<Long> sourceWarehouseIds = evaluationInventory.stream()
+                .map(StrategyCalculationInventoryVO::getWarehouseId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        Set<Long> sourceSalesPointIds = evaluationInventory.stream()
+                .filter(row -> row.getWarehouseId() == null)
+                .map(StrategyCalculationInventoryVO::effectiveSalesPointId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        Set<Long> destinationSalesPointIds = new HashSet<>(salesPoints.keySet());
+        Set<Long> destinationWarehouseIds = salesPoints.values().stream()
+                .flatMap(salesPoint -> salesPoint.warehouseRoutes().stream())
+                .map(StrategyCalculationContext.WarehouseRoute::warehouseId)
+                .collect(Collectors.toSet());
+        return new TransferRouteScope(
+                sortedIds(sourceWarehouseIds),
+                sortedIds(sourceSalesPointIds),
+                sortedIds(destinationWarehouseIds),
+                sortedIds(destinationSalesPointIds)
+        );
+    }
+
+    private static List<Long> sortedIds(Collection<Long> ids) {
+        return ids.stream().sorted().toList();
+    }
+
+    /** DB 범위 축소 후에도 잘못된 방향이나 위치 조합이 문맥에 섞이지 않게 재검증한다. */
     private static List<StrategyCalculationTransferRouteVO> relevantTransferRoutes(
             List<StrategyCalculationTransferRouteVO> routes,
             List<StrategyCalculationInventoryVO> evaluationInventory,
@@ -604,5 +644,13 @@ public class StrategyCalculationContextLoaderImpl
         private boolean isValid() {
             return (warehouseId == null) != (salesPointId == null);
         }
+    }
+
+    private record TransferRouteScope(
+            List<Long> sourceWarehouseIds,
+            List<Long> sourceSalesPointIds,
+            List<Long> destinationWarehouseIds,
+            List<Long> destinationSalesPointIds
+    ) {
     }
 }

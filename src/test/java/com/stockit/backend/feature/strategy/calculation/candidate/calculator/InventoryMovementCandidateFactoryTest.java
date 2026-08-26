@@ -184,6 +184,48 @@ class InventoryMovementCandidateFactoryTest {
     }
 
     @Test
+    void limitsPhysicalTransferDestinationsPerTargetToThree() {
+        StrategyCalculationContext original = context(
+                List.of(lot(1L, 1001L, 501L, 10L, "100", null)),
+                List.of(),
+                List.of(
+                        route(20L, 502L, 1),
+                        route(20L, 503L, 2),
+                        route(20L, 504L, 3),
+                        route(20L, 505L, 4)
+                ),
+                forecasts("10"),
+                StrategyType.RT_TRANSFER
+        );
+        StrategyCalculationContext context = withTransferRoutes(
+                original,
+                List.of(
+                        transferRoute(9001L, 501L, null, null, 20L),
+                        transferRoute(9002L, 501L, null, 502L, null),
+                        transferRoute(9003L, 501L, null, 503L, null),
+                        transferRoute(9004L, 501L, null, 504L, null),
+                        transferRoute(9005L, 501L, null, 505L, null)
+                )
+        );
+
+        CandidateGenerationResult result = factory.generate(
+                context,
+                StrategyType.RT_TRANSFER,
+                1
+        );
+
+        assertThat(result.candidates()).hasSize(30);
+        assertThat(result.candidates().stream()
+                .map(candidate -> candidate.actions().get(0).target())
+                .distinct())
+                .containsExactlyInAnyOrder(
+                        new StrategyCandidate.Location(null, 20L),
+                        new StrategyCandidate.Location(502L, 20L),
+                        new StrategyCandidate.Location(503L, 20L)
+                );
+    }
+
+    @Test
     void preservesSelectedLaterLotUntilEarlierReferenceLotIsConsumed() {
         StrategyCalculationContext.InventoryLot earlier = lot(
                 1L, 1001L, 501L, 10L, "10", null
@@ -575,6 +617,30 @@ class InventoryMovementCandidateFactoryTest {
                 salesPointId,
                 warehouseId,
                 priority,
+                null
+        );
+    }
+
+    private static StrategyCalculationContext.TransferRoute transferRoute(
+            Long routeId,
+            Long sourceWarehouseId,
+            Long sourceSalesPointId,
+            Long destinationWarehouseId,
+            Long destinationSalesPointId
+    ) {
+        return new StrategyCalculationContext.TransferRoute(
+                routeId,
+                new StrategyCalculationContext.PhysicalLocation(
+                        sourceWarehouseId,
+                        sourceSalesPointId
+                ),
+                new StrategyCalculationContext.PhysicalLocation(
+                        destinationWarehouseId,
+                        destinationSalesPointId
+                ),
+                new BigDecimal("10"),
+                "DUMMY",
+                null,
                 null
         );
     }

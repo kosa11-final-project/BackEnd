@@ -73,13 +73,24 @@ class StrategyCalculationInputMapperTest {
                     assertThat(policy.getDailyUnitHoldingCost())
                             .isEqualByComparingTo("2.5");
                 });
-        assertThat(mapper.selectActiveTransferRoutes())
+        assertThat(mapper.selectActiveTransferRoutes(
+                List.of(501L),
+                List.of(),
+                List.of(502L),
+                List.of(20L)
+        ))
                 .singleElement()
                 .satisfies(route -> {
                     assertThat(route.getSourceWarehouseId()).isEqualTo(501L);
                     assertThat(route.getDestinationSalesPointId()).isEqualTo(20L);
                     assertThat(route.getDistanceKm()).isEqualByComparingTo("25.5");
                 });
+        assertThat(mapper.selectActiveTransferRoutes(
+                List.of(999L),
+                List.of(),
+                List.of(998L),
+                List.of()
+        )).isEmpty();
         assertThat(mapper.selectTransferCostPolicies(
                 asOfDate, asOfDate.plusDays(90)
         ))

@@ -2,9 +2,10 @@ package com.stockit.backend.feature.strategy.calculation.service.impl;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-import static org.mockito.Mockito.lenient;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -84,7 +85,9 @@ class StrategyCalculationContextLoaderImplTest {
                 inputMapper,
                 dateTimeProvider
         );
-        lenient().when(inputMapper.selectActiveTransferRoutes())
+        lenient().when(inputMapper.selectActiveTransferRoutes(
+                        anyList(), anyList(), anyList(), anyList()
+                ))
                 .thenReturn(List.of());
         lenient().when(inputMapper.selectTransferCostPolicies(START, END))
                 .thenReturn(List.of());
@@ -134,6 +137,12 @@ class StrategyCalculationContextLoaderImplTest {
         assertThat(context.forecastMetadata().modelVersionId()).isEqualTo(81L);
         verify(checkpointStore).find(12345L, "request-hash", List.of(10L, 20L));
         verify(responseValidator).validate(requestContext(10L), forecastResponse(10L));
+        verify(inputMapper).selectActiveTransferRoutes(
+                List.of(501L),
+                List.of(),
+                List.of(501L),
+                List.of(10L, 20L)
+        );
     }
 
     @Test

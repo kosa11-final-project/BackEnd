@@ -39,6 +39,7 @@ import com.stockit.backend.feature.strategy.domain.StrategyType;
 @Component
 public class InventoryMovementCandidateFactory {
 
+    private static final int MAX_RT_DESTINATIONS_PER_TARGET = 3;
     private static final BigDecimal ONE_HUNDRED = new BigDecimal("100");
     private static final BigDecimal ZERO_MONEY = BigDecimal.ZERO.setScale(
             CalculationPrecisionPolicy.MONEY_SCALE
@@ -105,9 +106,9 @@ public class InventoryMovementCandidateFactory {
             );
         }
         List<StrategyCandidate> candidates = new ArrayList<>();
-        List<CandidateExclusion> exclusions = new ArrayList<>();
+        Set<CandidateExclusion> exclusions = new LinkedHashSet<>();
         if (orderedTargetIds.isEmpty()) {
-            return new CandidateGenerationResult(candidates, exclusions);
+            return new CandidateGenerationResult(candidates, List.of());
         }
         // 모든 판매처 후보가 같은 전략 시작일을 사용하므로 재고 투영은 한 번만 수행
         SourceInventoryCapacityPolicy.Projection projection =
@@ -130,7 +131,7 @@ public class InventoryMovementCandidateFactory {
             candidates.addAll(targetResult.candidates());
             exclusions.addAll(targetResult.exclusions());
         }
-        return new CandidateGenerationResult(candidates, exclusions);
+        return new CandidateGenerationResult(candidates, List.copyOf(exclusions));
     }
 
     private TargetResult generateForTarget(
@@ -176,7 +177,7 @@ public class InventoryMovementCandidateFactory {
         }
 
         List<StrategyCandidate> candidates = new ArrayList<>();
-        List<CandidateExclusion> exclusions = new ArrayList<>();
+        Set<CandidateExclusion> exclusions = new LinkedHashSet<>();
         for (WarehouseSelection selection : selections) {
             if (selection.exclusionReason() != null) {
                 exclusions.add(new CandidateExclusion(
@@ -200,7 +201,7 @@ public class InventoryMovementCandidateFactory {
             candidates.addAll(result.candidates());
             exclusions.addAll(result.exclusions());
         }
-        return new TargetResult(candidates, exclusions);
+        return new TargetResult(candidates, List.copyOf(exclusions));
     }
 
     private TargetResult generateForDestination(
@@ -352,6 +353,8 @@ public class InventoryMovementCandidateFactory {
         target.warehouseRoutes().stream()
                 .map(WarehouseRoute::warehouseId)
                 .distinct()
+                // 판매처 직접 이동 1개와 우선순위가 높은 담당 창고 2개까지만 평가한다.
+                .limit(MAX_RT_DESTINATIONS_PER_TARGET - 1L)
                 .forEach(warehouseId -> destinations.add(
                         new StrategyCandidate.Location(
                                 warehouseId,

@@ -50,7 +50,12 @@ public interface StrategyCalculationInputMapper {
             @Param("salesPointIds") List<Long> salesPointIds
     );
 
-    List<StrategyCalculationTransferRouteVO> selectActiveTransferRoutes();
+    List<StrategyCalculationTransferRouteVO> selectActiveTransferRoutes(
+            @Param("sourceWarehouseIds") List<Long> sourceWarehouseIds,
+            @Param("sourceSalesPointIds") List<Long> sourceSalesPointIds,
+            @Param("destinationWarehouseIds") List<Long> destinationWarehouseIds,
+            @Param("destinationSalesPointIds") List<Long> destinationSalesPointIds
+    );
 
     List<StrategyCalculationTransferCostPolicyVO> selectTransferCostPolicies(
             @Param("rangeStartDate") LocalDate rangeStartDate,

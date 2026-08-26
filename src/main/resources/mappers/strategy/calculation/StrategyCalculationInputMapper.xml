@@ -147,6 +147,38 @@
         FROM inventory_transfer_route itr
         WHERE itr.active_yn = 'Y'
           AND itr.is_deleted = 0
+        <trim prefix="AND (" suffix=")" prefixOverrides="OR">
+            <if test="sourceWarehouseIds != null and !sourceWarehouseIds.isEmpty()">
+                OR itr.source_warehouse_id IN
+                <foreach collection="sourceWarehouseIds" item="warehouseId"
+                         open="(" separator="," close=")">
+                    #{warehouseId}
+                </foreach>
+            </if>
+            <if test="sourceSalesPointIds != null and !sourceSalesPointIds.isEmpty()">
+                OR itr.source_sales_point_id IN
+                <foreach collection="sourceSalesPointIds" item="salesPointId"
+                         open="(" separator="," close=")">
+                    #{salesPointId}
+                </foreach>
+            </if>
+        </trim>
+        <trim prefix="AND (" suffix=")" prefixOverrides="OR">
+            <if test="destinationWarehouseIds != null and !destinationWarehouseIds.isEmpty()">
+                OR itr.destination_warehouse_id IN
+                <foreach collection="destinationWarehouseIds" item="warehouseId"
+                         open="(" separator="," close=")">
+                    #{warehouseId}
+                </foreach>
+            </if>
+            <if test="destinationSalesPointIds != null and !destinationSalesPointIds.isEmpty()">
+                OR itr.destination_sales_point_id IN
+                <foreach collection="destinationSalesPointIds" item="salesPointId"
+                         open="(" separator="," close=")">
+                    #{salesPointId}
+                </foreach>
+            </if>
+        </trim>
         ORDER BY itr.transfer_route_id
     </select>
 
