@@ -155,9 +155,7 @@ public record StrategyExecutionResponse(
             BigDecimal actualSalesQuantity,
             BigDecimal actualRevenue,
             BigDecimal actualContributionMargin,
-            BigDecimal actualRemainingQuantity,
-            BigDecimal movedQuantity,
-            BigDecimal disposedQuantity
+            BigDecimal actualRemainingQuantity
     ) {
     }
 }

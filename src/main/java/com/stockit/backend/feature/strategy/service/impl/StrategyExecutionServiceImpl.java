@@ -393,9 +393,7 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
                 performance.getActualSalesQuantity(),
                 performance.getActualRevenue(),
                 performance.getActualContributionMargin(),
-                performance.getActualRemainingQuantity(),
-                performance.getMovedQuantity(),
-                performance.getDisposedQuantity()
+                performance.getActualRemainingQuantity()
         );
     }
 

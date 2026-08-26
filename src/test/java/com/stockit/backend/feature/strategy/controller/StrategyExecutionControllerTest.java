@@ -3,10 +3,12 @@ package com.stockit.backend.feature.strategy.controller;
 import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.time.LocalDate;
+import java.time.Instant;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
@@ -21,7 +23,9 @@ import com.stockit.backend.common.exception.AppException;
 import com.stockit.backend.common.exception.ErrorCode;
 import com.stockit.backend.feature.strategy.dto.response.StrategyExecutionResponse;
 import com.stockit.backend.feature.strategy.dto.response.StrategyExecutionPageResponse;
+import com.stockit.backend.feature.strategy.dto.response.StrategyPerformanceSyncResponse;
 import com.stockit.backend.feature.strategy.service.StrategyExecutionService;
+import com.stockit.backend.feature.strategy.service.StrategyPerformanceSyncService;
 import com.stockit.backend.feature.strategy.vo.StrategyExecutionQuery;
 
 @SpringBootTest
@@ -34,6 +38,9 @@ class StrategyExecutionControllerTest {
 
     @MockitoBean
     private StrategyExecutionService service;
+
+    @MockitoBean
+    private StrategyPerformanceSyncService strategyPerformanceSyncService;
 
     @Test
     void exposesListAndDetailUsingStrategyCaseId() throws Exception {
@@ -73,6 +80,22 @@ class StrategyExecutionControllerTest {
                 .andExpect(jsonPath("$.data.inventoryTransfers[0].targetSalesPointName").value("그리팅몰"))
                 .andExpect(jsonPath("$.data.inventoryTransfers[0].quantity").value(20))
                 .andExpect(jsonPath("$.data.salesDaily").isArray());
+    }
+
+    @Test
+    void exposesManualPerformanceSynchronization() throws Exception {
+        when(strategyPerformanceSyncService.synchronize(null)).thenReturn(
+                new StrategyPerformanceSyncResponse(
+                        Instant.parse("2026-08-26T06:30:00Z"), 2, 5, 1, List.of("경고")
+                )
+        );
+
+        mockMvc.perform(post("/api/v1/strategy-executions/sync"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.processedStrategyCount").value(2))
+                .andExpect(jsonPath("$.data.updatedPerformanceCount").value(5))
+                .andExpect(jsonPath("$.data.skippedStrategyCount").value(1))
+                .andExpect(jsonPath("$.data.warnings[0]").value("경고"));
     }
 
     @Test

@@ -34,7 +34,9 @@ CREATE TABLE strategy_action (
     destination_warehouse_id NUMBER, is_deleted NUMBER(1)
 );
 CREATE TABLE inventory_balance (
-    inventory_balance_id NUMBER PRIMARY KEY, on_hand_qty NUMBER(15,3), is_deleted NUMBER(1)
+    inventory_balance_id NUMBER PRIMARY KEY, sku_id NUMBER, warehouse_id NUMBER,
+    stock_sales_point_id NUMBER, allocated_sales_point_id NUMBER,
+    on_hand_qty NUMBER(15,3), is_deleted NUMBER(1)
 );
 CREATE TABLE strategy_inventory_snapshot (
     inventory_snapshot_id NUMBER PRIMARY KEY, strategy_case_id NUMBER, sales_point_id NUMBER,
@@ -44,6 +46,11 @@ CREATE TABLE strategy_inventory_snapshot (
 CREATE TABLE sales_daily (
     sales_daily_id NUMBER PRIMARY KEY, sku_id NUMBER, sales_point_id NUMBER, sales_date DATE,
     net_sales_qty NUMBER(15,3), net_sales_amount NUMBER(18,2), is_deleted NUMBER(1)
+);
+CREATE TABLE sku_channel_price (
+    sku_channel_price_id NUMBER PRIMARY KEY, sku_id NUMBER, sales_point_id NUMBER,
+    product_cost NUMBER(18,2), payment_fee NUMBER(18,2), logistics_cost NUMBER(18,2),
+    effective_from DATE, effective_to DATE, updated_at TIMESTAMP, is_deleted NUMBER(1)
 );
 CREATE TABLE strategy_performance (
     strategy_performance_id NUMBER PRIMARY KEY, strategy_option_id NUMBER, performance_date DATE,
@@ -105,11 +112,14 @@ INSERT INTO strategy_action VALUES (
     31, 1003, 'CHANNEL_EXPANSION', 10, 1, DATE '2026-05-01', DATE '2026-05-10',
     NULL, 10, NULL, NULL, 0
 );
-INSERT INTO inventory_balance VALUES (9001, 80, 0);
+INSERT INTO inventory_balance VALUES (9001, 1, 501, NULL, NULL, 80, 0);
 INSERT INTO strategy_inventory_snapshot VALUES (8001, 101, NULL, 501, 9001, 100, 30, 0);
 INSERT INTO sales_daily VALUES (7001, 1, 10, DATE '2026-05-02', 7, 70000, 0);
 INSERT INTO sales_daily VALUES (7004, 1, 10, DATE '2026-07-28', 4, 40000, 0);
 INSERT INTO sales_daily VALUES (7002, 1, 10, DATE '2026-07-29', 3, 30000, 0);
 INSERT INTO sales_daily VALUES (7003, 1, 10, DATE '2026-07-30', 99, 990000, 0);
+INSERT INTO sku_channel_price VALUES (
+    3001, 1, 10, 5000, 500, 500, DATE '2026-01-01', NULL, TIMESTAMP '2026-01-01 00:00:00', 0
+);
 INSERT INTO strategy_performance VALUES (6001, 1001, DATE '2026-05-02', 7, 70000, 30000, 93, 10, 0, 0);
 INSERT INTO strategy_performance VALUES (6002, 1001, DATE '2026-05-03', 5, 50000, 20000, 88, 10, 0, 0);
