@@ -198,7 +198,9 @@ class StrategySelectionExecutabilityValidatorTest {
             StrategyCalculationInputMapper mapper
     ) {
         return new StrategySelectionExecutabilityValidator(
-                mapper, new SafetyStockPolicyResolver()
+                mapper,
+                new SafetyStockPolicyResolver(),
+                mock(StrategyTransferInputFreshnessValidator.class)
         );
     }
 

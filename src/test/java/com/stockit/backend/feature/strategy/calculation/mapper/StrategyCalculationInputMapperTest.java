@@ -86,6 +86,12 @@ class StrategyCalculationInputMapperTest {
                     assertThat(route.getDestinationSalesPointId()).isEqualTo(20L);
                     assertThat(route.getDistanceKm()).isEqualByComparingTo("25.5");
                 });
+        assertThat(mapper.selectActiveTransferRoutesByIds(List.of(1L)))
+                .singleElement()
+                .satisfies(route -> {
+                    assertThat(route.getTransferRouteId()).isEqualTo(1L);
+                    assertThat(route.getDistanceSource()).isEqualTo("DUMMY");
+                });
         assertThat(mapper.selectActiveTransferRoutes(
                 List.of(List.of(999L)),
                 List.of(),

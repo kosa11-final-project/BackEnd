@@ -204,4 +204,26 @@
           AND (itcp.effective_to IS NULL OR itcp.effective_to &gt;= #{rangeStartDate})
         ORDER BY itcp.effective_from, itcp.transfer_cost_policy_id
     </select>
+
+    <select id="selectActiveTransferRoutesByIds"
+            resultType="com.stockit.backend.feature.strategy.calculation.vo.StrategyCalculationTransferRouteVO">
+        SELECT itr.transfer_route_id,
+               itr.source_warehouse_id,
+               itr.source_sales_point_id,
+               itr.destination_warehouse_id,
+               itr.destination_sales_point_id,
+               itr.distance_km,
+               itr.distance_source,
+               itr.distance_route_option,
+               itr.distance_calculated_at
+        FROM inventory_transfer_route itr
+        WHERE itr.transfer_route_id IN
+        <foreach collection="transferRouteIds" item="transferRouteId"
+                 open="(" separator="," close=")">
+            #{transferRouteId}
+        </foreach>
+          AND itr.active_yn = 'Y'
+          AND itr.is_deleted = 0
+        ORDER BY itr.transfer_route_id
+    </select>
 </mapper>

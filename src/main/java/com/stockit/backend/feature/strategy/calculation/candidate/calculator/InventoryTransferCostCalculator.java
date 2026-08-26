@@ -41,13 +41,12 @@ public class InventoryTransferCostCalculator {
         TransferCostPolicy policy = resolvePolicy(
                 context.transferCostPolicies(), strategyStartDate
         );
-        BigDecimal unitWeightKg = unitWeightKg(context);
-        BigDecimal totalWeightKg = unitWeightKg.multiply(quantity)
-                .setScale(WEIGHT_SCALE, RoundingMode.HALF_UP);
-        BigDecimal estimatedCost = CalculationPrecisionPolicy.money(
-                totalWeightKg
-                        .multiply(route.distanceKm())
-                        .multiply(policy.costPerKgKm())
+        BigDecimal unitWeightKg = unitWeightKg(
+                context.sku().netWeight(), context.sku().weightUnit()
+        );
+        BigDecimal totalWeightKg = totalWeightKg(unitWeightKg, quantity);
+        BigDecimal estimatedCost = estimatedCost(
+                totalWeightKg, route.distanceKm(), policy.costPerKgKm()
         );
         return new StrategyCandidate.MovementCost(
                 route.transferRouteId(),
@@ -105,9 +104,8 @@ public class InventoryTransferCostCalculator {
         return matches.get(0);
     }
 
-    private static BigDecimal unitWeightKg(StrategyCalculationContext context) {
-        BigDecimal netWeight = context.sku().netWeight();
-        String weightUnit = context.sku().weightUnit();
+    /** 생성과 최종 선택 최신성 검증이 같은 중량 변환 규칙을 사용한다. */
+    public BigDecimal unitWeightKg(BigDecimal netWeight, String weightUnit) {
         if (netWeight == null || weightUnit == null) {
             throw failure(
                     CandidateExclusionReason.SKU_WEIGHT_NOT_FOUND,
@@ -124,6 +122,36 @@ public class InventoryTransferCostCalculator {
                     "Unsupported SKU weight unit: " + weightUnit
             );
         };
+    }
+
+    /** 이동 수량을 반영한 총중량 Snapshot을 생성한다. */
+    public BigDecimal totalWeightKg(BigDecimal unitWeightKg, BigDecimal quantity) {
+        if (unitWeightKg == null || unitWeightKg.signum() <= 0
+                || quantity == null || quantity.signum() <= 0) {
+            throw new IllegalArgumentException(
+                    "unit weight and quantity must be positive"
+            );
+        }
+        return unitWeightKg.multiply(quantity)
+                .setScale(WEIGHT_SCALE, RoundingMode.HALF_UP);
+    }
+
+    /** 액션 최종 금액에서만 소수 2자리 HALF_UP을 적용한다. */
+    public BigDecimal estimatedCost(
+            BigDecimal totalWeightKg,
+            BigDecimal distanceKm,
+            BigDecimal costPerKgKm
+    ) {
+        if (totalWeightKg == null || totalWeightKg.signum() <= 0
+                || distanceKm == null || distanceKm.signum() <= 0
+                || costPerKgKm == null || costPerKgKm.signum() <= 0) {
+            throw new IllegalArgumentException(
+                    "movement cost inputs must be positive"
+            );
+        }
+        return CalculationPrecisionPolicy.money(
+                totalWeightKg.multiply(distanceKm).multiply(costPerKgKm)
+        );
     }
 
     private static InventoryTransferCostCalculationException failure(

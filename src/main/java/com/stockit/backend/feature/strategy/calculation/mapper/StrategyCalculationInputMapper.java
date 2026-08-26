@@ -61,6 +61,11 @@ public interface StrategyCalculationInputMapper {
             List<List<Long>> destinationSalesPointIdChunks
     );
 
+    /** 최종 선택 시 생성 당시 경로 ID의 현재 활성 Snapshot을 재검증한다. */
+    List<StrategyCalculationTransferRouteVO> selectActiveTransferRoutesByIds(
+            @Param("transferRouteIds") List<Long> transferRouteIds
+    );
+
     List<StrategyCalculationTransferCostPolicyVO> selectTransferCostPolicies(
             @Param("rangeStartDate") LocalDate rangeStartDate,
             @Param("rangeEndDate") LocalDate rangeEndDate
