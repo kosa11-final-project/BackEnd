@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.List;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
@@ -39,6 +40,24 @@ class InventoryOracleMapperTest {
         registry.add("spring.datasource.password", () -> System.getenv("DB_PASSWORD"));
         registry.add("spring.datasource.hikari.schema", () -> "KOSA");
         registry.add("spring.flyway.enabled", () -> "false");
+    }
+
+    @Test
+    void measuresPerformanceForFourChannelsWithAndOperator() {
+        // 20개 vs 50개 vs 100개 페이징 크기별 속도 실측
+        for (int size : List.of(20, 50, 100)) {
+            InventoryQueryRequest request = new InventoryQueryRequest();
+            request.setSize(size);
+            request.setSort("availableQuantity,desc");
+            InventoryQuery query = request.toQuery(LocalDate.of(2026, 8, 14));
+
+            long start = System.currentTimeMillis();
+            var items = inventoryMapper.selectInventoryList(query);
+            long elapsed = System.currentTimeMillis() - start;
+
+            System.out.println("PAGE SIZE: [" + size + "건] -> " + elapsed + "ms (조회된 건수: " + items.size() + ")");
+            assertThat(items).isNotEmpty();
+        }
     }
 
     @Test
@@ -80,20 +99,30 @@ class InventoryOracleMapperTest {
                 .contains("ROOM_TEMP");
 
         var firstItem = response.items().get(0);
-        assertThat(firstItem.salesPoints().stream()
+        BigDecimal unassignedCurrent = firstItem.unassignedInventory() != null && firstItem.unassignedInventory().currentQuantity() != null
+                ? firstItem.unassignedInventory().currentQuantity() : BigDecimal.ZERO;
+        BigDecimal salesPointsCurrent = firstItem.salesPoints().stream()
                 .map(point -> point.currentQuantity() == null ? BigDecimal.ZERO : point.currentQuantity())
-                .reduce(BigDecimal.ZERO, BigDecimal::add))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        assertThat(salesPointsCurrent.add(unassignedCurrent))
                 .isEqualByComparingTo(firstItem.currentQuantity());
+
         if (firstItem.availableQuantity() != null) {
-            assertThat(firstItem.salesPoints().stream()
+            BigDecimal unassignedAvail = firstItem.unassignedInventory() != null && firstItem.unassignedInventory().availableQuantity() != null
+                    ? firstItem.unassignedInventory().availableQuantity() : BigDecimal.ZERO;
+            BigDecimal salesPointsAvail = firstItem.salesPoints().stream()
                     .map(point -> point.availableQuantity() == null ? BigDecimal.ZERO : point.availableQuantity())
-                    .reduce(BigDecimal.ZERO, BigDecimal::add))
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            assertThat(salesPointsAvail.add(unassignedAvail))
                     .isEqualByComparingTo(firstItem.availableQuantity());
         }
         if (firstItem.reservedQuantity() != null) {
-            assertThat(firstItem.salesPoints().stream()
+            BigDecimal unassignedReserved = firstItem.unassignedInventory() != null && firstItem.unassignedInventory().reservedQuantity() != null
+                    ? firstItem.unassignedInventory().reservedQuantity() : BigDecimal.ZERO;
+            BigDecimal salesPointsReserved = firstItem.salesPoints().stream()
                     .map(point -> point.reservedQuantity() == null ? BigDecimal.ZERO : point.reservedQuantity())
-                    .reduce(BigDecimal.ZERO, BigDecimal::add))
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            assertThat(salesPointsReserved.add(unassignedReserved))
                     .isEqualByComparingTo(firstItem.reservedQuantity());
         }
         String skuCode = firstItem.skuCode();

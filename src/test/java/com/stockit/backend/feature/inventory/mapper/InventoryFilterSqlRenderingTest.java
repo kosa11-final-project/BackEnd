@@ -102,7 +102,7 @@ class InventoryFilterSqlRenderingTest {
                     .contains("OR EXISTS ( SELECT 1 FROM inventory_balance filter_sp_ib")
                     .contains("OR EXISTS ( SELECT 1 FROM inventory_balance filter_region_ib")
                     .contains("OR p.category_id IN")
-                    .contains("OR s.storage_type =")
+                    .contains("OR s.storage_type IN")
                     .contains("OR EXISTS ( SELECT 1 FROM inventory_balance filtered_ib")
                     .contains("OR NVL(sr.risk_grade, 'UNASSESSED') =")
                     .contains("OR NVL(sr.assessment_status, 'UNASSESSED') =")
@@ -131,12 +131,12 @@ class InventoryFilterSqlRenderingTest {
 
             assertThat(sql)
                     .as(statement)
-                    .contains("AND EXISTS ( SELECT 1 FROM inventory_balance channel_ib")
-                    .contains("AND EXISTS ( SELECT 1 FROM inventory_balance filter_sp_ib")
-                    .contains("AND EXISTS ( SELECT 1 FROM inventory_balance filter_region_ib")
+                    .contains("AND ( SELECT COUNT(DISTINCT CASE")
+                    .contains("AND ( SELECT COUNT(DISTINCT filter_sp.sales_point_code)")
+                    .contains("AND ( SELECT COUNT(DISTINCT filter_region_sp.region_code)")
                     .contains("AND p.category_id IN")
                     .contains("AND s.storage_type =")
-                    .contains("AND EXISTS ( SELECT 1 FROM inventory_balance filtered_ib")
+                    .contains("AND ( SELECT COUNT(DISTINCT filtered_w.warehouse_code)")
                     .contains("AND NVL(sr.risk_grade, 'UNASSESSED') =")
                     .contains("AND NVL(sr.assessment_status, 'UNASSESSED') =")
                     .contains("AND NVL(sr.shortage_yn, 'N') = ?");
@@ -173,8 +173,9 @@ class InventoryFilterSqlRenderingTest {
 
             assertThat(sql)
                     .as(statement)
-                    .contains("AND EXISTS ( SELECT 1 FROM inventory_balance channel_ib");
-            assertThat(occurrences(sql, "FROM inventory_balance channel_ib")).isEqualTo(3);
+                    .contains("COUNT(DISTINCT CASE")
+                    .contains("= ?");
+            assertThat(occurrences(sql, "FROM inventory_balance channel_ib")).isEqualTo(1);
         }
 
         InventoryQueryRequest orRequest = new InventoryQueryRequest();
@@ -182,8 +183,8 @@ class InventoryFilterSqlRenderingTest {
         orRequest.setFilterOperator("OR");
 
         String orSql = render("selectInventoryList", orRequest.toQuery(LocalDate.of(2026, 8, 24)));
-        assertThat(orSql).contains("OR EXISTS ( SELECT 1 FROM inventory_balance channel_ib");
-        assertThat(occurrences(orSql, "FROM inventory_balance channel_ib")).isEqualTo(3);
+        assertThat(orSql).contains("EXISTS ( SELECT 1 FROM inventory_balance channel_ib");
+        assertThat(occurrences(orSql, "FROM inventory_balance channel_ib")).isEqualTo(1);
     }
 
     @Test
