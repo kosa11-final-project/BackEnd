@@ -51,6 +51,7 @@ import com.stockit.backend.feature.auth.security.InternalApiKeyAuthenticationFil
 import com.stockit.backend.feature.auth.security.JsonLoginAuthenticationFilter;
 import com.stockit.backend.feature.auth.service.AuthService;
 
+import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
@@ -160,6 +161,9 @@ public class SecurityConfiguration {
                         .logoutSuccessHandler((request, response, authentication) ->
                                 writeJson(response, HttpServletResponse.SC_OK, ApiResponse.empty(), objectMapper)))
                 .authorizeHttpRequests(authorize -> authorize
+                        // SSE는 최초 REQUEST에서 인증을 마친 뒤 완료·타임아웃 시 ASYNC로
+                        // 재디스패치된다. 이미 커밋된 스트림을 다시 권한 심사하지 않는다.
+                        .dispatcherTypeMatchers(DispatcherType.ASYNC).permitAll()
                         // 로그인 준비 API와 API 문서만 인증 없이 접근 허용
                         .requestMatchers(
                                 JsonLoginAuthenticationFilter.LOGIN_URL,

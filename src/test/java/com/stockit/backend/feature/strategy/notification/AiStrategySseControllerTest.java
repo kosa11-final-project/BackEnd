@@ -5,6 +5,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
@@ -19,6 +20,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import com.stockit.backend.feature.auth.security.AuthPrincipal;
@@ -38,7 +40,7 @@ class AiStrategySseControllerTest {
         emitter.send(SseEmitter.event().name("connected").data("{}"));
         when(emitterRegistry.subscribe(3L)).thenReturn(emitter);
 
-        mockMvc.perform(get("/api/v1/ai-strategies/events")
+        MvcResult result = mockMvc.perform(get("/api/v1/ai-strategies/events")
                         .accept(MediaType.TEXT_EVENT_STREAM)
                         .with(authentication(adminAuthentication())))
                 .andExpect(status().isOk())
@@ -48,10 +50,14 @@ class AiStrategySseControllerTest {
                         MediaType.TEXT_EVENT_STREAM_VALUE
                 ))
                 .andExpect(header().string("Cache-Control", containsString("no-store")))
-                .andExpect(header().string("X-Accel-Buffering", "no"));
+                .andExpect(header().string("X-Accel-Buffering", "no"))
+                .andReturn();
 
         verify(emitterRegistry).subscribe(3L);
         emitter.complete();
+
+        mockMvc.perform(asyncDispatch(result))
+                .andExpect(status().isOk());
     }
 
     @Test
