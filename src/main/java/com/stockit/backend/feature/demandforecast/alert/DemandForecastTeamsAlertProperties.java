@@ -1,9 +1,14 @@
 package com.stockit.backend.feature.demandforecast.alert;
 
+import java.net.URI;
 import java.time.Duration;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.validation.annotation.Validated;
 
+import jakarta.validation.constraints.AssertTrue;
+
+@Validated
 @ConfigurationProperties(prefix = "app.demand-forecast.alert.teams")
 public record DemandForecastTeamsAlertProperties(
         boolean enabled,
@@ -14,6 +19,31 @@ public record DemandForecastTeamsAlertProperties(
         String environment,
         String dashboardUrl
 ) {
+    @AssertTrue(message = "webhookUrl must be a non-empty absolute HTTPS URL when enabled")
+    public boolean isWebhookUrlValidWhenEnabled() {
+        if (!enabled) {
+            return true;
+        }
+        if (webhookUrl == null || webhookUrl.isBlank()) {
+            return false;
+        }
+        try {
+            URI uri = URI.create(webhookUrl.trim());
+            return uri.isAbsolute()
+                    && uri.getHost() != null
+                    && "https".equalsIgnoreCase(uri.getScheme());
+        } catch (IllegalArgumentException exception) {
+            return false;
+        }
+    }
+
+    @AssertTrue(message = "schedulerCooldown must be strictly positive when enabled")
+    public boolean isSchedulerCooldownValidWhenEnabled() {
+        return !enabled || schedulerCooldown != null
+                && !schedulerCooldown.isZero()
+                && !schedulerCooldown.isNegative();
+    }
+
     public Duration resolvedConnectTimeout() {
         return positiveOrDefault(connectTimeout, Duration.ofSeconds(3), "connectTimeout");
     }

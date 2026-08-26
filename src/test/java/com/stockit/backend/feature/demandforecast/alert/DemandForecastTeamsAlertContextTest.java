@@ -10,7 +10,8 @@ import org.springframework.test.context.ActiveProfiles;
 
 @SpringBootTest(properties = {
         "app.demand-forecast.alert.teams.enabled=true",
-        "app.demand-forecast.alert.teams.webhook-url=https://example.test/teams-alert"
+        "app.demand-forecast.alert.teams.webhook-url=https://example.test/teams-alert",
+        "app.demand-forecast.alert.teams.scheduler-cooldown=10m"
 })
 @ActiveProfiles("test")
 class DemandForecastTeamsAlertContextTest {
