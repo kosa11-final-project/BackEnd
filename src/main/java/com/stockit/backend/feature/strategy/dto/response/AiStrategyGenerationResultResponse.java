@@ -8,6 +8,8 @@ import java.util.Map;
 
 import com.stockit.backend.feature.strategy.calculation.candidate.domain.CandidateAssumption;
 import com.stockit.backend.feature.strategy.calculation.domain.BaselineSimulation;
+import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculationContext;
+import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculationContext.TransferRoute;
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCandidateSimulation;
 import com.stockit.backend.feature.strategy.domain.StrategyType;
 import com.stockit.backend.feature.strategy.result.StrategyGenerationResult;
@@ -36,7 +38,8 @@ public record AiStrategyGenerationResultResponse(
             Map<Long, AiStrategySalesPointReferenceVO> salesPoints,
             Map<Long, AiStrategyWarehouseReferenceVO> warehouses,
             Map<Long, AiStrategyLotDisplayVO> lots,
-            Map<String, OptionPeriodPresentation> periodPresentations
+            Map<String, OptionPeriodPresentation> periodPresentations,
+            StrategyCalculationContext context
     ) {
         if (result == null) {
             return null;
@@ -49,6 +52,7 @@ public record AiStrategyGenerationResultResponse(
                 result.options().stream()
                         .map(option -> Option.from(
                                 option, salesPoints, warehouses, lots,
+                                context,
                                 periodPresentations.get(
                                         option.candidate().candidateId()
                                 )
@@ -75,6 +79,7 @@ public record AiStrategyGenerationResultResponse(
                 Map<Long, AiStrategySalesPointReferenceVO> salesPoints,
                 Map<Long, AiStrategyWarehouseReferenceVO> warehouses,
                 Map<Long, AiStrategyLotDisplayVO> lots,
+                StrategyCalculationContext context,
                 OptionPeriodPresentation periodPresentation
         ) {
             if (periodPresentation == null) {
@@ -88,7 +93,9 @@ public record AiStrategyGenerationResultResponse(
                     option.recommendationReason(),
                     option.advantage(),
                     option.caution(),
-                    Candidate.from(option.candidate(), salesPoints, warehouses, lots),
+                    Candidate.from(
+                            option.candidate(), salesPoints, warehouses, lots, context
+                    ),
                     periodPresentation.adjustmentConstraints(),
                     periodPresentation.chartRange(),
                     option.simulation()
@@ -123,7 +130,8 @@ public record AiStrategyGenerationResultResponse(
                 StrategyGenerationResult.Candidate candidate,
                 Map<Long, AiStrategySalesPointReferenceVO> salesPoints,
                 Map<Long, AiStrategyWarehouseReferenceVO> warehouses,
-                Map<Long, AiStrategyLotDisplayVO> lots
+                Map<Long, AiStrategyLotDisplayVO> lots,
+                StrategyCalculationContext context
         ) {
             return new Candidate(
                     candidate.candidateId(),
@@ -132,7 +140,7 @@ public record AiStrategyGenerationResultResponse(
                     candidate.endDate(),
                     candidate.actions().stream()
                             .map(action -> Action.from(
-                                    action, salesPoints, warehouses, lots
+                                    action, salesPoints, warehouses, lots, context
                             ))
                             .toList(),
                     candidate.assumptions(),
@@ -146,17 +154,23 @@ public record AiStrategyGenerationResultResponse(
             StrategyType actionType,
             Location sourceLocation,
             Location targetLocation,
+            Location physicalSourceLocation,
+            Location physicalDestinationLocation,
+            Location allocationSourceSalesPoint,
+            Location allocationTargetSalesPoint,
             BigDecimal actionQuantity,
             BigDecimal estimatedActionCost,
             BigDecimal strategyPrice,
             BigDecimal discountRate,
-            List<LotAllocation> lotAllocations
+            List<LotAllocation> lotAllocations,
+            MovementCostPresentation movementCost
     ) {
         private static Action from(
                 StrategyGenerationResult.Action action,
                 Map<Long, AiStrategySalesPointReferenceVO> salesPoints,
                 Map<Long, AiStrategyWarehouseReferenceVO> warehouses,
-                Map<Long, AiStrategyLotDisplayVO> lots
+                Map<Long, AiStrategyLotDisplayVO> lots,
+                StrategyCalculationContext context
         ) {
             return new Action(
                     action.actionType(),
@@ -172,13 +186,32 @@ public record AiStrategyGenerationResultResponse(
                             salesPoints,
                             warehouses
                     ),
+                    Location.resolvePhysical(
+                            action.sourceWarehouseId(),
+                            action.sourceSalesPointId(),
+                            salesPoints,
+                            warehouses
+                    ),
+                    Location.resolvePhysical(
+                            action.targetWarehouseId(),
+                            action.targetSalesPointId(),
+                            salesPoints,
+                            warehouses
+                    ),
+                    Location.resolveSalesPoint(
+                            action.sourceSalesPointId(), salesPoints
+                    ),
+                    Location.resolveSalesPoint(
+                            action.targetSalesPointId(), salesPoints
+                    ),
                     action.actionQuantity(),
                     action.estimatedActionCost(),
                     action.strategyPrice(),
                     action.discountRate(),
                     action.lotAllocations().stream()
                             .map(allocation -> LotAllocation.from(allocation, lots))
-                            .toList()
+                            .toList(),
+                    MovementCostPresentation.from(action.movementCost(), context)
             );
         }
     }
@@ -217,11 +250,80 @@ public record AiStrategyGenerationResultResponse(
             }
             return null;
         }
+
+        private static Location resolvePhysical(
+                Long warehouseId,
+                Long salesPointId,
+                Map<Long, AiStrategySalesPointReferenceVO> salesPoints,
+                Map<Long, AiStrategyWarehouseReferenceVO> warehouses
+        ) {
+            if (warehouseId != null) {
+                AiStrategyWarehouseReferenceVO warehouse = warehouses.get(warehouseId);
+                return new Location(
+                        LocationType.WAREHOUSE,
+                        warehouseId,
+                        warehouse == null ? null : warehouse.getWarehouseCode(),
+                        warehouse == null ? null : warehouse.getWarehouseName()
+                );
+            }
+            return resolveSalesPoint(salesPointId, salesPoints);
+        }
+
+        private static Location resolveSalesPoint(
+                Long salesPointId,
+                Map<Long, AiStrategySalesPointReferenceVO> salesPoints
+        ) {
+            if (salesPointId == null) {
+                return null;
+            }
+            AiStrategySalesPointReferenceVO point = salesPoints.get(salesPointId);
+            return new Location(
+                    LocationType.SALES_POINT,
+                    salesPointId,
+                    point == null ? null : point.getSalesPointCode(),
+                    point == null ? null : point.getSalesPointName()
+            );
+        }
     }
 
     public enum LocationType {
         SALES_POINT,
         WAREHOUSE
+    }
+
+    public record MovementCostPresentation(
+            BigDecimal weightKg,
+            BigDecimal distanceKm,
+            BigDecimal costPerKgKm,
+            BigDecimal estimatedCost,
+            String distanceSource,
+            String distanceRouteOption,
+            LocalDateTime distanceCalculatedAt
+    ) {
+        private static MovementCostPresentation from(
+                StrategyGenerationResult.MovementCost movementCost,
+                StrategyCalculationContext context
+        ) {
+            if (movementCost == null) {
+                return null;
+            }
+            TransferRoute route = context == null ? null
+                    : context.transferRoutes().stream()
+                    .filter(value -> java.util.Objects.equals(
+                            value.transferRouteId(), movementCost.transferRouteId()
+                    ))
+                    .findFirst()
+                    .orElse(null);
+            return new MovementCostPresentation(
+                    movementCost.weightKg(),
+                    movementCost.distanceKm(),
+                    movementCost.costPerKgKm(),
+                    movementCost.estimatedCost(),
+                    route == null ? null : route.distanceSource(),
+                    route == null ? null : route.distanceRouteOption(),
+                    route == null ? null : route.distanceCalculatedAt()
+            );
+        }
     }
 
     public record LotAllocation(
