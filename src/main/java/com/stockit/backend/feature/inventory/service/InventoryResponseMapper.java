@@ -73,6 +73,7 @@ public class InventoryResponseMapper {
                 item.getReservedQty(),
                 item.getSafetyQty(),
                 item.getInventoryFactState(),
+                item.getShortageYn(),
                 new RiskResponse(
                         item.getAssessmentStatus() == null ? "UNASSESSED" : item.getAssessmentStatus(),
                         item.getRiskGrade(),
@@ -86,7 +87,8 @@ public class InventoryResponseMapper {
                 item.getLotCount(),
                 item.getNearestExpiryDays(),
                 item.getNearestExpiryDate() == null ? null : item.getNearestExpiryDate().toLocalDate(),
-                item.getUpdatedAt() == null ? null : item.getUpdatedAt().toInstant()
+                item.getUpdatedAt() == null ? null : item.getUpdatedAt().toInstant(),
+                item.getExpectedDisposalQty()
         );
     }
 
@@ -141,7 +143,8 @@ public class InventoryResponseMapper {
                 item.getNearestExpiryDate() == null ? null : item.getNearestExpiryDate().toLocalDate(),
                 item.getUpdatedAt() == null ? null : item.getUpdatedAt().toInstant(),
                 lots,
-                channelPrices
+                channelPrices,
+                item.getExpectedDisposalQty()
         );
     }
 
@@ -265,6 +268,7 @@ public class InventoryResponseMapper {
                 firstNonNull(item.getUnassignedAvailableQty(), center == null ? null : center.availableQuantity()),
                 firstNonNull(item.getUnassignedReservedQty(), center == null ? null : center.reservedQuantity()),
                 firstNonNull(item.getUnassignedInventoryFactState(), center == null ? null : center.salesPointState()),
+                firstNonNull(item.getUnassignedShortageYn(), center == null ? null : center.shortageYn()),
                 firstNonNull(item.getUnassignedRiskGrade(), center == null ? null : center.riskGrade()),
                 item.getUnassignedAssessmentStatus(),
                 item.getUnassignedRiskReason(),
@@ -283,6 +287,7 @@ public class InventoryResponseMapper {
                 point.availableQuantity(),
                 point.reservedQuantity(),
                 point.riskGrade(),
+                point.shortageYn(),
                 null,
                 point.sellingPrice(),
                 point.salesPointState(),

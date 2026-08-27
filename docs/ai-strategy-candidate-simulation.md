@@ -61,3 +61,23 @@ LLM이 비교할 수 있는 요약 지표를 만든다. 동일한 계산 엔진�
 
 정책이 변경되면 후보 생성 시점의 실행 가능 수량, 시뮬레이션의 시작 전 판매,
 실행 직전 재검증 및 실패 처리 규칙을 함께 수정해야 한다.
+
+## 추천 결과 유형 API 계약
+
+AI 전략 생성의 처리 상태와 정상 완료 후의 추천 판단을 분리한다.
+`recommendationOutcome`은 실행 가능한 대안이 있으면 `OPTIONS_GENERATED`, 전략
+적용보다 현재 상태 유지가 유리하면 `MAINTAIN_CURRENT_STATE`다. 두 경우 모두
+정상 완료이므로 `caseStatus=GENERATED`,
+`generationStage=COMPARISON_READY`를 유지한다. 생성 중·실패 또는 결과 유형
+도입 전의 기존 데이터는 `null`이며, 실패를 현상 유지로 변환하지 않는다.
+
+`GET /api/v1/ai-strategies`의 `data.content[]`와
+`GET /api/v1/ai-strategies/{strategyCaseId}`의 `data`에 같은 필드를 제공한다.
+현상 유지의 코드와 설명은 기존 `data.result.noRecommendation`, 사용자 입력은
+기존 `data.requestConditions` 구조를 재사용한다. 현재 생성 요청에는 별도의
+`recommendAll` 필드가 없으므로 이를 응답에서 임의로 만들지 않는다.
+
+결과 유형은 Redis 저장 후 Case를 완료시키는 동일한 조건부 UPDATE에서
+`strategy_case.recommendation_outcome`에 기록한다. 목록은 이 컬럼을 기존 단일
+페이지 쿼리로 조회하므로 Redis N+1 조회가 발생하지 않는다. 기존 행은 옵션
+부재만으로 현상 유지를 추론할 수 없으므로 `null`을 유지한다.

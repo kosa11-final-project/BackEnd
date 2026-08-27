@@ -1,13 +1,16 @@
 package com.stockit.backend.feature.demandforecast.orchestration;
 
+import java.time.Instant;
 import java.util.Locale;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import com.stockit.backend.feature.demandforecast.domain.DemandForecastSchedulerFailureEvent;
 import com.stockit.backend.feature.demandforecast.mapper.DemandForecastOrchestrationMapper;
 import com.stockit.backend.feature.demandforecast.vo.DemandForecastRunVO;
 
@@ -25,35 +28,50 @@ public class DemandForecastAzureJobPoller {
     private final DemandForecastRunControlService runControl;
     private final DemandForecastFastApiClient fastApiClient;
     private final DemandForecastOrchestrationProperties properties;
+    private final ApplicationEventPublisher eventPublisher;
 
     public DemandForecastAzureJobPoller(
             DemandForecastOrchestrationMapper mapper,
             DemandForecastRunControlService runControl,
             DemandForecastFastApiClient fastApiClient,
-            DemandForecastOrchestrationProperties properties
+            DemandForecastOrchestrationProperties properties,
+            ApplicationEventPublisher eventPublisher
     ) {
         this.mapper = mapper;
         this.runControl = runControl;
         this.fastApiClient = fastApiClient;
         this.properties = properties;
+        this.eventPublisher = eventPublisher;
     }
 
     @Scheduled(fixedDelayString = "${app.demand-forecast.orchestration.poll-interval:30s}")
     public void poll() {
-        for (DemandForecastRunVO run : mapper.selectTimedOutRuns(
-                properties.resolvedJobTimeout().toSeconds()
-        )) {
-            failTimedOutRun(run);
-        }
-        for (DemandForecastRunVO run : mapper.selectAzurePollingRuns()) {
-            poll(run);
+        try {
+            for (DemandForecastRunVO run : mapper.selectTimedOutRuns(
+                    properties.resolvedJobTimeout().toSeconds()
+            )) {
+                failTimedOutRun(run);
+            }
+            for (DemandForecastRunVO run : mapper.selectAzurePollingRuns()) {
+                poll(run);
+            }
+        } catch (RuntimeException exception) {
+            log.error("Demand forecast Azure polling schedule failed", exception);
+            eventPublisher.publishEvent(new DemandForecastSchedulerFailureEvent(
+                    "demand-forecast-azure-job-poller",
+                    null,
+                    "AZURE_POLLER_SCHEDULE_FAILED",
+                    safeMessage(exception),
+                    "DEMAND_FORECAST:SCHEDULER:AZURE_POLLER_FAILED",
+                    Instant.now()
+            ));
         }
     }
 
     private void failTimedOutRun(DemandForecastRunVO run) {
         try {
             runControl.fail(
-                    run.getForecastRunId(),
+                    run,
                     "PIPELINE_TIMED_OUT",
                     "수요예측 파이프라인이 제한 시간 안에 완료되지 않았습니다."
             );
@@ -81,7 +99,7 @@ public class DemandForecastAzureJobPoller {
                             run.getForecastRunId(), run.getAzureJobId());
                 }
                 case "FAILED", "CANCELED", "CANCELLED" -> runControl.fail(
-                        run.getForecastRunId(),
+                        run,
                         "AZURE_JOB_" + status,
                         response.errorMessage()
                 );
@@ -92,5 +110,12 @@ public class DemandForecastAzureJobPoller {
             log.warn("Demand forecast Azure status polling failed. runId={}, azureJobId={}",
                     run.getForecastRunId(), run.getAzureJobId(), exception);
         }
+    }
+
+    private static String safeMessage(RuntimeException exception) {
+        String message = exception.getMessage();
+        return message == null || message.isBlank()
+                ? exception.getClass().getSimpleName()
+                : message.substring(0, Math.min(2000, message.length()));
     }
 }

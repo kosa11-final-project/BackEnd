@@ -12,6 +12,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Map;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -71,14 +72,18 @@ class DashboardServiceImplTest {
     void returnsLatestCompletedSnapshot() throws Exception {
         DashboardSnapshotVO snapshot = new DashboardSnapshotVO();
         snapshot.setDashboardSnapshotId(11L);
-        snapshot.setPayloadVersion(1);
+        snapshot.setPayloadVersion(3);
         snapshot.setPayloadJson(objectMapper.writeValueAsString(new DashboardSnapshotPayload(
                 DashboardSummaryResponse.from(summary()),
                 List.of(WarehouseInventoryResponse.from(warehouse())),
                 List.of(OnlineSalesPointInventoryResponse.from(onlineSalesPoint())),
                 List.of(OfflineStoreInventoryResponse.from(store())),
                 List.of(RiskSalesPointResponse.from(1, riskPoint())),
-                List.of(UrgentSkuResponse.from(1, urgentSku()))
+                List.of(UrgentSkuResponse.from(1, urgentSku())),
+                Map.of(
+                        1L, List.of(UrgentSkuResponse.from(1, urgentSku())),
+                        13L, List.of(UrgentSkuResponse.from(1, storeUrgentSku()))
+                )
         )));
         snapshot.setCreatedAt(LocalDateTime.ofInstant(CALCULATED_AT, ZoneId.of("Asia/Seoul")));
 
@@ -101,6 +106,37 @@ class DashboardServiceImplTest {
     }
 
     @Test
+    void refreshesLegacySnapshotWhenSellerUrgentSkusAreMissing() throws Exception {
+        DashboardSnapshotVO snapshot = new DashboardSnapshotVO();
+        snapshot.setPayloadVersion(2);
+        snapshot.setPayloadJson(objectMapper.writeValueAsString(new DashboardSnapshotPayload(
+                null,
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                Map.of()
+        )));
+        snapshot.setCreatedAt(LocalDateTime.ofInstant(CALCULATED_AT, ZoneId.of("Asia/Seoul")));
+        when(snapshotMapper.selectLatestSnapshot()).thenReturn(snapshot);
+        when(dashboardMapper.selectSummary(AS_OF_DATE)).thenReturn(summary());
+        when(dashboardMapper.selectWarehouseInventories(AS_OF_DATE)).thenReturn(List.of(warehouse()));
+        when(dashboardMapper.selectOnlineSalesPointInventories(AS_OF_DATE))
+                .thenReturn(List.of(onlineSalesPoint()));
+        when(dashboardMapper.selectOfflineStoreInventories(AS_OF_DATE)).thenReturn(List.of(store()));
+        when(dashboardMapper.selectRiskSalesPointsTop10(AS_OF_DATE)).thenReturn(List.of(riskPoint()));
+        when(dashboardMapper.selectUrgentSkusTop5(AS_OF_DATE)).thenReturn(List.of(urgentSku()));
+        when(dashboardMapper.selectUrgentSkusBySalesPoint(AS_OF_DATE))
+                .thenReturn(List.of(urgentSku(), storeUrgentSku()));
+
+        DashboardResponse response = dashboardService.getDashboard();
+
+        assertThat(response.urgentSkusBySalesPoint()).containsKeys(1L, 13L);
+        verify(dashboardMapper).selectUrgentSkusBySalesPoint(AS_OF_DATE);
+    }
+
+    @Test
     void combinesLiveDashboardQueriesAndAssignsRanksWithoutExposingRiskScore() {
         when(dashboardMapper.selectSummary(AS_OF_DATE)).thenReturn(summary());
         when(dashboardMapper.selectWarehouseInventories(AS_OF_DATE)).thenReturn(List.of(warehouse()));
@@ -109,6 +145,8 @@ class DashboardServiceImplTest {
         when(dashboardMapper.selectOfflineStoreInventories(AS_OF_DATE)).thenReturn(List.of(store()));
         when(dashboardMapper.selectRiskSalesPointsTop10(AS_OF_DATE)).thenReturn(List.of(riskPoint()));
         when(dashboardMapper.selectUrgentSkusTop5(AS_OF_DATE)).thenReturn(List.of(urgentSku()));
+        when(dashboardMapper.selectUrgentSkusBySalesPoint(AS_OF_DATE))
+                .thenReturn(List.of(urgentSku(), storeUrgentSku()));
 
         DashboardResponse response = dashboardService.getLiveDashboard();
 
@@ -120,6 +158,7 @@ class DashboardServiceImplTest {
         verify(dashboardMapper).selectOfflineStoreInventories(AS_OF_DATE);
         verify(dashboardMapper).selectRiskSalesPointsTop10(AS_OF_DATE);
         verify(dashboardMapper).selectUrgentSkusTop5(AS_OF_DATE);
+        verify(dashboardMapper).selectUrgentSkusBySalesPoint(AS_OF_DATE);
     }
 
     private static void assertDashboard(DashboardResponse response) {
@@ -145,6 +184,11 @@ class DashboardServiceImplTest {
                     assertThat(value.allocatedSalesPointCode()).isEqualTo("GREETING");
                     assertThat(value.allocatedSalesPointName()).isEqualTo("그리팅몰");
                 });
+        assertThat(response.urgentSkusBySalesPoint()).containsKeys(1L, 13L);
+        assertThat(response.urgentSkusBySalesPoint().get(1L)).singleElement()
+                .satisfies(value -> assertThat(value.rank()).isEqualTo(1));
+        assertThat(response.urgentSkusBySalesPoint().get(13L)).singleElement()
+                .satisfies(value -> assertThat(value.rank()).isEqualTo(1));
     }
 
     private static DashboardSummaryVO summary() {
@@ -233,6 +277,17 @@ class DashboardServiceImplTest {
         value.setSaleStopDaysLeft(5);
         value.setExpectedDisposalQty(new BigDecimal("86"));
         value.setReasonMessage("소비기한 내 판매 소진이 어렵습니다.");
+        return value;
+    }
+
+    private static UrgentSkuVO storeUrgentSku() {
+        UrgentSkuVO value = urgentSku();
+        value.setSkuId(8L);
+        value.setSkuCode("GF-SAL-STORE-08");
+        value.setSkuName("판교 샐러드 · 8팩");
+        value.setAllocatedSalesPointId(13L);
+        value.setAllocatedSalesPointCode("DEPT_PANGYO");
+        value.setAllocatedSalesPointName("판교점");
         return value;
     }
 }

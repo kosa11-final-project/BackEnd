@@ -167,7 +167,7 @@ public class PriceDiscountCandidateCalculator implements StrategyCandidateCalcul
                 BigDecimal discountedDemandTotal = sum(discountedDemand.values());
                 MovementCandidatePlan maximumPlan = allocationPolicy.plan(
                         projectedContext.evaluationInventory(),
-                        sourceCapacity.byWarehouse(),
+                        sourceCapacity.byLocation(),
                         discountedDemand,
                         sourceCapacity.total().min(discountedDemandTotal)
                 );
@@ -256,7 +256,7 @@ public class PriceDiscountCandidateCalculator implements StrategyCandidateCalcul
                     ? maximumPlan
                     : allocationPolicy.plan(
                             context.evaluationInventory(),
-                            sourceCapacity.byWarehouse(),
+                            sourceCapacity.byLocation(),
                             periodDemand,
                             requested
                     );
@@ -284,7 +284,6 @@ public class PriceDiscountCandidateCalculator implements StrategyCandidateCalcul
             MovementCandidatePlan plan = quantityTier.plan();
             List<StrategyCandidate.Action> actions = toActions(
                     plan,
-                    sourceId,
                     discount
             );
             String candidateId = idGenerator.generate(
@@ -319,18 +318,20 @@ public class PriceDiscountCandidateCalculator implements StrategyCandidateCalcul
 
     private static List<StrategyCandidate.Action> toActions(
             MovementCandidatePlan plan,
-            Long sourceSalesPointId,
             DiscountOption discount
     ) {
-        Map<Long, List<MovementCandidatePlan.Allocation>> byWarehouse =
+        Map<ActionKey, List<MovementCandidatePlan.Allocation>> byLocation =
                 plan.allocations().stream().collect(Collectors.groupingBy(
-                        MovementCandidatePlan.Allocation::sourceWarehouseId,
+                        allocation -> new ActionKey(
+                                allocation.sourceWarehouseId(),
+                                allocation.sourceSalesPointId()
+                        ),
                         LinkedHashMap::new,
                         Collectors.toList()
                 ));
         List<StrategyCandidate.Action> actions = new ArrayList<>();
-        for (Map.Entry<Long, List<MovementCandidatePlan.Allocation>> entry
-                : byWarehouse.entrySet()) {
+        for (Map.Entry<ActionKey, List<MovementCandidatePlan.Allocation>> entry
+                : byLocation.entrySet()) {
             List<StrategyCandidate.LotAllocation> allocations = new ArrayList<>();
             int priority = 1;
             for (MovementCandidatePlan.Allocation allocation : entry.getValue()) {
@@ -345,8 +346,8 @@ public class PriceDiscountCandidateCalculator implements StrategyCandidateCalcul
                     .map(MovementCandidatePlan.Allocation::quantity)
                     .toList());
             StrategyCandidate.Location location = new StrategyCandidate.Location(
-                    entry.getKey(),
-                    sourceSalesPointId
+                    entry.getKey().warehouseId(),
+                    entry.getKey().salesPointId()
             );
             actions.add(new StrategyCandidate.Action(
                     StrategyType.PRICE_DISCOUNT,
@@ -359,7 +360,16 @@ public class PriceDiscountCandidateCalculator implements StrategyCandidateCalcul
                     allocations
             ));
         }
-        actions.sort(Comparator.comparing(action -> action.source().warehouseId()));
+        actions.sort(Comparator
+                .comparing(
+                        (StrategyCandidate.Action action) ->
+                                action.source().warehouseId(),
+                        Comparator.nullsLast(Comparator.naturalOrder())
+                )
+                .thenComparing(
+                        action -> action.source().salesPointId(),
+                        Comparator.nullsLast(Comparator.naturalOrder())
+                ));
         return actions;
     }
 
@@ -425,5 +435,8 @@ public class PriceDiscountCandidateCalculator implements StrategyCandidateCalcul
             int percentage,
             MovementCandidatePlan plan
     ) {
+    }
+
+    private record ActionKey(Long warehouseId, Long salesPointId) {
     }
 }

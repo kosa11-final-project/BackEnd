@@ -46,6 +46,74 @@ class InventoryQuantitySqlContractTest {
     }
 
     @Test
+    void liveAvailabilityExcludesExpiredSaleStoppedAndDepletedStockAcrossInventoryViews() throws IOException {
+        String inventorySql = read("inventory/InventoryMapper.xml");
+
+        assertThat(inventorySql)
+                .contains("lot_status IN ('EXPIRED', 'SALE_STOPPED', 'DEPLETED')")
+                .contains("TRUNC(expiry_date) &lt;= TRUNC(CAST(#{asOfDate} AS DATE))")
+                .contains("TRUNC(sale_stop_date) &lt;= TRUNC(CAST(#{asOfDate} AS DATE))")
+                .contains("SUM(available_qty) AS total_available_qty")
+                .contains("expected_disposal_qty");
+        assertThat(occurrences(inventorySql, "SUM(CASE" )).isGreaterThanOrEqualTo(5);
+    }
+
+    @Test
+    void inventoryDetailCalculatesExpectedDisposalForTheSelectedSalesPointScope() throws IOException {
+        String inventorySql = read("inventory/InventoryMapper.xml");
+        String detailSql = inventorySql.substring(
+                inventorySql.indexOf("<select id=\"selectInventoryDetail\""),
+                inventorySql.indexOf("<select id=\"countInventoryScope\"")
+        );
+
+        assertThat(detailSql)
+                .contains("END AS sales_point_state,\n                   ib.allocated_sales_point_id,\n                   ib.warehouse_id")
+                .contains("detail_disposal_scope AS")
+                .contains("detail_disposal AS")
+                .contains("ds.allocated_sales_point_id IS NULL")
+                .contains("lf.sales_point_id = ds.allocated_sales_point_id")
+                .contains("NVL(disposal.expected_disposal_qty, 0) AS expected_disposal_qty");
+    }
+
+    @Test
+    void expectedDisposalIncludesFutureExpiryOrSaleStopDatesEvenWhenLotStatusAlreadyMarksThem() throws IOException {
+        String inventorySql = read("inventory/InventoryMapper.xml");
+        String listDisposalSql = inventorySql.substring(
+                inventorySql.indexOf("disposal_lots AS"),
+                inventorySql.indexOf("disposal_scope AS")
+        );
+        String detailDisposalSql = inventorySql.substring(
+                inventorySql.indexOf("detail_disposal_scope AS"),
+                inventorySql.indexOf("detail_disposal AS")
+        );
+
+        assertThat(listDisposalSql)
+                .contains("sale_end_date > TRUNC(CAST(#{asOfDate} AS DATE))")
+                .contains("sale_end_date &lt;= TRUNC(CAST(#{asOfDate} AS DATE)) + 30")
+                .contains("lot_status IS NULL OR lot_status &lt;&gt; 'DEPLETED'")
+                .doesNotContain("lot_status NOT IN ('EXPIRED', 'SALE_STOPPED', 'DEPLETED')");
+        assertThat(detailDisposalSql)
+                .contains("sale_end_date &gt; TRUNC(CAST(#{asOfDate} AS DATE))")
+                .contains("sale_end_date &lt;= TRUNC(CAST(#{asOfDate} AS DATE)) + 30")
+                .contains("lot_status IS NULL OR lot_status &lt;&gt; 'DEPLETED'")
+                .doesNotContain("lot_status NOT IN ('EXPIRED', 'SALE_STOPPED', 'DEPLETED')");
+    }
+
+    @Test
+    void reservedQuantityIsZeroForInventoryThatCannotBeSold() throws IOException {
+        String inventorySql = read("inventory/InventoryMapper.xml");
+
+        assertThat(inventorySql)
+                .contains("ELSE cbb.reserved_qty")
+                .contains("ELSE bb.reserved_qty")
+                .contains("ELSE ib.reserved_qty")
+                .contains("ELSE reserved_qty")
+                .contains("SUM(CASE")
+                .contains("AS reserved_quantity");
+        assertThat(occurrences(inventorySql, "ELSE reserved_qty")).isGreaterThanOrEqualTo(4);
+    }
+
+    @Test
     void channelPriceQueryUsesEveryPriceColumnWithoutCopyingSellingPrice() throws IOException {
         String inventorySql = read("inventory/InventoryMapper.xml");
 
@@ -66,6 +134,8 @@ class InventoryQuantitySqlContractTest {
                 .contains("LEFT JOIN risk_latest ur ON ur.sku_id = ua.sku_id AND ur.sales_point_id = -1")
                 .contains("AND r.sales_point_id = -1")
                 .contains("unassigned_current_qty")
+                .contains("unassigned_shortage_yn")
+                .contains("(SELECT r.shortage_yn FROM risk_agg r WHERE r.sku_id = ra.sku_id AND r.sales_point_id = -1) AS unassigned_shortage_yn")
                 .contains("unassigned_risk_grade")
                 .contains("unassigned_assessment_status")
                 .contains("unassigned_risk_reason")
@@ -84,14 +154,12 @@ class InventoryQuantitySqlContractTest {
     }
 
     @Test
-    void sellerRiskAggregationPrioritizesTheMostSevereLot() throws IOException {
+    void sellerRiskAggregationUsesTheLatestPersistedAssessmentPerScope() throws IOException {
         String inventorySql = read("inventory/InventoryMapper.xml");
 
         assertThat(inventorySql)
-                .contains("WHEN 'CRITICAL' THEN 1")
-                .contains("WHEN 'WARNING' THEN 2")
-                .contains("WHEN 'NORMAL' THEN 3")
-                .contains("WHEN 'GOOD' THEN 4")
+                .contains("ORDER BY ra.updated_at DESC,", "ra.risk_assessment_id DESC")
+                .doesNotContain("ORDER BY CASE ra.risk_grade")
                 .contains("reason_message AS risk_reason")
                 .contains("risk.risk_reason");
     }
@@ -103,12 +171,12 @@ class InventoryQuantitySqlContractTest {
         assertThat(inventorySql)
                 .contains("sku_risk_agg AS")
                 .contains("LEFT JOIN sku_risk_agg sr ON sr.sku_id = ib.sku_id")
-                .contains("NVL(sr.risk_grade, 'UNASSESSED') IN")
-                .doesNotContain("NVL(r.risk_grade, 'UNASSESSED') IN");
+                .contains("NVL(sr.risk_grade, 'UNASSESSED') =")
+                .doesNotContain("NVL(r.risk_grade, 'UNASSESSED') =");
     }
 
     @Test
-    void candidateFilterGroupsUseTheValidatedAndOrOperator() throws IOException {
+    void candidateFilterValuesUseTheValidatedAndOrOperator() throws IOException {
         String inventorySql = read("inventory/InventoryMapper.xml");
 
         assertThat(inventorySql)
@@ -162,5 +230,9 @@ class InventoryQuantitySqlContractTest {
 
     private static String read(String relativePath) throws IOException {
         return Files.readString(MAPPER_ROOT.resolve(relativePath));
+    }
+
+    private static int occurrences(String value, String needle) {
+        return (value.length() - value.replace(needle, "").length()) / needle.length();
     }
 }

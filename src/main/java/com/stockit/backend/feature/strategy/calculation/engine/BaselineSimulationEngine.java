@@ -56,14 +56,19 @@ public class BaselineSimulationEngine {
         BigDecimal cumulativeRevenue = ZERO_MONEY;
         BigDecimal cumulativeContributionMargin = ZERO_MONEY;
         BigDecimal cumulativeDisposal = ZERO_QUANTITY;
+        BigDecimal cumulativeDisposalCost = ZERO_MONEY;
+        BigDecimal cumulativeHoldingCost = ZERO_MONEY;
         Integer sellThroughDays = null;
         List<BaselineSimulation.DailyPoint> dailySeries = new ArrayList<>();
 
         for (LocalDate date = context.forecastStartDate();
                 !date.isAfter(context.forecastEndDate());
                 date = date.plusDays(1)) {
-            BigDecimal disposedToday = disposeExpired(lots, date);
-            cumulativeDisposal = quantity(cumulativeDisposal.add(disposedToday));
+            DisposalResult disposal = disposeExpired(context, lots, date);
+            cumulativeDisposal = quantity(cumulativeDisposal.add(disposal.quantity()));
+            cumulativeDisposalCost = money(
+                    cumulativeDisposalCost.add(disposal.cost())
+            );
 
             BigDecimal demand = source == null
                     ? ZERO_QUANTITY
@@ -81,6 +86,9 @@ public class BaselineSimulationEngine {
             cumulativeContributionMargin = money(
                     cumulativeContributionMargin.add(contributionToday)
             );
+            cumulativeHoldingCost = money(cumulativeHoldingCost.add(
+                    holdingCost(context, lots)
+            ));
             BigDecimal remaining = totalRemaining(lots);
             if (sellThroughDays == null
                     && remaining.signum() == 0
@@ -115,7 +123,9 @@ public class BaselineSimulationEngine {
                 contributionMarginRate,
                 sellThroughDays,
                 totalRemaining(lots),
-                cumulativeDisposal
+                cumulativeDisposal,
+                cumulativeDisposalCost,
+                cumulativeHoldingCost
         );
         return new BaselineSimulation(summary, dailySeries);
     }
@@ -151,15 +161,50 @@ public class BaselineSimulationEngine {
         return predicted;
     }
 
-    private static BigDecimal disposeExpired(List<LotState> lots, LocalDate date) {
+    private static DisposalResult disposeExpired(
+            StrategyCalculationContext context,
+            List<LotState> lots,
+            LocalDate date
+    ) {
         BigDecimal disposed = ZERO_QUANTITY;
+        BigDecimal cost = ZERO_MONEY;
         for (LotState lot : lots) {
             if (lot.isExpiredAt(date) && lot.remaining.signum() > 0) {
                 disposed = disposed.add(lot.remaining);
+                InventoryCostPolicyResolver.Cost policy =
+                        InventoryCostPolicyResolver.resolve(
+                                context.inventoryPolicies(),
+                                lot.input.warehouseId(),
+                                lot.input.effectiveSalesPointId()
+                        );
+                cost = cost.add(lot.remaining.multiply(policy.unitDisposalCost()));
                 lot.remaining = ZERO_QUANTITY;
             }
         }
-        return quantity(disposed);
+        return new DisposalResult(quantity(disposed), money(cost));
+    }
+
+    /** 당일 판매·폐기 반영 후 남은 재고에 1일 보관비를 부과한다. */
+    private static BigDecimal holdingCost(
+            StrategyCalculationContext context,
+            List<LotState> lots
+    ) {
+        BigDecimal result = ZERO_MONEY;
+        for (LotState lot : lots) {
+            if (lot.remaining.signum() == 0) {
+                continue;
+            }
+            InventoryCostPolicyResolver.Cost policy =
+                    InventoryCostPolicyResolver.resolve(
+                            context.inventoryPolicies(),
+                            lot.input.warehouseId(),
+                            lot.input.effectiveSalesPointId()
+                    );
+            result = result.add(
+                    lot.remaining.multiply(policy.dailyUnitHoldingCost())
+            );
+        }
+        return money(result);
     }
 
     private static BigDecimal consumeSellableLots(
@@ -241,5 +286,8 @@ public class BaselineSimulationEngine {
             }
             return input.saleStopDate() == null || date.isBefore(input.saleStopDate());
         }
+    }
+
+    private record DisposalResult(BigDecimal quantity, BigDecimal cost) {
     }
 }

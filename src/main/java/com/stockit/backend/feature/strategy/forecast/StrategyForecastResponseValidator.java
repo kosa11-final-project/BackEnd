@@ -48,8 +48,10 @@ public class StrategyForecastResponseValidator {
                 || !Objects.equals(response.forecastDays(), expectedDays)
                 || response.forecastRunId() == null
                 || response.forecastRunId().isBlank()
-                || response.modelVersionId() == null
-                || response.modelVersionId() <= 0
+                || response.modelName() == null
+                || response.modelName().isBlank()
+                || response.modelVersion() == null
+                || response.modelVersion().isBlank()
                 || response.forecastGeneratedAt() == null
                 || response.salesPointForecasts() == null) {
             fail("Demand forecast response metadata does not match the request");

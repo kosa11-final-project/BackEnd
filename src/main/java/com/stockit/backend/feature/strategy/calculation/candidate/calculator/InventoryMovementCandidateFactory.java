@@ -39,6 +39,7 @@ import com.stockit.backend.feature.strategy.domain.StrategyType;
 @Component
 public class InventoryMovementCandidateFactory {
 
+    private static final int MAX_RT_DESTINATIONS_PER_TARGET = 3;
     private static final BigDecimal ONE_HUNDRED = new BigDecimal("100");
     private static final BigDecimal ZERO_MONEY = BigDecimal.ZERO.setScale(
             CalculationPrecisionPolicy.MONEY_SCALE
@@ -48,17 +49,20 @@ public class InventoryMovementCandidateFactory {
     private final TargetAdditionalDemandPolicy targetDemandPolicy;
     private final MovementLotAllocationPolicy allocationPolicy;
     private final StrategyCandidateIdGenerator idGenerator;
+    private final InventoryTransferCostCalculator transferCostCalculator;
 
     public InventoryMovementCandidateFactory(
             SourceInventoryCapacityPolicy sourceCapacityPolicy,
             TargetAdditionalDemandPolicy targetDemandPolicy,
             MovementLotAllocationPolicy allocationPolicy,
-            StrategyCandidateIdGenerator idGenerator
+            StrategyCandidateIdGenerator idGenerator,
+            InventoryTransferCostCalculator transferCostCalculator
     ) {
         this.sourceCapacityPolicy = sourceCapacityPolicy;
         this.targetDemandPolicy = targetDemandPolicy;
         this.allocationPolicy = allocationPolicy;
         this.idGenerator = idGenerator;
+        this.transferCostCalculator = transferCostCalculator;
     }
 
     /** 사용자 조건에 맞는 판매처별 재할당 또는 실제 이동 후보를 생성한다 */
@@ -102,9 +106,9 @@ public class InventoryMovementCandidateFactory {
             );
         }
         List<StrategyCandidate> candidates = new ArrayList<>();
-        List<CandidateExclusion> exclusions = new ArrayList<>();
+        Set<CandidateExclusion> exclusions = new LinkedHashSet<>();
         if (orderedTargetIds.isEmpty()) {
-            return new CandidateGenerationResult(candidates, exclusions);
+            return new CandidateGenerationResult(candidates, List.of());
         }
         // 모든 판매처 후보가 같은 전략 시작일을 사용하므로 재고 투영은 한 번만 수행
         SourceInventoryCapacityPolicy.Projection projection =
@@ -127,7 +131,7 @@ public class InventoryMovementCandidateFactory {
             candidates.addAll(targetResult.candidates());
             exclusions.addAll(targetResult.exclusions());
         }
-        return new CandidateGenerationResult(candidates, exclusions);
+        return new CandidateGenerationResult(candidates, List.copyOf(exclusions));
     }
 
     private TargetResult generateForTarget(
@@ -153,20 +157,63 @@ public class InventoryMovementCandidateFactory {
             );
         }
 
-        WarehouseSelection selection = selectEligibleLots(
+        List<WarehouseSelection> selections = selectEligibleLots(
                 context.evaluationInventory(),
                 target,
                 strategyType
         );
-        if (selection.exclusionReason() != null) {
+        Map<LocalDate, BigDecimal> unmetDemand = targetDemandPolicy.calculate(
+                context,
+                targetId
+        );
+        BigDecimal targetDemandTotal = sum(unmetDemand.values());
+        if (targetDemandTotal.signum() == 0) {
             return excluded(
                     strategyType,
                     targetId,
-                    selection.exclusionReason(),
-                    selection.exclusionMessage()
+                    CandidateExclusionReason.TARGET_ADDITIONAL_DEMAND_NOT_FOUND,
+                    "Target has no additional sellable demand in the strategy period"
             );
         }
 
+        List<StrategyCandidate> candidates = new ArrayList<>();
+        Set<CandidateExclusion> exclusions = new LinkedHashSet<>();
+        for (WarehouseSelection selection : selections) {
+            if (selection.exclusionReason() != null) {
+                exclusions.add(new CandidateExclusion(
+                        strategyType,
+                        targetId,
+                        selection.exclusionReason(),
+                        selection.exclusionMessage()
+                ));
+                continue;
+            }
+            TargetResult result = generateForDestination(
+                    context,
+                    strategyType,
+                    strategyPriority,
+                    targetPriority,
+                    targetId,
+                    selection,
+                    unmetDemand,
+                    targetDemandTotal
+            );
+            candidates.addAll(result.candidates());
+            exclusions.addAll(result.exclusions());
+        }
+        return new TargetResult(candidates, List.copyOf(exclusions));
+    }
+
+    private TargetResult generateForDestination(
+            StrategyCalculationContext context,
+            StrategyType strategyType,
+            int strategyPriority,
+            int targetPriority,
+            Long targetId,
+            WarehouseSelection selection,
+            Map<LocalDate, BigDecimal> unmetDemand,
+            BigDecimal targetDemandTotal
+    ) {
         SourceInventoryCapacityPolicy.Capacity sourceCapacity = sourceCapacityPolicy.resolve(
                 context,
                 selection.eligibleLots()
@@ -182,24 +229,9 @@ public class InventoryMovementCandidateFactory {
                     "No inventory can be moved while preserving source safety stock"
             );
         }
-
-        Map<LocalDate, BigDecimal> unmetDemand = targetDemandPolicy.calculate(
-                context,
-                targetId
-        );
-        BigDecimal targetDemandTotal = sum(unmetDemand.values());
-        if (targetDemandTotal.signum() == 0) {
-            return excluded(
-                    strategyType,
-                    targetId,
-                    CandidateExclusionReason.TARGET_ADDITIONAL_DEMAND_NOT_FOUND,
-                    "Target has no additional sellable demand in the strategy period"
-            );
-        }
-
         MovementCandidatePlan maximumPlan = allocationPolicy.plan(
                 selection.eligibleLots(),
-                sourceCapacity.byWarehouse(),
+                sourceCapacity.byLocation(),
                 unmetDemand,
                 sourceCapacity.total().min(targetDemandTotal)
         );
@@ -215,35 +247,49 @@ public class InventoryMovementCandidateFactory {
         }
 
         List<CandidateAssumption> assumptions = assumptions(
-                strategyType,
                 sourceCapacity.safetyStockDefaulted()
         );
         List<StrategyCandidate> candidates = new ArrayList<>();
+        List<CandidateExclusion> exclusions = new ArrayList<>();
         Set<BigDecimal> generatedQuantities = new LinkedHashSet<>();
         for (int percentage = 10; percentage <= 100; percentage += 10) {
             BigDecimal requested = CalculationPrecisionPolicy.executableQuantity(
                     maxExecutableQuantity
-                    .multiply(BigDecimal.valueOf(percentage))
-                    .divide(ONE_HUNDRED, CalculationPrecisionPolicy.QUANTITY_SCALE,
-                            RoundingMode.DOWN));
+                            .multiply(BigDecimal.valueOf(percentage))
+                            .divide(ONE_HUNDRED,
+                                    CalculationPrecisionPolicy.QUANTITY_SCALE,
+                                    RoundingMode.DOWN)
+            );
             if (requested.signum() == 0 || !generatedQuantities.add(requested)) {
                 continue;
             }
             MovementCandidatePlan tierPlan = allocationPolicy.plan(
                     selection.eligibleLots(),
-                    sourceCapacity.byWarehouse(),
+                    sourceCapacity.byLocation(),
                     unmetDemand,
                     requested
             );
             if (tierPlan.plannedQuantity().compareTo(requested) != 0) {
                 continue;
             }
-            List<StrategyCandidate.Action> actions = toActions(
-                    tierPlan,
-                    strategyType,
-                    targetId,
-                    selection.targetWarehouseId()
-            );
+            List<StrategyCandidate.Action> actions;
+            try {
+                actions = toActions(
+                        context,
+                        tierPlan,
+                        strategyType,
+                        targetId,
+                        selection.destination()
+                );
+            } catch (InventoryTransferCostCalculationException exception) {
+                exclusions.add(new CandidateExclusion(
+                        strategyType,
+                        targetId,
+                        exception.getReason(),
+                        exception.getMessage()
+                ));
+                break;
+            }
             String candidateId = idGenerator.generate(
                     strategyType,
                     context.strategyStartDate(),
@@ -270,19 +316,20 @@ public class InventoryMovementCandidateFactory {
                     )
             ));
         }
-        return new TargetResult(candidates, List.of());
+        return new TargetResult(candidates, exclusions);
     }
 
-    private WarehouseSelection selectEligibleLots(
+    private List<WarehouseSelection> selectEligibleLots(
             List<InventoryLot> evaluationInventory,
             SalesPoint target,
             StrategyType strategyType
     ) {
-        if (target.warehouseRoutes().isEmpty()) {
-            return WarehouseSelection.excluded(
+        if (strategyType == StrategyType.REALLOCATION
+                && target.warehouseRoutes().isEmpty()) {
+            return List.of(WarehouseSelection.excluded(
                     CandidateExclusionReason.TARGET_ROUTE_NOT_FOUND,
                     "Target sales point has no active warehouse route"
-            );
+            ));
         }
         if (strategyType == StrategyType.REALLOCATION) {
             Set<Long> targetWarehouseIds = target.warehouseRoutes().stream()
@@ -293,33 +340,56 @@ public class InventoryMovementCandidateFactory {
                     .filter(lot -> targetWarehouseIds.contains(lot.warehouseId()))
                     .toList();
             if (eligible.isEmpty()) {
-                return WarehouseSelection.excluded(
+                return List.of(WarehouseSelection.excluded(
                         CandidateExclusionReason.SHARED_WAREHOUSE_NOT_FOUND,
                         "Source inventory and target do not share a warehouse"
-                );
+                ));
             }
-            return new WarehouseSelection(eligible, null, null, null);
+            return List.of(new WarehouseSelection(eligible, null, null, null));
         }
 
-        Long primaryTargetWarehouseId = target.warehouseRoutes().get(0).warehouseId();
-        List<InventoryLot> eligible = evaluationInventory.stream()
-                .filter(lot -> lot.warehouseId() != null)
-                .filter(lot -> !Objects.equals(lot.warehouseId(), primaryTargetWarehouseId))
-                .toList();
-        if (eligible.isEmpty()) {
-            return WarehouseSelection.excluded(
-                    CandidateExclusionReason.PHYSICAL_TRANSFER_NOT_REQUIRED,
-                    "All selected inventory already resides in the target warehouse"
-            );
+        List<StrategyCandidate.Location> destinations = new ArrayList<>();
+        destinations.add(new StrategyCandidate.Location(null, target.salesPointId()));
+        target.warehouseRoutes().stream()
+                .map(WarehouseRoute::warehouseId)
+                .distinct()
+                // 판매처 직접 이동 1개와 우선순위가 높은 담당 창고 2개까지만 평가한다.
+                .limit(MAX_RT_DESTINATIONS_PER_TARGET - 1L)
+                .forEach(warehouseId -> destinations.add(
+                        new StrategyCandidate.Location(
+                                warehouseId,
+                                target.salesPointId()
+                        )
+                ));
+        List<WarehouseSelection> selections = new ArrayList<>();
+        for (StrategyCandidate.Location destination : destinations) {
+            List<InventoryLot> eligible = evaluationInventory.stream()
+                    .filter(lot -> !samePhysicalLocation(lot, destination))
+                    .toList();
+            if (eligible.isEmpty()) {
+                selections.add(WarehouseSelection.excluded(
+                        CandidateExclusionReason.PHYSICAL_TRANSFER_NOT_REQUIRED,
+                        "All selected inventory already resides at destination "
+                                + destination
+                ));
+            } else {
+                selections.add(new WarehouseSelection(
+                        eligible,
+                        destination,
+                        null,
+                        null
+                ));
+            }
         }
-        return new WarehouseSelection(eligible, primaryTargetWarehouseId, null, null);
+        return List.copyOf(selections);
     }
 
-    private static List<StrategyCandidate.Action> toActions(
+    private List<StrategyCandidate.Action> toActions(
+            StrategyCalculationContext context,
             MovementCandidatePlan plan,
             StrategyType strategyType,
             Long targetSalesPointId,
-            Long transferTargetWarehouseId
+            StrategyCandidate.Location transferDestination
     ) {
         Map<ActionKey, List<MovementCandidatePlan.Allocation>> grouped = plan.allocations()
                 .stream()
@@ -347,22 +417,36 @@ public class InventoryMovementCandidateFactory {
             BigDecimal actionQuantity = sum(entry.getValue().stream()
                     .map(MovementCandidatePlan.Allocation::quantity)
                     .toList());
-            Long destinationWarehouseId = strategyType == StrategyType.REALLOCATION
-                    ? entry.getKey().warehouseId()
-                    : transferTargetWarehouseId;
+            StrategyCandidate.Location source = new StrategyCandidate.Location(
+                    entry.getKey().warehouseId(),
+                    entry.getKey().salesPointId()
+            );
+            StrategyCandidate.Location target = strategyType == StrategyType.REALLOCATION
+                    ? new StrategyCandidate.Location(
+                            entry.getKey().warehouseId(),
+                            targetSalesPointId
+                    )
+                    : transferDestination;
+            StrategyCandidate.MovementCost movementCost =
+                    strategyType == StrategyType.RT_TRANSFER
+                            ? transferCostCalculator.calculate(
+                                    context,
+                                    source,
+                                    target,
+                                    actionQuantity,
+                                    context.strategyStartDate()
+                            )
+                            : null;
             actions.add(new StrategyCandidate.Action(
                     strategyType,
-                    new StrategyCandidate.Location(
-                            entry.getKey().warehouseId(),
-                            entry.getKey().salesPointId()
-                    ),
-                    new StrategyCandidate.Location(
-                            destinationWarehouseId,
-                            targetSalesPointId
-                    ),
+                    source,
+                    target,
                     actionQuantity,
-                    strategyType == StrategyType.REALLOCATION ? ZERO_MONEY : null,
-                    lotAllocations
+                    movementCost == null ? ZERO_MONEY : movementCost.estimatedCost(),
+                    null,
+                    null,
+                    lotAllocations,
+                    movementCost
             ));
         }
         actions.sort(Comparator.comparing(
@@ -383,20 +467,28 @@ public class InventoryMovementCandidateFactory {
         return context.salesPoints().keySet().stream().toList();
     }
 
-    private static List<CandidateAssumption> assumptions(
-            StrategyType strategyType,
-            boolean safetyStockDefaulted
-    ) {
+    private static List<CandidateAssumption> assumptions(boolean safetyStockDefaulted) {
         EnumSet<CandidateAssumption> assumptions = EnumSet.noneOf(
                 CandidateAssumption.class
         );
         if (safetyStockDefaulted) {
             assumptions.add(CandidateAssumption.SAFETY_STOCK_DEFAULTED_TO_ZERO);
         }
-        if (strategyType == StrategyType.RT_TRANSFER) {
-            assumptions.add(CandidateAssumption.TRANSFER_COST_EXCLUDED);
-        }
         return List.copyOf(assumptions);
+    }
+
+    private static boolean samePhysicalLocation(
+            InventoryLot lot,
+            StrategyCandidate.Location location
+    ) {
+        if (location.warehouseId() != null) {
+            return Objects.equals(lot.warehouseId(), location.warehouseId());
+        }
+        return lot.warehouseId() == null
+                && Objects.equals(
+                        lot.effectiveSalesPointId(),
+                        location.salesPointId()
+                );
     }
 
     private static TargetResult excluded(
@@ -425,7 +517,7 @@ public class InventoryMovementCandidateFactory {
 
     private record WarehouseSelection(
             List<InventoryLot> eligibleLots,
-            Long targetWarehouseId,
+            StrategyCandidate.Location destination,
             CandidateExclusionReason exclusionReason,
             String exclusionMessage
     ) {

@@ -87,17 +87,30 @@ class StrategyForecastResponseValidatorTest {
         assertInvalid(copyWithMetadata(
                 1,
                 "forecast-run-1",
-                3L,
+                "stockit-demand-lightgbm",
+                "3",
                 List.of(20L)
         ));
     }
 
     @Test
-    void rejectsNonPositiveModelVersionId() {
+    void rejectsBlankModelName() {
         assertInvalid(copyWithMetadata(
                 2,
                 "forecast-run-1",
-                0L,
+                " ",
+                "3",
+                List.of(20L)
+        ));
+    }
+
+    @Test
+    void rejectsBlankModelVersion() {
+        assertInvalid(copyWithMetadata(
+                2,
+                "forecast-run-1",
+                "stockit-demand-lightgbm",
+                " ",
                 List.of(20L)
         ));
     }
@@ -107,7 +120,8 @@ class StrategyForecastResponseValidatorTest {
         assertInvalid(copyWithMetadata(
                 2,
                 " ",
-                3L,
+                "stockit-demand-lightgbm",
+                "3",
                 List.of(20L)
         ));
     }
@@ -117,7 +131,8 @@ class StrategyForecastResponseValidatorTest {
         assertInvalid(copyWithMetadata(
                 2,
                 "forecast-run-1",
-                3L,
+                "stockit-demand-lightgbm",
+                "3",
                 List.of(30L)
         ));
     }
@@ -164,7 +179,8 @@ class StrategyForecastResponseValidatorTest {
                 LocalDate.of(2026, 8, 21),
                 2,
                 "forecast-run-1",
-                3L,
+                "stockit-demand-lightgbm",
+                "3",
                 OffsetDateTime.parse("2026-08-20T10:15:30+09:00"),
                 List.of(
                         new SalesPointForecast(10L, true, firstSeries),
@@ -186,7 +202,8 @@ class StrategyForecastResponseValidatorTest {
                 source.forecastEndDate(),
                 source.forecastDays(),
                 source.forecastRunId(),
-                source.modelVersionId(),
+                source.modelName(),
+                source.modelVersion(),
                 source.forecastGeneratedAt(),
                 forecasts
         );
@@ -195,7 +212,8 @@ class StrategyForecastResponseValidatorTest {
     private static StrategyForecastResponse copyWithMetadata(
             Integer forecastDays,
             String forecastRunId,
-            Long modelVersionId,
+            String modelName,
+            String modelVersion,
             List<Long> requestedCandidateSalesPointIds
     ) {
         StrategyForecastResponse source = validResponse();
@@ -208,7 +226,8 @@ class StrategyForecastResponseValidatorTest {
                 source.forecastEndDate(),
                 forecastDays,
                 forecastRunId,
-                modelVersionId,
+                modelName,
+                modelVersion,
                 source.forecastGeneratedAt(),
                 source.salesPointForecasts()
         );

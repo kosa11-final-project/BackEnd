@@ -23,6 +23,8 @@ app:
     snapshot-recovery:
       enabled: false
   ai-strategy:
+    notification-recovery:
+      enabled: false
     messaging:
       enabled: false
 

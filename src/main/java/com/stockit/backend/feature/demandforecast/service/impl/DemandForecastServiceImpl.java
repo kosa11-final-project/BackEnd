@@ -435,7 +435,12 @@ public class DemandForecastServiceImpl implements DemandForecastService {
                     "일일 수요예측 완료",
                     request.forecastBaseDate() + " 기준 수요예측 " + receivedItems
                             + "건이 정상 반영되었습니다.",
-                    "DEMAND_FORECAST:" + run.getForecastRunId() + ":COMPLETED"
+                    "DEMAND_FORECAST:" + run.getForecastRunId() + ":COMPLETED",
+                    request.forecastBaseDate(),
+                    "FINALIZING",
+                    null,
+                    request.azureJobId(),
+                    Instant.now()
             ));
         }
 

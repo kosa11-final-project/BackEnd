@@ -30,7 +30,7 @@ public record RiskAssessmentDetailResponse(
         @Schema(description = "기준일", example = "2026-08-16")
         LocalDate baseDate,
 
-        @Schema(description = "현재 가용재고", example = "110")
+        @Schema(description = "판매중지·소비기한 경과·소진 LOT를 제외한 현재 판매 가능 재고", example = "110")
         BigDecimal availableQty,
 
         @Schema(description = "D+30 수요예측 부족 수량", example = "0")
@@ -57,7 +57,7 @@ public record RiskAssessmentDetailResponse(
         @Schema(description = "RISK_ASSESSMENT.stock_days에 저장된 30일 평균 예측수요 기준 예상 소진까지 남은 일수", example = "20.0")
         BigDecimal stockCoverageDays,
 
-        @Schema(description = "현재 가용재고가 안전재고보다 적은지 여부 (Y, N)", example = "Y")
+        @Schema(description = "현재 판매 가능 재고가 안전재고보다 적은지 여부 (Y, N)", example = "Y")
         String shortageYn
 ) {
     public RiskAssessmentDetailResponse {

@@ -55,8 +55,9 @@ public class InventoryQueryServiceImpl implements InventoryQueryService {
 
     @Override
     public InventoryListResponse find(InventoryQuery query) {
-        long totalCount = inventoryMapper.countInventory(query);
-        List<InventoryItemResponse> items = inventoryMapper.selectInventoryList(query).stream()
+        List<InventoryItemVO> rows = inventoryMapper.selectInventoryList(query);
+        long totalCount = resolveTotalCount(query, rows);
+        List<InventoryItemResponse> items = rows.stream()
                 .map(responseMapper::toItemResponse)
                 .toList();
         int totalPages = totalCount == 0 ? 1 : (int) Math.ceil((double) totalCount / query.size());
@@ -69,6 +70,15 @@ public class InventoryQueryServiceImpl implements InventoryQueryService {
                 totalPages,
                 items.isEmpty() && hasFilter(query)
         );
+    }
+
+    private long resolveTotalCount(InventoryQuery query, List<InventoryItemVO> rows) {
+        if (!rows.isEmpty() && rows.get(0).getTotalCount() != null) {
+            return rows.get(0).getTotalCount();
+        }
+        // 첫 페이지가 비어 있으면 전체 건수도 0이다. 페이지 범위를 벗어난 경우에만
+        // 마지막 유효 페이지 보정을 위해 별도 count 쿼리를 예외적으로 실행한다.
+        return query.page() > 1 ? inventoryMapper.countInventory(query) : 0L;
     }
 
     @Override
@@ -169,9 +179,10 @@ public class InventoryQueryServiceImpl implements InventoryQueryService {
                 || !query.salesPointCodes().isEmpty()
                 || !query.warehouseCodes().isEmpty()
                 || !query.regionCodes().isEmpty()
-                || query.categoryId() != null
+                || !query.categoryIds().isEmpty()
                 || !query.storageTypes().isEmpty()
                 || !query.riskGrades().isEmpty()
-                || !query.assessmentStatuses().isEmpty();
+                || !query.assessmentStatuses().isEmpty()
+                || query.shortageYn() != null;
     }
 }

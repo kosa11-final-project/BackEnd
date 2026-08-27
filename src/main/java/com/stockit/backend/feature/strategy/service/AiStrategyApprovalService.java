@@ -13,7 +13,6 @@ public interface AiStrategyApprovalService {
             AdjustStrategySimulationCommand adjustedConditions,
             List<Long> reviewerIds,
             Long actorId,
-            String actorName,
             Long organizationId
     );
 }

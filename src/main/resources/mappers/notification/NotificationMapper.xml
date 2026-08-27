@@ -8,6 +8,7 @@
                severity,
                title,
                message,
+               strategy_case_id,
                forecast_run_id,
                CASE WHEN read_yn = 'Y' THEN 1 ELSE 0 END AS read,
                created_at

@@ -3,6 +3,7 @@ package com.stockit.backend.feature.strategy.calculation.service.impl;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -26,6 +27,8 @@ import com.stockit.backend.feature.strategy.calculation.vo.StrategyCalculationPo
 import com.stockit.backend.feature.strategy.calculation.vo.StrategyCalculationPriceVO;
 import com.stockit.backend.feature.strategy.calculation.vo.StrategyCalculationSalesPointVO;
 import com.stockit.backend.feature.strategy.calculation.vo.StrategyCalculationSkuVO;
+import com.stockit.backend.feature.strategy.calculation.vo.StrategyCalculationTransferCostPolicyVO;
+import com.stockit.backend.feature.strategy.calculation.vo.StrategyCalculationTransferRouteVO;
 import com.stockit.backend.feature.strategy.calculation.vo.StrategyCalculationWarehouseRouteVO;
 import com.stockit.backend.feature.strategy.domain.StrategyCaseStatus;
 import com.stockit.backend.feature.strategy.domain.StrategyGenerationStage;
@@ -53,6 +56,8 @@ import com.stockit.backend.feature.strategy.vo.StrategyCaseVO;
 @Service
 public class StrategyCalculationContextLoaderImpl
         implements StrategyCalculationContextLoader {
+
+    static final int ORACLE_IN_CHUNK_SIZE = 900;
 
     private final StrategyCaseMapper strategyCaseMapper;
     private final StrategyCaseRequestPayloadSerializer payloadSerializer;
@@ -107,6 +112,7 @@ public class StrategyCalculationContextLoaderImpl
                 strategyCase,
                 payload,
                 checkpoint.forecastResponse(),
+                checkpoint.modelVersionId(),
                 forecastContext.expectedSalesPointIds(),
                 forecastContext.requestHash(),
                 calculatedAt
@@ -174,6 +180,7 @@ public class StrategyCalculationContextLoaderImpl
             StrategyCaseVO strategyCase,
             StrategyCaseRequestPayload payload,
             StrategyForecastResponse forecast,
+            Long modelVersionId,
             List<Long> expectedSalesPointIds,
             String forecastRequestHash,
             LocalDateTime calculatedAt
@@ -295,6 +302,26 @@ public class StrategyCalculationContextLoaderImpl
                 strategyCase.getSkuId(),
                 asOfDate
         );
+        TransferRouteScope transferRouteScope = transferRouteScope(
+                evaluationInventory,
+                salesPoints
+        );
+        List<StrategyCalculationTransferRouteVO> transferRoutes =
+                relevantTransferRoutes(
+                        inputMapper.selectActiveTransferRoutes(
+                                transferRouteScope.sourceWarehouseIdChunks(),
+                                transferRouteScope.sourceSalesPointIdChunks(),
+                                transferRouteScope.destinationWarehouseIdChunks(),
+                                transferRouteScope.destinationSalesPointIdChunks()
+                        ),
+                        evaluationInventory,
+                        salesPoints
+                );
+        List<StrategyCalculationTransferCostPolicyVO> transferCostPolicies =
+                inputMapper.selectTransferCostPolicies(
+                        forecast.forecastStartDate(),
+                        forecast.forecastEndDate()
+                );
         return new StrategyCalculationContext(
                 strategyCase.getStrategyCaseId(),
                 strategyCase.getRequestedSalesPointId(),
@@ -315,10 +342,12 @@ public class StrategyCalculationContextLoaderImpl
                 salesPoints,
                 new StrategyCalculationContext.ForecastMetadata(
                         forecast.forecastRunId(),
-                        forecast.modelVersionId(),
+                        modelVersionId,
                         forecast.forecastGeneratedAt(),
                         forecastRequestHash
-                )
+                ),
+                transferRoutes.stream().map(this::toTransferRoute).toList(),
+                transferCostPolicies.stream().map(this::toTransferCostPolicy).toList()
         );
     }
 
@@ -354,6 +383,81 @@ public class StrategyCalculationContextLoaderImpl
             );
         }
         return List.copyOf(selected);
+    }
+
+    /** Case에서 실제로 출발·도착 가능성이 있는 방향성 경로만 Redis 문맥에 보존한다. */
+    private static TransferRouteScope transferRouteScope(
+            List<StrategyCalculationInventoryVO> evaluationInventory,
+            Map<Long, StrategyCalculationContext.SalesPoint> salesPoints
+    ) {
+        Set<Long> sourceWarehouseIds = evaluationInventory.stream()
+                .map(StrategyCalculationInventoryVO::getWarehouseId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        Set<Long> sourceSalesPointIds = evaluationInventory.stream()
+                .filter(row -> row.getWarehouseId() == null)
+                .map(StrategyCalculationInventoryVO::effectiveSalesPointId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        Set<Long> destinationSalesPointIds = new HashSet<>(salesPoints.keySet());
+        Set<Long> destinationWarehouseIds = salesPoints.values().stream()
+                .flatMap(salesPoint -> salesPoint.warehouseRoutes().stream())
+                .map(StrategyCalculationContext.WarehouseRoute::warehouseId)
+                .collect(Collectors.toSet());
+        return new TransferRouteScope(
+                partitionIds(sortedIds(sourceWarehouseIds)),
+                partitionIds(sortedIds(sourceSalesPointIds)),
+                partitionIds(sortedIds(destinationWarehouseIds)),
+                partitionIds(sortedIds(destinationSalesPointIds))
+        );
+    }
+
+    private static List<Long> sortedIds(Collection<Long> ids) {
+        return ids.stream().sorted().toList();
+    }
+
+    /** Oracle IN 절의 1,000개 표현식 제한을 넘지 않도록 ID 목록을 분할한다. */
+    static List<List<Long>> partitionIds(List<Long> ids) {
+        if (ids.isEmpty()) {
+            return List.of();
+        }
+        List<List<Long>> chunks = new ArrayList<>();
+        for (int start = 0; start < ids.size(); start += ORACLE_IN_CHUNK_SIZE) {
+            int end = Math.min(start + ORACLE_IN_CHUNK_SIZE, ids.size());
+            chunks.add(List.copyOf(ids.subList(start, end)));
+        }
+        return List.copyOf(chunks);
+    }
+
+    /** DB 범위 축소 후에도 잘못된 방향이나 위치 조합이 문맥에 섞이지 않게 재검증한다. */
+    private static List<StrategyCalculationTransferRouteVO> relevantTransferRoutes(
+            List<StrategyCalculationTransferRouteVO> routes,
+            List<StrategyCalculationInventoryVO> evaluationInventory,
+            Map<Long, StrategyCalculationContext.SalesPoint> salesPoints
+    ) {
+        Set<LocationKey> sourceLocations = evaluationInventory.stream()
+                .map(row -> row.getWarehouseId() != null
+                        ? new LocationKey(row.getWarehouseId(), null)
+                        : new LocationKey(null, row.effectiveSalesPointId()))
+                .filter(LocationKey::isValid)
+                .collect(Collectors.toSet());
+        Set<LocationKey> targetLocations = new HashSet<>();
+        for (StrategyCalculationContext.SalesPoint salesPoint : salesPoints.values()) {
+            targetLocations.add(new LocationKey(null, salesPoint.salesPointId()));
+            salesPoint.warehouseRoutes().stream()
+                    .map(route -> new LocationKey(route.warehouseId(), null))
+                    .forEach(targetLocations::add);
+        }
+        return routes.stream()
+                .filter(route -> sourceLocations.contains(new LocationKey(
+                        route.getSourceWarehouseId(),
+                        route.getSourceSalesPointId()
+                )))
+                .filter(route -> targetLocations.contains(new LocationKey(
+                        route.getDestinationWarehouseId(),
+                        route.getDestinationSalesPointId()
+                )))
+                .toList();
     }
 
     private static boolean matchesSource(
@@ -464,7 +568,9 @@ public class StrategyCalculationContextLoaderImpl
                 sku.getSkuCode(),
                 sku.getSkuName(),
                 sku.getUnitCode(),
-                sku.getPackageQuantity()
+                sku.getPackageQuantity(),
+                sku.getNetWeight(),
+                sku.getWeightUnit()
         );
     }
 
@@ -514,7 +620,53 @@ public class StrategyCalculationContextLoaderImpl
         );
     }
 
+    private StrategyCalculationContext.TransferRoute toTransferRoute(
+            StrategyCalculationTransferRouteVO route
+    ) {
+        return new StrategyCalculationContext.TransferRoute(
+                route.getTransferRouteId(),
+                StrategyCalculationContext.PhysicalLocation.of(
+                        route.getSourceWarehouseId(),
+                        route.getSourceSalesPointId()
+                ),
+                StrategyCalculationContext.PhysicalLocation.of(
+                        route.getDestinationWarehouseId(),
+                        route.getDestinationSalesPointId()
+                ),
+                route.getDistanceKm(),
+                route.getDistanceSource(),
+                route.getDistanceRouteOption(),
+                route.getDistanceCalculatedAt()
+        );
+    }
+
+    private StrategyCalculationContext.TransferCostPolicy toTransferCostPolicy(
+            StrategyCalculationTransferCostPolicyVO policy
+    ) {
+        return new StrategyCalculationContext.TransferCostPolicy(
+                policy.getTransferCostPolicyId(),
+                policy.getPolicyCode(),
+                policy.getCostPerKgKm(),
+                policy.getEffectiveFrom(),
+                policy.getEffectiveTo()
+        );
+    }
+
     private static StrategyCalculationException failure(String code, String message) {
         return new StrategyCalculationException(code, message);
+    }
+
+    private record LocationKey(Long warehouseId, Long salesPointId) {
+        private boolean isValid() {
+            return (warehouseId == null) != (salesPointId == null);
+        }
+    }
+
+    private record TransferRouteScope(
+            List<List<Long>> sourceWarehouseIdChunks,
+            List<List<Long>> sourceSalesPointIdChunks,
+            List<List<Long>> destinationWarehouseIdChunks,
+            List<List<Long>> destinationSalesPointIdChunks
+    ) {
     }
 }

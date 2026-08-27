@@ -5,6 +5,7 @@ import java.time.LocalDateTime;
 import com.stockit.backend.common.persistence.BaseEntity;
 import com.stockit.backend.feature.strategy.domain.StrategyCaseStatus;
 import com.stockit.backend.feature.strategy.domain.StrategyGenerationStage;
+import com.stockit.backend.feature.strategy.domain.StrategyRecommendationOutcome;
 
 import lombok.Getter;
 import lombok.Setter;
@@ -23,6 +24,7 @@ public class StrategyCaseVO extends BaseEntity {
     private String caseName;
     private StrategyCaseStatus caseStatus;
     private StrategyGenerationStage generationStage;
+    private StrategyRecommendationOutcome recommendationOutcome;
     private String requestPayloadJson;
     private String resultCacheKey;
     private LocalDateTime resultExpiresAt;

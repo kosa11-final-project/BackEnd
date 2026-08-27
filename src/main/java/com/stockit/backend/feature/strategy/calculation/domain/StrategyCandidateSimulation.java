@@ -32,9 +32,36 @@ public record StrategyCandidateSimulation(
             Integer expectedSellThroughDays,
             BigDecimal expectedRemainingQty,
             BigDecimal expectedDisposalQty,
+            BigDecimal expectedDisposalCost,
+            BigDecimal expectedHoldingCost,
             BigDecimal estimatedActionCost,
             BigDecimal netEffect
     ) {
+        public Summary(
+                BigDecimal expectedSalesQty,
+                BigDecimal expectedRevenue,
+                BigDecimal totalContributionMargin,
+                BigDecimal contributionMarginRate,
+                Integer expectedSellThroughDays,
+                BigDecimal expectedRemainingQty,
+                BigDecimal expectedDisposalQty,
+                BigDecimal estimatedActionCost,
+                BigDecimal netEffect
+        ) {
+            this(
+                    expectedSalesQty,
+                    expectedRevenue,
+                    totalContributionMargin,
+                    contributionMarginRate,
+                    expectedSellThroughDays,
+                    expectedRemainingQty,
+                    expectedDisposalQty,
+                    BigDecimal.ZERO,
+                    BigDecimal.ZERO,
+                    estimatedActionCost,
+                    netEffect
+            );
+        }
     }
 
     public record ComparisonToBaseline(
@@ -43,8 +70,29 @@ public record StrategyCandidateSimulation(
             BigDecimal contributionMarginDelta,
             BigDecimal remainingQtyReduction,
             BigDecimal disposalQtyReduction,
+            BigDecimal avoidedDisposalCost,
+            BigDecimal avoidedHoldingCost,
             BigDecimal netEffect
     ) {
+        public ComparisonToBaseline(
+                BigDecimal salesQtyDelta,
+                BigDecimal revenueDelta,
+                BigDecimal contributionMarginDelta,
+                BigDecimal remainingQtyReduction,
+                BigDecimal disposalQtyReduction,
+                BigDecimal netEffect
+        ) {
+            this(
+                    salesQtyDelta,
+                    revenueDelta,
+                    contributionMarginDelta,
+                    remainingQtyReduction,
+                    disposalQtyReduction,
+                    BigDecimal.ZERO,
+                    BigDecimal.ZERO,
+                    netEffect
+            );
+        }
     }
 
     public record DailyPoint(

@@ -560,4 +560,113 @@
         FETCH FIRST 5 ROWS ONLY
     </select>
 
+    <select id="selectUrgentSkusBySalesPoint"
+            resultType="com.stockit.backend.feature.dashboard.vo.UrgentSkuVO">
+        <include refid="dashboardBaseCtes"/>,
+        urgent_metrics AS (
+            SELECT sales_point_id,
+                   sku_id,
+                   stock_location_type,
+                   stock_location_id,
+                   MAX(risk_score) AS max_risk_score,
+                   MIN(
+                       CASE
+                           WHEN available_qty &gt; 0
+                            AND effective_sale_stop_date &gt; TRUNC(CAST(#{asOfDate,jdbcType=DATE} AS DATE))
+                           THEN TRUNC(effective_sale_stop_date) - TRUNC(CAST(#{asOfDate,jdbcType=DATE} AS DATE))
+                       END
+                   ) AS sale_stop_days_left,
+                   MIN(
+                       CASE
+                           WHEN available_qty &gt; 0
+                            AND expiry_date &gt;= TRUNC(CAST(#{asOfDate,jdbcType=DATE} AS DATE))
+                           THEN TRUNC(expiry_date) - TRUNC(CAST(#{asOfDate,jdbcType=DATE} AS DATE))
+                       END
+                   ) AS expiry_days_left
+            FROM inventory_base
+            WHERE risk_grade = 'CRITICAL'
+              AND current_qty &gt; 0
+              AND sales_point_id IS NOT NULL
+            GROUP BY sales_point_id,
+                     sku_id,
+                     stock_location_type,
+                     stock_location_id
+        ),
+        urgent_representatives AS (
+            SELECT ib.*,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY sales_point_id, sku_id, stock_location_type, stock_location_id
+                       ORDER BY risk_score DESC,
+                                risk_updated_at DESC,
+                                risk_assessment_id DESC
+                   ) AS row_no
+            FROM inventory_base ib
+            WHERE risk_grade = 'CRITICAL'
+              AND current_qty &gt; 0
+              AND sales_point_id IS NOT NULL
+        ),
+        urgent_disposal AS (
+            SELECT sku_id,
+                   sales_point_id,
+                   SUM(expected_disposal_qty) AS expected_disposal_qty
+            FROM expected_disposal_groups
+            WHERE sales_point_id IS NOT NULL
+            GROUP BY sku_id, sales_point_id
+        ),
+        ranked_urgent AS (
+            SELECT representative.sku_id,
+                   representative.sku_code,
+                   representative.sku_name,
+                   representative.stock_location_type,
+                   representative.stock_location_id,
+                   representative.stock_location_code,
+                   representative.stock_location_name,
+                   representative.sales_point_id AS allocated_sales_point_id,
+                   representative.sales_point_code AS allocated_sales_point_code,
+                   representative.sales_point_name AS allocated_sales_point_name,
+                   metrics.expiry_days_left,
+                   metrics.sale_stop_days_left,
+                   COALESCE(disposal.expected_disposal_qty, 0) AS expected_disposal_qty,
+                   representative.reason_message,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY representative.sales_point_id
+                       ORDER BY metrics.max_risk_score DESC,
+                                COALESCE(disposal.expected_disposal_qty, 0) DESC,
+                                metrics.sale_stop_days_left ASC NULLS LAST,
+                                metrics.expiry_days_left ASC NULLS LAST,
+                                representative.sku_id ASC,
+                                representative.stock_location_type ASC,
+                                representative.stock_location_id ASC
+                   ) AS sales_point_rank
+            FROM urgent_representatives representative
+            JOIN urgent_metrics metrics
+              ON metrics.sales_point_id = representative.sales_point_id
+             AND metrics.sku_id = representative.sku_id
+             AND metrics.stock_location_type = representative.stock_location_type
+             AND metrics.stock_location_id = representative.stock_location_id
+            LEFT JOIN urgent_disposal disposal
+              ON disposal.sku_id = representative.sku_id
+             AND disposal.sales_point_id = representative.sales_point_id
+            WHERE representative.row_no = 1
+        )
+        SELECT sku_id,
+               sku_code,
+               sku_name,
+               stock_location_type,
+               stock_location_id,
+               stock_location_code,
+               stock_location_name,
+               allocated_sales_point_id,
+               allocated_sales_point_code,
+               allocated_sales_point_name,
+               expiry_days_left,
+               sale_stop_days_left,
+               expected_disposal_qty,
+               reason_message
+        FROM ranked_urgent
+        WHERE sales_point_rank &lt;= 5
+        ORDER BY allocated_sales_point_id,
+                 sales_point_rank
+    </select>
+
 </mapper>

@@ -2,10 +2,15 @@ package com.stockit.backend.feature.strategy.service;
 
 import java.time.LocalDateTime;
 
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.stockit.backend.feature.strategy.domain.StrategyCaseStatus;
+import com.stockit.backend.feature.strategy.domain.StrategyGenerationStage;
+import com.stockit.backend.feature.strategy.domain.StrategyRecommendationOutcome;
+import com.stockit.backend.feature.strategy.domain.StrategyGenerationStateChangedEvent;
 import com.stockit.backend.feature.strategy.mapper.StrategyCaseMapper;
 
 /**
@@ -18,9 +23,14 @@ import com.stockit.backend.feature.strategy.mapper.StrategyCaseMapper;
 public class StrategyGenerationStageService {
 
     private final StrategyCaseMapper strategyCaseMapper;
+    private final ApplicationEventPublisher eventPublisher;
 
-    public StrategyGenerationStageService(StrategyCaseMapper strategyCaseMapper) {
+    public StrategyGenerationStageService(
+            StrategyCaseMapper strategyCaseMapper,
+            ApplicationEventPublisher eventPublisher
+    ) {
         this.strategyCaseMapper = strategyCaseMapper;
+        this.eventPublisher = eventPublisher;
     }
 
     /**
@@ -28,7 +38,17 @@ public class StrategyGenerationStageService {
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public boolean enterForecasting(Long strategyCaseId) {
-        return strategyCaseMapper.markForecastingIfPending(strategyCaseId) == 1;
+        boolean updated = strategyCaseMapper.markForecastingIfPending(
+                strategyCaseId
+        ) == 1;
+        if (updated) {
+            publish(
+                    strategyCaseId,
+                    StrategyCaseStatus.GENERATING,
+                    StrategyGenerationStage.FORECASTING
+            );
+        }
+        return updated;
     }
 
     /**
@@ -36,9 +56,17 @@ public class StrategyGenerationStageService {
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public boolean completeForecasting(Long strategyCaseId) {
-        return strategyCaseMapper.markStrategyGeneratingIfForecasting(
+        boolean updated = strategyCaseMapper.markStrategyGeneratingIfForecasting(
                 strategyCaseId
         ) == 1;
+        if (updated) {
+            publish(
+                    strategyCaseId,
+                    StrategyCaseStatus.GENERATING,
+                    StrategyGenerationStage.STRATEGY_GENERATING
+            );
+        }
+        return updated;
     }
 
     /** Redis 최종 결과가 확정된 Case만 생성 완료로 전환한다. */
@@ -46,10 +74,31 @@ public class StrategyGenerationStageService {
     public boolean completeStrategyGeneration(
             Long strategyCaseId,
             String resultCacheKey,
-            LocalDateTime resultExpiresAt
+            LocalDateTime resultExpiresAt,
+            StrategyRecommendationOutcome recommendationOutcome
     ) {
-        return strategyCaseMapper.markGeneratedIfStrategyGenerating(
-                strategyCaseId, resultCacheKey, resultExpiresAt
+        boolean updated = strategyCaseMapper.markGeneratedIfStrategyGenerating(
+                strategyCaseId, resultCacheKey, resultExpiresAt, recommendationOutcome
         ) == 1;
+        if (updated) {
+            publish(
+                    strategyCaseId,
+                    StrategyCaseStatus.GENERATED,
+                    StrategyGenerationStage.COMPARISON_READY
+            );
+        }
+        return updated;
+    }
+
+    private void publish(
+            Long strategyCaseId,
+            StrategyCaseStatus caseStatus,
+            StrategyGenerationStage generationStage
+    ) {
+        eventPublisher.publishEvent(new StrategyGenerationStateChangedEvent(
+                strategyCaseId,
+                caseStatus,
+                generationStage
+        ));
     }
 }

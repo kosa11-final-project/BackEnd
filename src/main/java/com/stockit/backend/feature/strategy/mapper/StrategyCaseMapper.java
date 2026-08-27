@@ -9,6 +9,7 @@ import com.stockit.backend.feature.strategy.vo.StrategyCaseVO;
 import com.stockit.backend.feature.strategy.vo.StrategyLotReferenceVO;
 import com.stockit.backend.feature.strategy.vo.StrategySkuReferenceVO;
 import com.stockit.backend.feature.strategy.domain.StrategyGenerationStage;
+import com.stockit.backend.feature.strategy.domain.StrategyRecommendationOutcome;
 import java.time.LocalDateTime;
 
 /**
@@ -64,7 +65,8 @@ public interface StrategyCaseMapper {
     int markGeneratedIfStrategyGenerating(
             @Param("strategyCaseId") Long strategyCaseId,
             @Param("resultCacheKey") String resultCacheKey,
-            @Param("resultExpiresAt") LocalDateTime resultExpiresAt
+            @Param("resultExpiresAt") LocalDateTime resultExpiresAt,
+            @Param("recommendationOutcome") StrategyRecommendationOutcome recommendationOutcome
     );
 
     /**

@@ -11,6 +11,7 @@
         <result property="caseName" column="case_name"/>
         <result property="caseStatus" column="case_status"/>
         <result property="generationStage" column="generation_stage"/>
+        <result property="recommendationOutcome" column="recommendation_outcome"/>
         <result property="requestPayloadJson" column="request_payload_json"/>
         <result property="resultCacheKey" column="result_cache_key"/>
         <result property="resultExpiresAt" column="result_expires_at"/>
@@ -120,6 +121,7 @@
                case_name,
                case_status,
                generation_stage,
+               recommendation_outcome,
                request_payload_json,
                result_cache_key,
                result_expires_at,
@@ -162,6 +164,7 @@
         UPDATE strategy_case
         SET case_status = 'GENERATED',
             generation_stage = 'COMPARISON_READY',
+            recommendation_outcome = #{recommendationOutcome},
             result_cache_key = #{resultCacheKey},
             result_expires_at = #{resultExpiresAt},
             completed_at = SYSTIMESTAMP,

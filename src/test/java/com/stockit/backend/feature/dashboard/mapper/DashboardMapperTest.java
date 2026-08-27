@@ -15,6 +15,7 @@ import org.springframework.test.context.jdbc.Sql;
 
 import com.stockit.backend.feature.dashboard.vo.OfflineStoreInventoryVO;
 import com.stockit.backend.feature.dashboard.vo.OnlineSalesPointInventoryVO;
+import com.stockit.backend.feature.dashboard.vo.UrgentSkuVO;
 import com.stockit.backend.feature.dashboard.vo.WarehouseInventoryVO;
 
 @SpringBootTest(
@@ -76,5 +77,17 @@ class DashboardMapperTest {
         assertThat(mapper.selectSummary(AS_OF_DATE).getTotalAvailableStock())
                 .isEqualByComparingTo(scopeTotal)
                 .isEqualByComparingTo("100");
+    }
+
+    @Test
+    void selectsUrgentSkusGroupedBySalesPoint() {
+        assertThat(mapper.selectUrgentSkusBySalesPoint(AS_OF_DATE))
+                .singleElement()
+                .satisfies(value -> {
+                    UrgentSkuVO urgentSku = value;
+                    assertThat(urgentSku.getAllocatedSalesPointId()).isEqualTo(10L);
+                    assertThat(urgentSku.getAllocatedSalesPointCode()).isEqualTo("GREETING");
+                    assertThat(urgentSku.getSkuCode()).isEqualTo("SKU-1");
+                });
     }
 }

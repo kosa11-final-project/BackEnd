@@ -62,6 +62,13 @@ DEMAND_FORECAST_POLL_INTERVAL=30s
 DEMAND_FORECAST_JOB_TIMEOUT=2h
 DEMAND_FORECAST_FASTAPI_BASE_URL=https://<fastapi-host>
 DEMAND_FORECAST_FASTAPI_KEY=<secret>
+DEMAND_FORECAST_TEAMS_ALERT_ENABLED=true
+DEMAND_FORECAST_TEAMS_WEBHOOK_URL=https://<teams-workflow-webhook>
+DEMAND_FORECAST_TEAMS_CONNECT_TIMEOUT=3s
+DEMAND_FORECAST_TEAMS_READ_TIMEOUT=10s
+DEMAND_FORECAST_TEAMS_SCHEDULER_COOLDOWN=10m
+APP_ENVIRONMENT=production
+DEMAND_FORECAST_DASHBOARD_URL=https://<admin-dashboard>
 ```
 
 오케스트레이션을 활성화할 때 판매 CSV destination은 `AZURE_BLOB`이어야 합니다.
@@ -76,5 +83,26 @@ GET   /api/v1/notifications/unread-count
 PATCH /api/v1/notifications/{notificationId}/read
 ```
 
-전체 staging 데이터가 최종 테이블에 반영된 이후 성공 알림이 생성됩니다. Export,
-FastAPI 제출, Azure Job 또는 전체 파이프라인 제한 시간 실패는 오류 알림을 생성합니다.
+전체 staging 데이터가 최종 테이블에 반영된 이후 성공 알림이 `notification`에
+생성됩니다. 실패 알림은 `notification`에 저장하지 않고 Teams IT 운영 채널 Workflow로
+전송합니다.
+
+## Teams IT 운영 채널 알림
+
+Teams 채널의 Workflows 앱에서 `Send webhook alerts to a channel`을 생성하고 발급된
+HTTPS URL을 `DEMAND_FORECAST_TEAMS_WEBHOOK_URL`로 주입합니다. Workflow에는 운영
+연속성을 위해 공동 소유자를 지정합니다.
+
+다음 실패가 Adaptive Card 한 건으로 채널에 게시됩니다.
+
+- CSV Export 또는 FastAPI 제출 실패
+- 오케스트레이터 큐 포화
+- Azure ML Job 실패·취소
+- 전체 파이프라인 제한 시간 초과
+- 일일 Trigger 등록 실패
+- Azure 상태 Poller 조회 실패
+
+Run 실패는 상태 전이가 한 번만 성공하므로 한 번 전송됩니다. Run이 만들어지기 전의
+스케줄러 실패는 동일 장애가 반복될 수 있어 인스턴스별 cooldown 동안 중복 전송을
+억제합니다. Teams 전송 실패는 원래 수요예측 상태 트랜잭션을 롤백하지 않고 서버 로그에
+남깁니다.

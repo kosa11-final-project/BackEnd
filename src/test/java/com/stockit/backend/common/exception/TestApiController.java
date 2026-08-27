@@ -7,6 +7,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.dao.DataAccessResourceFailureException;
 
 import com.stockit.backend.common.api.ApiResponse;
@@ -46,6 +47,13 @@ class TestApiController {
     @GetMapping("/unexpected-error")
     void unexpectedError() {
         throw new IllegalStateException("외부에 노출하면 안 되는 메시지");
+    }
+
+    @GetMapping("/async-disconnect")
+    void asyncDisconnect() throws AsyncRequestNotUsableException {
+        throw new AsyncRequestNotUsableException(
+                "Servlet container error notification for disconnected client"
+        );
     }
 
     record TestRequest(@NotBlank(message = "이름은 필수입니다.") String name) {

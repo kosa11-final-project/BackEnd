@@ -66,7 +66,7 @@ public class InventorySyncRiskWriter {
         String grade = result.dbRiskGrade();
         String ruleCode = result.reasons() == null || result.reasons().isEmpty()
                 ? "RULE_EVALUATION" : result.reasons().get(0).code();
-        String reason = truncate(serverReason(result, ruleCode), 1000);
+        String reason = truncate(serverReason(result, ruleCode, snapshot.input()), 1000);
         return new RiskPersistenceRecord(
                 snapshot.inventoryBalanceId(), snapshot.forecastId(), grade,
                 safetyStockShortageYn(result), stockDays(result, snapshot.input()),
@@ -75,17 +75,15 @@ public class InventorySyncRiskWriter {
         );
     }
 
-    /** RISK_ASSESSMENT.shortage_yn의 DB 계약(현재 가용재고가 안전재고보다 낮은지)을 따릅니다. */
+    /** RISK_ASSESSMENT.shortage_yn의 DB 계약(현재 판매 가능 재고가 안전재고보다 낮은지)을 따릅니다. */
     private static String safetyStockShortageYn(RiskAssessmentResult result) {
         BigDecimal availableQty = result.availableQty();
         BigDecimal safetyStockQty = result.safetyStockQty();
-        if (availableQty == null || availableQty.signum() == 0) {
-            return "Y";
-        }
         if (safetyStockQty == null) {
             return "N";
         }
-        return availableQty.compareTo(safetyStockQty) < 0 ? "Y" : "N";
+        BigDecimal normalizedAvailableQty = availableQty == null ? BigDecimal.ZERO : availableQty;
+        return normalizedAvailableQty.compareTo(safetyStockQty) < 0 ? "Y" : "N";
     }
 
     private static BigDecimal stockDays(RiskAssessmentResult result, RiskAssessmentInput input) {
@@ -101,7 +99,7 @@ public class InventorySyncRiskWriter {
                 .divide(predictedQtyD30, 2, RoundingMode.HALF_UP);
     }
 
-    private static String serverReason(RiskAssessmentResult result, String ruleCode) {
+    private static String serverReason(RiskAssessmentResult result, String ruleCode, RiskAssessmentInput input) {
         String status = result.assessmentStatus() == null ? "UNKNOWN" : result.assessmentStatus();
         String primary = result.primaryReason() == null ? "규칙 판정 결과가 없습니다." : result.primaryReason();
         StringBuilder reason = new StringBuilder("[")
@@ -111,19 +109,31 @@ public class InventorySyncRiskWriter {
             return reason.toString();
         }
 
-        reason.append(" | 산식: 가용재고=on_hand_qty(")
-                .append(format(result.availableQty())).append(')');
+        BigDecimal physicalAvailableQty = input.onHandQty() == null ? BigDecimal.ZERO : input.onHandQty();
+        BigDecimal excludedLotQty = physicalAvailableQty.subtract(result.availableQty()).max(BigDecimal.ZERO);
+        if (excludedLotQty.signum() > 0) {
+            reason.append(" | 산식: 판매가능재고=on_hand_qty(")
+                    .append(format(physicalAvailableQty)).append(")-판매제외LOT(")
+                    .append(format(excludedLotQty)).append(")=")
+                    .append(format(result.availableQty()));
+        } else {
+            reason.append(" | 산식: 가용재고=on_hand_qty(")
+                    .append(format(result.availableQty())).append(')');
+        }
         if (result.projectedD7() != null) {
-            reason.append(", D+7예상잔고=max(0, 가용재고-예측D7)=")
+            reason.append(", D+7예상잔고=max(0, 판매가능재고-예측D7)=")
                     .append(format(result.projectedD7()));
         }
         if (result.shortageQty30() != null) {
-            reason.append(", D+30부족량=max(0, 예측D30-가용재고)=")
+            reason.append(", D+30부족량=max(0, 예측D30-판매가능재고)=")
                     .append(format(result.shortageQty30()));
         }
         if (result.safetyStockQty() != null && result.safetyGapQty() != null) {
             reason.append(", 안전재고부족=max(0, 안전재고-D+7예상잔고)=")
                     .append(format(result.safetyGapQty()));
+        }
+        if (excludedLotQty.signum() > 0) {
+            reason.append(", 판매 제외 LOT=").append(format(excludedLotQty));
         }
         reason.append(", 소비기한/LOT 규칙을 함께 적용했습니다.");
         return reason.toString();

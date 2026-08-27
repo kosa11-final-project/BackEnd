@@ -1,3 +1,5 @@
+DROP TABLE IF EXISTS inventory_transfer_cost_policy;
+DROP TABLE IF EXISTS inventory_transfer_route;
 DROP TABLE IF EXISTS inventory_policy;
 DROP TABLE IF EXISTS sales_point_warehouse;
 DROP TABLE IF EXISTS warehouse;
@@ -14,6 +16,8 @@ CREATE TABLE sku (
     sku_name VARCHAR2(200) NOT NULL,
     unit_code VARCHAR2(20) NOT NULL,
     package_quantity NUMBER(12,3) NOT NULL,
+    net_weight NUMBER(12,3),
+    weight_unit VARCHAR2(10),
     active_yn CHAR(1) NOT NULL,
     is_deleted NUMBER(1) DEFAULT 0 NOT NULL
 );
@@ -104,7 +108,33 @@ CREATE TABLE inventory_policy (
     is_deleted NUMBER(1) DEFAULT 0 NOT NULL
 );
 
-INSERT INTO sku VALUES (101, 'SKU-101', '테스트 SKU', 'EA', 1, 'Y', 0);
+CREATE TABLE inventory_transfer_route (
+    transfer_route_id NUMBER PRIMARY KEY,
+    source_warehouse_id NUMBER,
+    source_sales_point_id NUMBER,
+    destination_warehouse_id NUMBER,
+    destination_sales_point_id NUMBER,
+    distance_km NUMBER(10,3) NOT NULL,
+    distance_source VARCHAR2(30) NOT NULL,
+    distance_route_option VARCHAR2(50),
+    distance_calculated_at TIMESTAMP,
+    active_yn CHAR(1) NOT NULL,
+    is_deleted NUMBER(1) DEFAULT 0 NOT NULL
+);
+
+CREATE TABLE inventory_transfer_cost_policy (
+    transfer_cost_policy_id NUMBER PRIMARY KEY,
+    policy_code VARCHAR2(50) NOT NULL,
+    cost_per_kg_km NUMBER(18,6) NOT NULL,
+    effective_from DATE NOT NULL,
+    effective_to DATE,
+    active_yn CHAR(1) NOT NULL,
+    is_deleted NUMBER(1) DEFAULT 0 NOT NULL
+);
+
+INSERT INTO sku VALUES (
+    101, 'SKU-101', '테스트 SKU', 'EA', 1, 0.5, 'KG', 'Y', 0
+);
 INSERT INTO sales_point VALUES (10, 'SP-10', '판매처 10', 'Y', 0);
 INSERT INTO sales_point VALUES (20, 'SP-20', '판매처 20', 'Y', 0);
 INSERT INTO sales_point VALUES (30, 'SP-30', '판매처 30', 'Y', 0);
@@ -148,4 +178,11 @@ INSERT INTO sku_cost VALUES (
 INSERT INTO inventory_policy VALUES (
     1, 101, 501, 10, 10, 5, 30,
     DATE '2026-08-01', NULL, 2.5, 1000, 0
+);
+INSERT INTO inventory_transfer_route VALUES (
+    1, 501, NULL, NULL, 20, 25.5, 'DUMMY', NULL,
+    TIMESTAMP '2026-08-20 09:00:00', 'Y', 0
+);
+INSERT INTO inventory_transfer_cost_policy VALUES (
+    1, 'COMMON', 2, DATE '2026-08-01', NULL, 'Y', 0
 );

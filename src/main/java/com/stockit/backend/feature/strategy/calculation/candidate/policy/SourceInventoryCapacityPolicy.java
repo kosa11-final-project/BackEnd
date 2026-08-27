@@ -13,6 +13,7 @@ import org.springframework.stereotype.Component;
 
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculationContext;
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculationContext.InventoryLot;
+import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculationContext.PhysicalLocation;
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculationContext.SalesPoint;
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculationException;
 import com.stockit.backend.feature.strategy.calculation.engine.CalculationPrecisionPolicy;
@@ -47,42 +48,46 @@ public class SourceInventoryCapacityPolicy {
             List<InventoryLot> eligibleLots,
             LocalDate asOfDate
     ) {
-        Map<Long, List<InventoryLot>> selectedByWarehouse = eligibleLots.stream()
-                .filter(lot -> lot.warehouseId() != null)
+        Map<PhysicalLocation, List<InventoryLot>> selectedByLocation = eligibleLots.stream()
+                .filter(lot -> lot.warehouseId() != null
+                        || lot.effectiveSalesPointId() != null)
                 .collect(Collectors.groupingBy(
-                        InventoryLot::warehouseId,
+                        PhysicalLocation::of,
                         LinkedHashMap::new,
                         Collectors.toList()
                 ));
-        Map<Long, BigDecimal> byWarehouse = new LinkedHashMap<>();
+        Map<PhysicalLocation, BigDecimal> byLocation = new LinkedHashMap<>();
         boolean defaulted = false;
         boolean safetyBlocked = false;
-        for (Map.Entry<Long, List<InventoryLot>> entry : selectedByWarehouse.entrySet()) {
-            Long warehouseId = entry.getKey();
+        for (Map.Entry<PhysicalLocation, List<InventoryLot>> entry
+                : selectedByLocation.entrySet()) {
+            PhysicalLocation location = entry.getKey();
             BigDecimal selectedQuantity = sum(entry.getValue().stream()
                     .map(InventoryLot::availableQty)
                     .toList());
             BigDecimal sourceAvailable = sum(context.referenceInventory().stream()
-                    .filter(lot -> Objects.equals(lot.warehouseId(), warehouseId))
+                    .filter(lot -> samePhysicalLocation(lot, location))
                     .filter(lot -> matchesSource(lot, context.sourceSalesPointId()))
                     .filter(lot -> isSellableAt(lot, asOfDate))
                     .map(InventoryLot::availableQty)
                     .toList());
             SafetyStockPolicyResolver.Resolution safety = safetyStockResolver.resolve(
                     context.inventoryPolicies(),
-                    warehouseId,
-                    context.sourceSalesPointId()
+                    location.warehouseId(),
+                    location.salesPointId() != null
+                            ? location.salesPointId()
+                            : context.sourceSalesPointId()
             );
             defaulted |= safety.defaultedToZero();
             BigDecimal afterSafety = quantity(sourceAvailable.subtract(
                     safety.safetyStockQty()
             ).max(BigDecimal.ZERO));
             safetyBlocked |= sourceAvailable.signum() > 0 && afterSafety.signum() == 0;
-            byWarehouse.put(warehouseId, quantity(selectedQuantity.min(afterSafety)));
+            byLocation.put(location, quantity(selectedQuantity.min(afterSafety)));
         }
         return new Capacity(
-                Map.copyOf(byWarehouse),
-                sum(byWarehouse.values()),
+                Map.copyOf(byLocation),
+                sum(byLocation.values()),
                 defaulted,
                 safetyBlocked
         );
@@ -248,6 +253,17 @@ public class SourceInventoryCapacityPolicy {
                 : Objects.equals(lot.effectiveSalesPointId(), sourceSalesPointId);
     }
 
+    private static boolean samePhysicalLocation(
+            InventoryLot lot,
+            PhysicalLocation location
+    ) {
+        if (location.warehouseId() != null) {
+            return Objects.equals(lot.warehouseId(), location.warehouseId());
+        }
+        return lot.warehouseId() == null
+                && Objects.equals(lot.effectiveSalesPointId(), location.salesPointId());
+    }
+
     private static boolean isSellableAt(InventoryLot lot, LocalDate date) {
         return "AVAILABLE".equals(lot.lotStatus())
                 && (lot.expiryDate() == null || !date.isAfter(lot.expiryDate()))
@@ -267,7 +283,7 @@ public class SourceInventoryCapacityPolicy {
     }
 
     public record Capacity(
-            Map<Long, BigDecimal> byWarehouse,
+            Map<PhysicalLocation, BigDecimal> byLocation,
             BigDecimal total,
             boolean safetyStockDefaulted,
             boolean safetyStockBlocked

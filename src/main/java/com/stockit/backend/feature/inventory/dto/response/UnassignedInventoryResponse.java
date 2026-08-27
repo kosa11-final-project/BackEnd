@@ -19,6 +19,8 @@ public record UnassignedInventoryResponse(
         BigDecimal reservedQuantity,
         @Schema(description = "미할당 재고 사실 상태")
         String inventoryFactState,
+        @Schema(description = "미할당 재고 안전재고 미달 여부 (Y, N)", example = "Y")
+        String shortageYn,
         @Schema(description = "미할당 재고 위험등급", example = "CAUTION")
         String riskGrade,
         @Schema(description = "미할당 재고 위험판정 상태", example = "ASSESSED")
@@ -36,6 +38,6 @@ public record UnassignedInventoryResponse(
     }
 
     public static UnassignedInventoryResponse empty() {
-        return new UnassignedInventoryResponse(null, null, null, null, null, null, null, List.of(), 0);
+        return new UnassignedInventoryResponse(null, null, null, null, null, null, null, null, List.of(), 0);
     }
 }

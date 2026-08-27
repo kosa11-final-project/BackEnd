@@ -22,7 +22,7 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 @Component
 public class RedisForecastCheckpointStore implements ForecastCheckpointStore {
 
-    private static final String KEY_FORMAT = "ai-strategy:case:%d:forecast:v1";
+    private static final String KEY_FORMAT = "ai-strategy:case:%d:forecast:v2";
 
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
@@ -127,6 +127,8 @@ public class RedisForecastCheckpointStore implements ForecastCheckpointStore {
                         expectedSalesPointIds
                 )
                 || checkpoint.storedAt() == null
+                || checkpoint.modelVersionId() == null
+                || checkpoint.modelVersionId() <= 0
                 || checkpoint.forecastResponse() == null) {
             throw new InvalidForecastCheckpointException(
                     "Demand forecast checkpoint integrity validation failed"

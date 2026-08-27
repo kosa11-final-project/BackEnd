@@ -114,7 +114,16 @@ public class StrategyGenerationResultFactory {
                                 new StrategyGenerationResult.LotAllocation(
                                         lot.inventoryBalanceId(), lot.lotId(), lot.quantity(),
                                         lot.priorityNo()
-                                )).toList()
+                                )).toList(),
+                                action.movementCost() == null ? null
+                                        : new StrategyGenerationResult.MovementCost(
+                                                action.movementCost().transferRouteId(),
+                                                action.movementCost().transferCostPolicyId(),
+                                                action.movementCost().weightKg(),
+                                                action.movementCost().distanceKm(),
+                                                action.movementCost().costPerKgKm(),
+                                                action.movementCost().estimatedCost()
+                                        )
                         )).toList(),
                 candidate.assumptions(),
                 new StrategyGenerationResult.Preference(

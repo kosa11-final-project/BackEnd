@@ -52,8 +52,32 @@ public record StrategyCandidate(
             BigDecimal estimatedActionCost,
             BigDecimal strategyPrice,
             BigDecimal discountRate,
-            List<LotAllocation> lotAllocations
+            List<LotAllocation> lotAllocations,
+            MovementCost movementCost
     ) {
+        public Action(
+                StrategyType actionType,
+                Location source,
+                Location target,
+                BigDecimal actionQuantity,
+                BigDecimal estimatedActionCost,
+                BigDecimal strategyPrice,
+                BigDecimal discountRate,
+                List<LotAllocation> lotAllocations
+        ) {
+            this(
+                    actionType,
+                    source,
+                    target,
+                    actionQuantity,
+                    estimatedActionCost,
+                    strategyPrice,
+                    discountRate,
+                    lotAllocations,
+                    null
+            );
+        }
+
         public Action(
                 StrategyType actionType,
                 Location source,
@@ -70,7 +94,8 @@ public record StrategyCandidate(
                     estimatedActionCost,
                     null,
                     null,
-                    lotAllocations
+                    lotAllocations,
+                    null
             );
         }
 
@@ -100,11 +125,43 @@ public record StrategyCandidate(
                         "price discount action requires price and discount rate"
                 );
             }
+            if (movementCost != null) {
+                if (actionType != StrategyType.RT_TRANSFER
+                        || estimatedActionCost == null
+                        || estimatedActionCost.compareTo(
+                                movementCost.estimatedCost()
+                        ) != 0) {
+                    throw new IllegalArgumentException(
+                            "movement cost must match RT_TRANSFER action cost"
+                    );
+                }
+            }
             BigDecimal allocated = lotAllocations.stream()
                     .map(LotAllocation::quantity)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
             if (!lotAllocations.isEmpty() && allocated.compareTo(actionQuantity) != 0) {
                 throw new IllegalArgumentException("action quantity must equal LOT allocations");
+            }
+        }
+    }
+
+    /** RT_TRANSFER 이동비 계산 당시 사용한 경로·요율·중량 Snapshot. */
+    public record MovementCost(
+            Long transferRouteId,
+            Long transferCostPolicyId,
+            BigDecimal weightKg,
+            BigDecimal distanceKm,
+            BigDecimal costPerKgKm,
+            BigDecimal estimatedCost
+    ) {
+        public MovementCost {
+            if (transferRouteId == null || transferRouteId <= 0
+                    || transferCostPolicyId == null || transferCostPolicyId <= 0
+                    || weightKg == null || weightKg.signum() <= 0
+                    || distanceKm == null || distanceKm.signum() <= 0
+                    || costPerKgKm == null || costPerKgKm.signum() <= 0
+                    || estimatedCost == null || estimatedCost.signum() < 0) {
+                throw new IllegalArgumentException("movement cost snapshot is invalid");
             }
         }
     }

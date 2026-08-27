@@ -50,6 +50,7 @@ class InventoryQueryServiceImplTest {
     void detailReturnsHeaderWithoutAssemblingLots() {
         InventoryItemVO item = createItemVO("SKU-1", "GREETING");
         item.setSkuId(1001L);
+        item.setExpectedDisposalQty(new BigDecimal("4"));
         item.setSalesPointsJson("[{\"salesPointId\":77,\"salesPointCode\":\"GREETING\",\"salesPointName\":\"그리팅\",\"channelType\":\"GREETING\"}]");
         item.setSupplierName("테스트 공급사");
         item.setAssessmentStatus("ASSESSED");
@@ -73,6 +74,8 @@ class InventoryQueryServiceImplTest {
                 .containsExactly("식품", "베이커리/간식", "베이커리");
         assertThat(response.risk().reason()).contains("SHORTAGE_D30", "산식: 가용재고=100");
         assertThat(response.lots()).isEmpty();
+        assertThat(new ObjectMapper().valueToTree(response).path("expectedDisposalQuantity").asText())
+                .isEqualTo("4");
     }
 
     @Test
@@ -96,6 +99,7 @@ class InventoryQueryServiceImplTest {
         item.setUnassignedAvailableQty(new BigDecimal("10"));
         item.setUnassignedReservedQty(new BigDecimal("2"));
         item.setUnassignedInventoryFactState("AVAILABLE");
+        item.setUnassignedShortageYn("Y");
         item.setUnassignedRiskGrade("CAUTION");
         item.setUnassignedAssessmentStatus("ASSESSED");
         item.setUnassignedRiskReason("미할당 공용재고 예측 데이터 없음");
@@ -112,6 +116,7 @@ class InventoryQueryServiceImplTest {
             assertThat(point.warehouseName()).isNull();
         });
         assertThat(response.unassignedInventory().currentQuantity()).isEqualByComparingTo("12");
+        assertThat(response.unassignedInventory().shortageYn()).isEqualTo("Y");
         assertThat(response.unassignedInventory().riskGrade()).isEqualTo("CAUTION");
         assertThat(response.unassignedInventory().assessmentStatus()).isEqualTo("ASSESSED");
         assertThat(response.unassignedInventory().riskReason()).contains("예측 데이터 없음");
@@ -122,12 +127,13 @@ class InventoryQueryServiceImplTest {
     @Test
     void findReturnsSkuRowIdAndServerPaginationMetadata() {
         InventoryItemVO item = createItemVO("SKU-1", "GREETING");
+        item.setTotalCount(5L);
+        item.setExpectedDisposalQty(new BigDecimal("7"));
         item.setSalesPointsJson("[{\"salesPointCode\":\"GREETING\",\"salesPointName\":\"그리팅\",\"channelType\":\"GREETING\",\"currentQuantity\":50,\"availableQuantity\":40,\"reservedQuantity\":10,\"riskGrade\":\"SAFE\",\"warehouseName\":\"경인 1센터\"}]");
         var query = new InventoryQueryRequest();
         query.setPage(2);
         query.setSize(2);
 
-        given(inventoryMapper.countInventory(any())).willReturn(5L);
         given(inventoryMapper.selectInventoryList(any())).willReturn(List.of(item));
 
         InventoryListResponse response = inventoryQueryService.find(query.toQuery(LocalDate.of(2026, 8, 14)));
@@ -136,15 +142,18 @@ class InventoryQueryServiceImplTest {
         assertThat(response.items().get(0).rowId()).isEqualTo("SKU-1");
         assertThat(response.items().get(0).salesPoints()).extracting(point -> point.salesPointCode())
                 .containsExactly("GREETING");
+        assertThat(response.items().get(0).expectedDisposalQuantity()).isEqualByComparingTo("7");
         assertThat(response.page()).isEqualTo(2);
         assertThat(response.size()).isEqualTo(2);
         assertThat(response.totalCount()).isEqualTo(5);
         assertThat(response.totalPages()).isEqualTo(3);
+        verify(inventoryMapper, never()).countInventory(any());
     }
 
     @Test
     void findSeparatesCenterOnlyInventoryFromNamedSalesPoints() {
         InventoryItemVO item = createItemVO("SKU-1", "GREETING");
+        item.setTotalCount(1L);
         item.setLocationsJson("[{\"warehouseCode\":\"DC-A\",\"warehouseName\":\"센터 A\",\"quantity\":40}]");
         item.setSalesPointsJson("["
                 + "{\"salesPointCode\":\"GREETING\",\"salesPointName\":\"그리팅\",\"channelType\":\"GREETING\","
@@ -153,7 +162,6 @@ class InventoryQueryServiceImplTest {
                 + "\"currentQuantity\":40,\"availableQuantity\":35,\"reservedQuantity\":5,\"salesPointState\":\"CENTER_ONLY\"}"
                 + "]");
 
-        given(inventoryMapper.countInventory(any())).willReturn(1L);
         given(inventoryMapper.selectInventoryList(any())).willReturn(List.of(item));
 
         var response = inventoryQueryService.find(new InventoryQueryRequest().toQuery(LocalDate.of(2026, 8, 14)));
@@ -165,6 +173,37 @@ class InventoryQueryServiceImplTest {
             assertThat(mapped.unassignedInventory().availableQuantity()).isEqualByComparingTo("35");
             assertThat(mapped.unassignedInventory().locations()).hasSize(1);
         });
+        verify(inventoryMapper, never()).countInventory(any());
+    }
+
+    @Test
+    void findDoesNotRunASeparateCountForAnEmptyFirstPage() {
+        given(inventoryMapper.selectInventoryList(any())).willReturn(List.of());
+
+        InventoryListResponse response = inventoryQueryService.find(
+                new InventoryQueryRequest().toQuery(LocalDate.of(2026, 8, 14))
+        );
+
+        assertThat(response.totalCount()).isZero();
+        assertThat(response.totalPages()).isEqualTo(1);
+        verify(inventoryMapper, never()).countInventory(any());
+    }
+
+    @Test
+    void findFallsBackToCountOnlyForAnEmptyOutOfRangePage() {
+        InventoryQueryRequest request = new InventoryQueryRequest();
+        request.setPage(3);
+        request.setSize(20);
+        given(inventoryMapper.selectInventoryList(any())).willReturn(List.of());
+        given(inventoryMapper.countInventory(any())).willReturn(25L);
+
+        InventoryListResponse response = inventoryQueryService.find(
+                request.toQuery(LocalDate.of(2026, 8, 14))
+        );
+
+        assertThat(response.totalCount()).isEqualTo(25);
+        assertThat(response.totalPages()).isEqualTo(2);
+        verify(inventoryMapper).countInventory(any());
     }
 
     @Test

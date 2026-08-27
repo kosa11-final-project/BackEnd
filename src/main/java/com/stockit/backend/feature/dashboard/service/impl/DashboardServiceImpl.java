@@ -4,8 +4,11 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -36,6 +39,7 @@ import com.stockit.backend.feature.dashboard.vo.UrgentSkuVO;
 public class DashboardServiceImpl implements DashboardService {
 
     private static final ZoneId KOREA_ZONE_ID = ZoneId.of("Asia/Seoul");
+    private static final int SELLER_URGENT_SKU_PAYLOAD_VERSION = 3;
 
     private final DashboardMapper dashboardMapper;
     private final DashboardSnapshotMapper snapshotMapper;
@@ -70,6 +74,10 @@ public class DashboardServiceImpl implements DashboardService {
             throw new AppException(ErrorCode.DASHBOARD_SNAPSHOT_NOT_FOUND);
         }
         DashboardSnapshotPayload payload = deserialize(snapshot.getPayloadJson());
+        if (snapshot.getPayloadVersion() < SELLER_URGENT_SKU_PAYLOAD_VERSION) {
+            // 판매처별 긴급 SKU가 없는 레거시 스냅샷은 전체 TOP 5만으로 복원할 수 없으므로 최신 집계를 사용한다.
+            return getLiveDashboard();
+        }
         return payload.toResponse(snapshot.getCreatedAt().atZone(KOREA_ZONE_ID).toInstant());
     }
 
@@ -107,6 +115,9 @@ public class DashboardServiceImpl implements DashboardService {
         List<UrgentSkuResponse> urgentSkusTop5 = rankUrgentSkus(
                 dashboardMapper.selectUrgentSkusTop5(asOfDate)
         );
+        Map<Long, List<UrgentSkuResponse>> urgentSkusBySalesPoint = rankUrgentSkusBySalesPoint(
+                dashboardMapper.selectUrgentSkusBySalesPoint(asOfDate)
+        );
 
         return new DashboardResponse(
                 summary,
@@ -115,6 +126,7 @@ public class DashboardServiceImpl implements DashboardService {
                 offlineStores,
                 riskSalesPointsTop10,
                 urgentSkusTop5,
+                urgentSkusBySalesPoint,
                 Instant.now(clock)
         );
     }
@@ -137,5 +149,15 @@ public class DashboardServiceImpl implements DashboardService {
         return IntStream.range(0, values.size())
                 .mapToObj(index -> UrgentSkuResponse.from(index + 1, values.get(index)))
                 .toList();
+    }
+
+    private static Map<Long, List<UrgentSkuResponse>> rankUrgentSkusBySalesPoint(List<UrgentSkuVO> values) {
+        return values.stream()
+                .filter(value -> value.getAllocatedSalesPointId() != null)
+                .collect(Collectors.groupingBy(
+                        UrgentSkuVO::getAllocatedSalesPointId,
+                        LinkedHashMap::new,
+                        Collectors.collectingAndThen(Collectors.toList(), DashboardServiceImpl::rankUrgentSkus)
+                ));
     }
 }

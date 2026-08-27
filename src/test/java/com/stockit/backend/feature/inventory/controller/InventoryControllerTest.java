@@ -74,7 +74,8 @@ class InventoryControllerTest {
                 null,
                 null,
                 null,
-                null
+                null,
+                new BigDecimal("3")
         );
         given(inventoryQueryService.find(any(InventoryQuery.class)))
                 .willReturn(new InventoryListResponse(List.of(item), 1, 1, 20, 1, false));
@@ -87,6 +88,7 @@ class InventoryControllerTest {
         mockMvc.perform(get("/api/v1/inventories")
                         .param("channelType", "GREETING")
                         .param("filterOperator", "or")
+                        .param("shortageYn", "Y")
                         .param("page", "1")
                         .param("size", "20"))
                 .andExpect(status().isOk())
@@ -95,12 +97,14 @@ class InventoryControllerTest {
                 .andExpect(jsonPath("$.data.items[0].salesPoints[0].salesPointCode").value("SP-1"))
                 .andExpect(jsonPath("$.data.items[0].salesPoints[0].salesPointId").value(77))
                 .andExpect(jsonPath("$.data.items[0].unassignedInventory").exists())
+                .andExpect(jsonPath("$.data.items[0].expectedDisposalQuantity").value(3))
                 .andExpect(jsonPath("$.data.items[0].risk.assessmentStatus").value("UNASSESSED"))
                 .andExpect(jsonPath("$.data.totalCount").value(1));
 
         mockMvc.perform(get("/api/v1/inventories/summary")
                         .param("channelType", "GREETING")
-                        .param("filterOperator", "or"))
+                        .param("filterOperator", "or")
+                        .param("shortageYn", "Y"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.totalCurrentQuantity").value(10))
                 .andExpect(jsonPath("$.data.totalAvailableQuantity").value(8));
@@ -110,7 +114,9 @@ class InventoryControllerTest {
         verify(inventoryQueryService).find(listQuery.capture());
         verify(inventoryQueryService).summary(summaryQuery.capture());
         assertThat(listQuery.getValue().filterOperator()).isEqualTo("OR");
+        assertThat(listQuery.getValue().shortageYn()).isEqualTo("Y");
         assertThat(summaryQuery.getValue().filterOperator()).isEqualTo("OR");
+        assertThat(summaryQuery.getValue().shortageYn()).isEqualTo("Y");
     }
 
     @Test

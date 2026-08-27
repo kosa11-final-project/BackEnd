@@ -31,8 +31,10 @@ public class InventoryItemVO {
     private BigDecimal currentQty;
     private BigDecimal availableQty;
     private BigDecimal reservedQty;
+    private BigDecimal expectedDisposalQty;
     private BigDecimal safetyQty;
     private String inventoryFactState;
+    private String shortageYn;
     private String riskGrade;
     private String assessmentStatus;
     private String riskReason;
@@ -44,6 +46,7 @@ public class InventoryItemVO {
     private BigDecimal unassignedAvailableQty;
     private BigDecimal unassignedReservedQty;
     private String unassignedInventoryFactState;
+    private String unassignedShortageYn;
     private String unassignedRiskGrade;
     private String unassignedAssessmentStatus;
     private String unassignedRiskReason;
@@ -53,6 +56,7 @@ public class InventoryItemVO {
     private Integer nearestExpiryDays;
     private Date nearestExpiryDate;
     private Timestamp updatedAt;
+    private Long totalCount;
 
     public Long getSkuId() { return skuId; }
     public void setSkuId(Long skuId) { this.skuId = skuId; }
@@ -104,10 +108,14 @@ public class InventoryItemVO {
     public void setAvailableQty(BigDecimal availableQty) { this.availableQty = availableQty; }
     public BigDecimal getReservedQty() { return reservedQty; }
     public void setReservedQty(BigDecimal reservedQty) { this.reservedQty = reservedQty; }
+    public BigDecimal getExpectedDisposalQty() { return expectedDisposalQty; }
+    public void setExpectedDisposalQty(BigDecimal expectedDisposalQty) { this.expectedDisposalQty = expectedDisposalQty; }
     public BigDecimal getSafetyQty() { return safetyQty; }
     public void setSafetyQty(BigDecimal safetyQty) { this.safetyQty = safetyQty; }
     public String getInventoryFactState() { return inventoryFactState; }
     public void setInventoryFactState(String inventoryFactState) { this.inventoryFactState = inventoryFactState; }
+    public String getShortageYn() { return shortageYn; }
+    public void setShortageYn(String shortageYn) { this.shortageYn = shortageYn; }
     public String getRiskGrade() { return riskGrade; }
     public void setRiskGrade(String riskGrade) { this.riskGrade = riskGrade; }
     public String getAssessmentStatus() { return assessmentStatus; }
@@ -130,6 +138,8 @@ public class InventoryItemVO {
     public void setUnassignedReservedQty(BigDecimal unassignedReservedQty) { this.unassignedReservedQty = unassignedReservedQty; }
     public String getUnassignedInventoryFactState() { return unassignedInventoryFactState; }
     public void setUnassignedInventoryFactState(String unassignedInventoryFactState) { this.unassignedInventoryFactState = unassignedInventoryFactState; }
+    public String getUnassignedShortageYn() { return unassignedShortageYn; }
+    public void setUnassignedShortageYn(String unassignedShortageYn) { this.unassignedShortageYn = unassignedShortageYn; }
     public String getUnassignedRiskGrade() { return unassignedRiskGrade; }
     public void setUnassignedRiskGrade(String unassignedRiskGrade) { this.unassignedRiskGrade = unassignedRiskGrade; }
     public String getUnassignedAssessmentStatus() { return unassignedAssessmentStatus; }
@@ -148,4 +158,6 @@ public class InventoryItemVO {
     public void setNearestExpiryDate(Date nearestExpiryDate) { this.nearestExpiryDate = nearestExpiryDate; }
     public Timestamp getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(Timestamp updatedAt) { this.updatedAt = updatedAt; }
+    public Long getTotalCount() { return totalCount; }
+    public void setTotalCount(Long totalCount) { this.totalCount = totalCount; }
 }

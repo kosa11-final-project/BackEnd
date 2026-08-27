@@ -12,6 +12,7 @@ import org.springframework.stereotype.Component;
 
 import com.stockit.backend.feature.strategy.calculation.candidate.domain.MovementCandidatePlan;
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculationContext.InventoryLot;
+import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculationContext.PhysicalLocation;
 import com.stockit.backend.feature.strategy.calculation.engine.CalculationPrecisionPolicy;
 
 /**
@@ -25,14 +26,15 @@ public class MovementLotAllocationPolicy {
 
     public MovementCandidatePlan plan(
             List<InventoryLot> eligibleLots,
-            Map<Long, BigDecimal> sourceCapacityByWarehouse,
+            Map<PhysicalLocation, BigDecimal> sourceCapacityByLocation,
             Map<LocalDate, BigDecimal> targetUnmetDemand,
             BigDecimal requestedQuantity
     ) {
         BigDecimal remainingRequest = quantity(requestedQuantity);
-        Map<Long, BigDecimal> remainingSourceCapacity = new LinkedHashMap<>();
-        sourceCapacityByWarehouse.forEach((warehouseId, capacity) ->
-                remainingSourceCapacity.put(warehouseId, quantity(capacity)));
+        Map<PhysicalLocation, BigDecimal> remainingSourceCapacity =
+                new LinkedHashMap<>();
+        sourceCapacityByLocation.forEach((location, capacity) ->
+                remainingSourceCapacity.put(location, quantity(capacity)));
         Map<LocalDate, BigDecimal> remainingDemand = new LinkedHashMap<>();
         targetUnmetDemand.forEach((date, demand) ->
                 remainingDemand.put(date, quantity(demand)));
@@ -47,12 +49,13 @@ public class MovementLotAllocationPolicy {
             if (remainingRequest.signum() == 0) {
                 break;
             }
-            BigDecimal warehouseCapacity = remainingSourceCapacity.getOrDefault(
-                    lot.warehouseId(),
+            PhysicalLocation sourceLocation = PhysicalLocation.of(lot);
+            BigDecimal locationCapacity = remainingSourceCapacity.getOrDefault(
+                    sourceLocation,
                     BigDecimal.ZERO
             );
             BigDecimal lotLimit = quantity(lot.availableQty()
-                    .min(warehouseCapacity)
+                    .min(locationCapacity)
                     .min(remainingRequest));
             if (lotLimit.signum() == 0) {
                 continue;
@@ -76,8 +79,8 @@ public class MovementLotAllocationPolicy {
                 continue;
             }
             remainingSourceCapacity.put(
-                    lot.warehouseId(),
-                    quantity(warehouseCapacity.subtract(allocated))
+                    sourceLocation,
+                    quantity(locationCapacity.subtract(allocated))
             );
             remainingRequest = quantity(remainingRequest.subtract(allocated));
             allocations.add(new MovementCandidatePlan.Allocation(

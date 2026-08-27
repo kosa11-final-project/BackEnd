@@ -44,6 +44,42 @@ public final class StrategyApprovalRecords {
 
     @Getter
     @Setter
+    public static class PersistedApprovalHeader {
+        private Long strategyCaseId;
+        private Long requesterOrganizationId;
+        private StrategyCaseStatus caseStatus;
+        private Long finalSelectionId;
+        private Long strategyOptionId;
+        private String constraintText;
+        private String caseName;
+        private String skuCode;
+        private String skuName;
+        private String requesterName;
+        private String optionName;
+        private String recommendationReason;
+        private BigDecimal targetQuantity;
+        private BigDecimal strategyPrice;
+        private BigDecimal expectedSalesQty;
+        private BigDecimal expectedRevenue;
+        private BigDecimal totalContributionMargin;
+        private BigDecimal expectedRemainingQty;
+        private LocalDate plannedStartDate;
+        private LocalDate plannedEndDate;
+    }
+
+    @Getter
+    @Setter
+    public static class PersistedApprovalAction {
+        private StrategyType actionType;
+        private Long targetSalesPointId;
+        private String targetSalesPointName;
+        private BigDecimal strategyPrice;
+        private BigDecimal discountRate;
+        private Integer actionOrder;
+    }
+
+    @Getter
+    @Setter
     public static class OptionWrite extends BaseEntity {
         private Long strategyOptionId;
         private Long strategyCaseId;
@@ -71,6 +107,9 @@ public final class StrategyApprovalRecords {
         private BigDecimal totalContributionMargin;
         private BigDecimal expectedRemainingQty;
         private Integer expectedSellThroughDays;
+        private BigDecimal avoidedDisposalCost;
+        private BigDecimal avoidedHoldingCost;
+        private BigDecimal netEffect;
     }
 
     @Getter
@@ -90,6 +129,12 @@ public final class StrategyApprovalRecords {
         private LocalDate endDate;
         private BigDecimal estimatedActionCost;
         private Integer actionOrder;
+        private Long transferRouteId;
+        private Long transferCostPolicyId;
+        private String movementCostStatus;
+        private BigDecimal movementWeightKg;
+        private BigDecimal movementDistanceKm;
+        private BigDecimal movementCostPerKgKm;
     }
 
     @Getter
@@ -131,7 +176,6 @@ public final class StrategyApprovalRecords {
         private BigDecimal paymentFee;
         private BigDecimal logisticsCost;
         private BigDecimal unitVariableCost;
-        private BigDecimal baselineUnitContributionMargin;
     }
 
     @Getter
@@ -194,5 +238,11 @@ public final class StrategyApprovalRecords {
         private Long reviewRequestId;
         private Long reviewerId;
         private StrategyReviewStatus reviewStatus;
+        private String reviewerName;
+        private String reviewerEmail;
+        private String reviewerActiveYn;
+        private Boolean reviewerIsDeleted;
+        private String requesterName;
+        private LocalDateTime updatedAt;
     }
 }

@@ -16,7 +16,7 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 @EnableConfigurationProperties(StrategyResultProperties.class)
 public class RedisStrategyResultStore implements StrategyResultStore {
 
-    private static final String KEY_FORMAT = "ai-strategy:case:%d:result:v1";
+    private static final String KEY_FORMAT = "ai-strategy:case:%d:result:v2";
 
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;

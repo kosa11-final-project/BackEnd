@@ -25,15 +25,19 @@ import com.stockit.backend.feature.strategy.dto.request.AdjustAiStrategySimulati
 import com.stockit.backend.feature.strategy.dto.request.AiStrategyCaseListQueryParameterValidator;
 import com.stockit.backend.feature.strategy.dto.request.CreateAiStrategyRequest;
 import com.stockit.backend.feature.strategy.dto.request.SendAiStrategyTeamsRequest;
+import com.stockit.backend.feature.strategy.dto.request.ValidateAiStrategySelectionRequest;
 import com.stockit.backend.feature.strategy.dto.response.AiStrategyCaseListPageResponse;
 import com.stockit.backend.feature.strategy.dto.response.AiStrategyCaseResponse;
 import com.stockit.backend.feature.strategy.dto.response.AdjustedAiStrategySimulationResponse;
 import com.stockit.backend.feature.strategy.dto.response.AiStrategyReviewerListResponse;
 import com.stockit.backend.feature.strategy.dto.response.AiStrategyTeamsRequestResponse;
+import com.stockit.backend.feature.strategy.dto.response.AiStrategySelectionValidationResponse;
 import com.stockit.backend.feature.strategy.service.AiStrategyApprovalService;
+import com.stockit.backend.feature.strategy.service.AiStrategyApprovalRetryService;
 import com.stockit.backend.feature.strategy.service.AiStrategyCaseListService;
 import com.stockit.backend.feature.strategy.service.AiStrategyCaseQueryService;
 import com.stockit.backend.feature.strategy.service.AiStrategyReviewerService;
+import com.stockit.backend.feature.strategy.service.AiStrategySelectionValidationService;
 import com.stockit.backend.feature.strategy.service.StrategyCaseService;
 import com.stockit.backend.feature.strategy.simulation.StrategyAdjustmentSimulationService;
 
@@ -57,7 +61,9 @@ public class AiStrategyController {
     private final AiStrategyCaseListService listService;
     private final StrategyAdjustmentSimulationService adjustmentSimulationService;
     private final AiStrategyReviewerService reviewerService;
+    private final AiStrategySelectionValidationService selectionValidationService;
     private final AiStrategyApprovalService approvalService;
+    private final AiStrategyApprovalRetryService approvalRetryService;
 
     public AiStrategyController(
             StrategyCaseService caseService,
@@ -65,14 +71,18 @@ public class AiStrategyController {
             AiStrategyCaseListService listService,
             StrategyAdjustmentSimulationService adjustmentSimulationService,
             AiStrategyReviewerService reviewerService,
-            AiStrategyApprovalService approvalService
+            AiStrategySelectionValidationService selectionValidationService,
+            AiStrategyApprovalService approvalService,
+            AiStrategyApprovalRetryService approvalRetryService
     ) {
         this.caseService = caseService;
         this.queryService = queryService;
         this.listService = listService;
         this.adjustmentSimulationService = adjustmentSimulationService;
         this.reviewerService = reviewerService;
+        this.selectionValidationService = selectionValidationService;
         this.approvalService = approvalService;
+        this.approvalRetryService = approvalRetryService;
     }
 
     @GetMapping
@@ -150,6 +160,35 @@ public class AiStrategyController {
         ));
     }
 
+    @PostMapping("/{strategyCaseId}/selection-validations")
+    @Operation(
+            summary = "AI 전략 최종안 사전 검증",
+            description = "Reviewer 선택 전에 원본 또는 사용자 조정 최종안을 최신 재고·안전재고·가격·원가·이동 경로로 검증합니다. DB에는 저장하지 않으며 Teams 요청 시 동일 검증을 다시 수행합니다."
+    )
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "최종안 사전 검증 성공"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "조정 조건 또는 기간 오류", content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "다른 조직의 Case", content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "Case 또는 후보 없음", content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "현재 재고·가격·원가·판매처·경로와 선택 조건 충돌", content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "410", description = "Redis 계산 결과 만료", content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
+    })
+    public ApiResponse<AiStrategySelectionValidationResponse> validateSelection(
+            @PathVariable Long strategyCaseId,
+            @Valid @RequestBody ValidateAiStrategySelectionRequest request,
+            @Parameter(description = "GET /api/v1/auth/csrf에서 발급받은 CSRF 토큰")
+            @RequestHeader(name = "X-XSRF-TOKEN") String csrfToken,
+            @AuthenticationPrincipal AuthPrincipal principal
+    ) {
+        AuthPrincipal authenticated = requirePrincipal(principal);
+        return ApiResponse.of(selectionValidationService.validate(
+                strategyCaseId,
+                request.optionId(),
+                request.toAdjustmentCommand(),
+                authenticated.getOrganizationId()
+        ));
+    }
+
     @GetMapping("/reviewers")
     @Operation(
             summary = "AI 전략 Teams 검토자 목록 조회",
@@ -183,7 +222,34 @@ public class AiStrategyController {
                 request.toAdjustmentCommand(),
                 request.reviewerIds(),
                 authenticated.getUserId(),
-                authenticated.getUserName(),
+                authenticated.getOrganizationId()
+        ));
+    }
+
+    @PostMapping("/{strategyCaseId}/teams-requests/retry")
+    @Operation(
+            summary = "AI 전략 Teams 전송 재시도",
+            description = "Redis 결과와 무관하게 Oracle에 확정된 전략으로 미완료 Reviewer 전송만 재시도합니다."
+    )
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Teams 전송 재시도 성공"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "잘못된 요청 또는 실행 기간 만료", content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "인증 필요", content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "다른 조직의 Case", content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "Case 또는 확정 전략 없음", content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "Case 상태 또는 확정 전략 데이터 충돌", content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "500", description = "확정 전략 또는 전송 상태 데이터 불일치", content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
+    })
+    public ApiResponse<AiStrategyTeamsRequestResponse> retryTeamsRequest(
+            @PathVariable Long strategyCaseId,
+            @Parameter(description = "GET /api/v1/auth/csrf에서 발급받은 CSRF 토큰")
+            @RequestHeader(name = "X-XSRF-TOKEN") String csrfToken,
+            @AuthenticationPrincipal AuthPrincipal principal
+    ) {
+        AuthPrincipal authenticated = requirePrincipal(principal);
+        return ApiResponse.of(approvalRetryService.retry(
+                strategyCaseId,
+                authenticated.getUserId(),
                 authenticated.getOrganizationId()
         ));
     }
