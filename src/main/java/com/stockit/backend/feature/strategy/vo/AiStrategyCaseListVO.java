@@ -4,6 +4,7 @@ import java.time.LocalDateTime;
 
 import com.stockit.backend.feature.strategy.domain.StrategyCaseStatus;
 import com.stockit.backend.feature.strategy.domain.StrategyGenerationStage;
+import com.stockit.backend.feature.strategy.domain.StrategyRecommendationOutcome;
 
 import lombok.Getter;
 import lombok.Setter;
@@ -16,6 +17,7 @@ public class AiStrategyCaseListVO {
     private String caseName;
     private StrategyCaseStatus caseStatus;
     private StrategyGenerationStage generationStage;
+    private StrategyRecommendationOutcome recommendationOutcome;
     private Long skuId;
     private String skuCode;
     private String skuName;

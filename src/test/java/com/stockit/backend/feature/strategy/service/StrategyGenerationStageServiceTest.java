@@ -16,6 +16,7 @@ import org.springframework.context.ApplicationEventPublisher;
 import com.stockit.backend.feature.strategy.domain.StrategyCaseStatus;
 import com.stockit.backend.feature.strategy.domain.StrategyGenerationStage;
 import com.stockit.backend.feature.strategy.domain.StrategyGenerationStateChangedEvent;
+import com.stockit.backend.feature.strategy.domain.StrategyRecommendationOutcome;
 import com.stockit.backend.feature.strategy.mapper.StrategyCaseMapper;
 
 @ExtendWith(MockitoExtension.class)
@@ -60,13 +61,15 @@ class StrategyGenerationStageServiceTest {
         when(strategyCaseMapper.markGeneratedIfStrategyGenerating(
                 103L,
                 "ai-strategy:case:103:result:v2",
-                expiresAt
+                expiresAt,
+                StrategyRecommendationOutcome.OPTIONS_GENERATED
         )).thenReturn(1);
 
         assertThat(service.completeStrategyGeneration(
                 103L,
                 "ai-strategy:case:103:result:v2",
-                expiresAt
+                expiresAt,
+                StrategyRecommendationOutcome.OPTIONS_GENERATED
         )).isTrue();
 
         verify(eventPublisher).publishEvent(new StrategyGenerationStateChangedEvent(
