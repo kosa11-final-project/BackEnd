@@ -28,7 +28,8 @@ public interface RiskAssessmentMapper {
 
     RiskForecastVO selectLatestForecast(
             @Param("skuCode") String skuCode,
-            @Param("salesPointCode") String salesPointCode
+            @Param("salesPointCode") String salesPointCode,
+            @Param("asOfDate") LocalDate asOfDate
     );
 
     PersistedRiskAssessmentVO selectLatestPersistedAssessment(
@@ -38,8 +39,7 @@ public interface RiskAssessmentMapper {
 
     List<LotRiskItem> selectLotRiskItems(
             @Param("skuCode") String skuCode,
-            @Param("salesPointCode") String salesPointCode,
-            @Param("asOfDate") LocalDate asOfDate
+            @Param("salesPointCode") String salesPointCode
     );
 
 }

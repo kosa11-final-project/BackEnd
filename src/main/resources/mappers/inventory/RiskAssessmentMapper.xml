@@ -8,13 +8,13 @@
         FROM inventory_balance ib
         INNER JOIN sku s ON s.sku_id = ib.sku_id AND s.is_deleted = 0
         LEFT JOIN sales_point sp
-               ON sp.sales_point_id = ib.allocated_sales_point_id
+               ON sp.sales_point_id = NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id)
               AND sp.is_deleted = 0
         WHERE s.sku_code = #{skuCode}
           AND (
               (#{salesPointCode} != 'UNASSIGNED' AND sp.sales_point_code = #{salesPointCode})
               OR (#{salesPointCode} = 'UNASSIGNED'
-                  AND ib.allocated_sales_point_id IS NULL)
+                  AND NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id) IS NULL)
           )
           AND ib.is_deleted = 0
     </select>
@@ -25,13 +25,13 @@
             SELECT ip.safety_stock_qty
             FROM inventory_policy ip
             INNER JOIN sku s ON s.sku_id = ip.sku_id AND s.is_deleted = 0
-            LEFT JOIN sales_point sp ON sp.sales_point_id = ip.allocated_sales_point_id
+            LEFT JOIN sales_point sp ON sp.sales_point_id = NVL(ip.stock_sales_point_id, ip.allocated_sales_point_id)
                                      AND sp.is_deleted = 0
             WHERE s.sku_code = #{skuCode}
               AND (
                   (#{salesPointCode} != 'UNASSIGNED' AND sp.sales_point_code = #{salesPointCode})
                   OR (#{salesPointCode} = 'UNASSIGNED'
-                      AND ip.allocated_sales_point_id IS NULL)
+                      AND NVL(ip.stock_sales_point_id, ip.allocated_sales_point_id) IS NULL)
               )
               AND ip.is_deleted = 0
               AND (ip.effective_from IS NULL OR ip.effective_from &lt;= #{asOfDate})
@@ -48,14 +48,21 @@
         FROM (
             SELECT df.base_date,
                    df.predicted_qty_d7,
+                   df.predicted_qty_d14,
                    df.predicted_qty_d30
             FROM demand_forecast df
             INNER JOIN sku s ON s.sku_id = df.sku_id AND s.is_deleted = 0
             INNER JOIN sales_point sp ON sp.sales_point_id = df.sales_point_id AND sp.is_deleted = 0
+            INNER JOIN ml_model_version mv
+                    ON mv.model_version_id = df.model_version_id
+                   AND mv.status = 'ACTIVE'
+                   AND mv.is_deleted = 0
             WHERE s.sku_code = #{skuCode}
               AND sp.sales_point_code = #{salesPointCode}
               AND df.is_deleted = 0
-            ORDER BY df.base_date DESC, df.forecast_id DESC
+              AND df.base_date &lt;= TRUNC(CAST(#{asOfDate} AS DATE))
+              AND df.forecast_source &lt;&gt; 'DUMMY_BASELINE'
+            ORDER BY df.base_date DESC, df.updated_at DESC, df.forecast_id DESC
         )
         WHERE ROWNUM = 1
     </select>
@@ -80,14 +87,14 @@
                     ON s.sku_id = ib.sku_id
                    AND s.is_deleted = 0
             LEFT JOIN sales_point sp
-                    ON sp.sales_point_id = ib.allocated_sales_point_id
+                    ON sp.sales_point_id = NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id)
                    AND sp.is_deleted = 0
             WHERE ra.is_deleted = 0
               AND s.sku_code = #{skuCode}
               AND (
                   (#{salesPointCode} != 'UNASSIGNED' AND sp.sales_point_code = #{salesPointCode})
                   OR (#{salesPointCode} = 'UNASSIGNED'
-                      AND ib.allocated_sales_point_id IS NULL)
+                      AND NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id) IS NULL)
               )
             ORDER BY ra.updated_at DESC,
                      ra.risk_assessment_id DESC
@@ -106,13 +113,13 @@
         FROM lot l
         INNER JOIN inventory_balance ib ON ib.lot_id = l.lot_id AND ib.is_deleted = 0
         INNER JOIN sku s ON s.sku_id = ib.sku_id AND s.is_deleted = 0
-        LEFT JOIN sales_point sp ON sp.sales_point_id = ib.allocated_sales_point_id
+        LEFT JOIN sales_point sp ON sp.sales_point_id = NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id)
                                  AND sp.is_deleted = 0
         WHERE s.sku_code = #{skuCode}
           AND (
               (#{salesPointCode} != 'UNASSIGNED' AND sp.sales_point_code = #{salesPointCode})
               OR (#{salesPointCode} = 'UNASSIGNED'
-                  AND ib.allocated_sales_point_id IS NULL)
+                  AND NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id) IS NULL)
           )
           AND l.is_deleted = 0
         GROUP BY l.lot_id, l.lot_no, l.expiry_date, l.sale_stop_date, l.received_date, l.lot_status
