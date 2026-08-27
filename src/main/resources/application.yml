@@ -76,7 +76,8 @@ logging:
 
 app:
   cors:
-    allowed-origins: ${APP_CORS_ALLOWED_ORIGINS:http://localhost:5173}
+    # 개발 서버(5173)와 Lighthouse용 preview(4173) 모두에서 API를 호출할 수 있습니다.
+    allowed-origins: ${APP_CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:4173}
   internal-api:
     key: ${STOCKIT_INTERNAL_API_KEY:}
     user-id: ${STOCKIT_INTERNAL_API_USER_ID:0}
@@ -142,6 +143,10 @@ app:
         environment: ${APP_ENVIRONMENT:local}
         dashboard-url: ${DEMAND_FORECAST_DASHBOARD_URL:}
   ai-strategy:
+    sse:
+      timeout: ${AI_STRATEGY_SSE_TIMEOUT:30m}
+      heartbeat-interval: ${AI_STRATEGY_SSE_HEARTBEAT_INTERVAL:25s}
+      reconnect-time-millis: ${AI_STRATEGY_SSE_RECONNECT_TIME_MILLIS:3000}
     messaging:
       enabled: ${AI_STRATEGY_MESSAGING_ENABLED:true}
       max-attempts: ${AI_STRATEGY_MAX_ATTEMPTS:3}

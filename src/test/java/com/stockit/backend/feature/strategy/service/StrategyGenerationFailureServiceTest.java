@@ -3,6 +3,7 @@ package com.stockit.backend.feature.strategy.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.lang.reflect.Method;
@@ -12,22 +13,30 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.stockit.backend.feature.strategy.mapper.StrategyCaseMapper;
+import com.stockit.backend.feature.strategy.domain.StrategyCaseStatus;
 import com.stockit.backend.feature.strategy.domain.StrategyGenerationStage;
+import com.stockit.backend.feature.strategy.domain.StrategyGenerationStateChangedEvent;
 
 @ExtendWith(MockitoExtension.class)
 class StrategyGenerationFailureServiceTest {
 
     @Mock
     private StrategyCaseMapper strategyCaseMapper;
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
 
     @Test
     void recordsFailureInRequiresNewTransactionAndLimitsMessageLength() throws Exception {
         StrategyGenerationFailureService service =
-                new StrategyGenerationFailureService(strategyCaseMapper);
+                new StrategyGenerationFailureService(
+                        strategyCaseMapper,
+                        eventPublisher
+                );
         when(strategyCaseMapper.markGenerationFailedIfGenerating(
                 eq(12345L),
                 eq("MQ_RETRY_EXHAUSTED"),
@@ -47,6 +56,13 @@ class StrategyGenerationFailureServiceTest {
                 eq("MQ_RETRY_EXHAUSTED"),
                 messageCaptor.capture()
         );
+        verify(eventPublisher).publishEvent(
+                new StrategyGenerationStateChangedEvent(
+                        12345L,
+                        StrategyCaseStatus.GENERATION_FAILED,
+                        null
+                )
+        );
         assertThat(messageCaptor.getValue()).hasSize(2000);
 
         Method method = StrategyGenerationFailureService.class.getMethod(
@@ -62,7 +78,10 @@ class StrategyGenerationFailureServiceTest {
     @Test
     void recordsFailureOnlyForTheExpectedStage() {
         StrategyGenerationFailureService service =
-                new StrategyGenerationFailureService(strategyCaseMapper);
+                new StrategyGenerationFailureService(
+                        strategyCaseMapper,
+                        eventPublisher
+                );
         when(strategyCaseMapper.markGenerationFailedAtStage(
                 12345L,
                 StrategyGenerationStage.FORECASTING,
@@ -83,5 +102,36 @@ class StrategyGenerationFailureServiceTest {
                 "FORECAST_UNAVAILABLE",
                 "forecast unavailable"
         );
+        verify(eventPublisher).publishEvent(
+                new StrategyGenerationStateChangedEvent(
+                        12345L,
+                        StrategyCaseStatus.GENERATION_FAILED,
+                        StrategyGenerationStage.FORECASTING
+                )
+        );
+    }
+
+    @Test
+    void doesNotPublishWhenLateFailureDoesNotChangeState() {
+        StrategyGenerationFailureService service =
+                new StrategyGenerationFailureService(
+                        strategyCaseMapper,
+                        eventPublisher
+                );
+        when(strategyCaseMapper.markGenerationFailedAtStage(
+                12345L,
+                StrategyGenerationStage.FORECASTING,
+                "LATE_FAILURE",
+                "late"
+        )).thenReturn(0);
+
+        assertThat(service.markFailed(
+                12345L,
+                StrategyGenerationStage.FORECASTING,
+                "LATE_FAILURE",
+                "late"
+        )).isFalse();
+
+        verifyNoInteractions(eventPublisher);
     }
 }
