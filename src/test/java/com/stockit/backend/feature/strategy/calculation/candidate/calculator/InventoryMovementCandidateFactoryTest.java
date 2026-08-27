@@ -14,13 +14,11 @@ import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import com.stockit.backend.feature.strategy.calculation.candidate.domain.CandidateAssumption;
 import com.stockit.backend.feature.strategy.calculation.candidate.domain.CandidateExclusionReason;
 import com.stockit.backend.feature.strategy.calculation.candidate.domain.CandidateGenerationResult;
 import com.stockit.backend.feature.strategy.calculation.candidate.domain.StrategyCandidate;
 import com.stockit.backend.feature.strategy.calculation.candidate.domain.StrategyCandidateIdGenerator;
 import com.stockit.backend.feature.strategy.calculation.candidate.policy.MovementLotAllocationPolicy;
-import com.stockit.backend.feature.strategy.calculation.candidate.policy.SafetyStockPolicyResolver;
 import com.stockit.backend.feature.strategy.calculation.candidate.policy.SourceInventoryCapacityPolicy;
 import com.stockit.backend.feature.strategy.calculation.candidate.policy.TargetAdditionalDemandPolicy;
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculationContext;
@@ -36,7 +34,7 @@ class InventoryMovementCandidateFactoryTest {
     @BeforeEach
     void setUp() {
         factory = new InventoryMovementCandidateFactory(
-                new SourceInventoryCapacityPolicy(new SafetyStockPolicyResolver()),
+                new SourceInventoryCapacityPolicy(),
                 new TargetAdditionalDemandPolicy(),
                 new MovementLotAllocationPolicy(),
                 new StrategyCandidateIdGenerator(),
@@ -45,7 +43,7 @@ class InventoryMovementCandidateFactoryTest {
     }
 
     @Test
-    void generatesTenPercentReallocationTiersWithinSafetyStockAndSharedWarehouse() {
+    void generatesTenPercentReallocationTiersWithoutSubtractingSafetyStock() {
         StrategyCalculationContext context = context(
                 List.of(lot(1L, 1001L, 501L, 10L, "100", null)),
                 List.of(policy(1L, 501L, 10L, "20")),
@@ -65,15 +63,15 @@ class InventoryMovementCandidateFactoryTest {
         assertThat(result.candidates())
                 .extracting(candidate -> candidate.actions().get(0).actionQuantity())
                 .containsExactly(
-                        decimal("8.000"), decimal("16.000"), decimal("24.000"),
-                        decimal("32.000"), decimal("40.000"), decimal("48.000"),
-                        decimal("56.000"), decimal("64.000"), decimal("72.000"),
-                        decimal("80.000")
+                        decimal("10.000"), decimal("20.000"), decimal("30.000"),
+                        decimal("40.000"), decimal("50.000"), decimal("60.000"),
+                        decimal("70.000"), decimal("80.000"), decimal("90.000"),
+                        decimal("100.000")
                 );
         StrategyCandidate maximum = result.candidates().get(9);
         assertThat(maximum.startDate()).isEqualTo(START);
         assertThat(maximum.endDate()).isNull();
-        assertThat(maximum.evidence().maxExecutableQty()).isEqualByComparingTo("80");
+        assertThat(maximum.evidence().maxExecutableQty()).isEqualByComparingTo("100");
         assertThat(maximum.actions()).singleElement().satisfies(action -> {
             assertThat(action.source().warehouseId()).isEqualTo(501L);
             assertThat(action.source().salesPointId()).isEqualTo(10L);
@@ -138,9 +136,7 @@ class InventoryMovementCandidateFactoryTest {
             assertThat(action.movementCost()).isNotNull();
             assertThat(action.movementCost().distanceKm()).isEqualByComparingTo("100");
         });
-        assertThat(maximum.assumptions()).containsExactly(
-                CandidateAssumption.SAFETY_STOCK_DEFAULTED_TO_ZERO
-        );
+        assertThat(maximum.assumptions()).isEmpty();
     }
 
     @Test

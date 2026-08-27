@@ -5,7 +5,6 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -16,7 +15,6 @@ import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Component;
 
-import com.stockit.backend.feature.strategy.calculation.candidate.domain.CandidateAssumption;
 import com.stockit.backend.feature.strategy.calculation.candidate.domain.CandidateExclusion;
 import com.stockit.backend.feature.strategy.calculation.candidate.domain.CandidateExclusionReason;
 import com.stockit.backend.feature.strategy.calculation.candidate.domain.CandidateGenerationResult;
@@ -219,14 +217,11 @@ public class InventoryMovementCandidateFactory {
                 selection.eligibleLots()
         );
         if (sourceCapacity.total().signum() == 0) {
-            CandidateExclusionReason reason = sourceCapacity.safetyStockBlocked()
-                    ? CandidateExclusionReason.SOURCE_SAFETY_STOCK_VIOLATION
-                    : CandidateExclusionReason.SOURCE_STOCK_INSUFFICIENT;
             return excluded(
                     strategyType,
                     targetId,
-                    reason,
-                    "No inventory can be moved while preserving source safety stock"
+                    CandidateExclusionReason.SOURCE_STOCK_INSUFFICIENT,
+                    "No sellable source inventory is available to move"
             );
         }
         MovementCandidatePlan maximumPlan = allocationPolicy.plan(
@@ -246,9 +241,6 @@ public class InventoryMovementCandidateFactory {
             );
         }
 
-        List<CandidateAssumption> assumptions = assumptions(
-                sourceCapacity.safetyStockDefaulted()
-        );
         List<StrategyCandidate> candidates = new ArrayList<>();
         List<CandidateExclusion> exclusions = new ArrayList<>();
         Set<BigDecimal> generatedQuantities = new LinkedHashSet<>();
@@ -302,7 +294,7 @@ public class InventoryMovementCandidateFactory {
                     context.strategyStartDate(),
                     null,
                     actions,
-                    assumptions,
+                    List.of(),
                     new StrategyCandidate.Preference(
                             strategyPriority,
                             targetPriority,
@@ -465,16 +457,6 @@ public class InventoryMovementCandidateFactory {
             return requested;
         }
         return context.salesPoints().keySet().stream().toList();
-    }
-
-    private static List<CandidateAssumption> assumptions(boolean safetyStockDefaulted) {
-        EnumSet<CandidateAssumption> assumptions = EnumSet.noneOf(
-                CandidateAssumption.class
-        );
-        if (safetyStockDefaulted) {
-            assumptions.add(CandidateAssumption.SAFETY_STOCK_DEFAULTED_TO_ZERO);
-        }
-        return List.copyOf(assumptions);
     }
 
     private static boolean samePhysicalLocation(
