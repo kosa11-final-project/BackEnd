@@ -7,6 +7,7 @@ import java.util.Objects;
 import org.slf4j.MDC;
 
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.stockit.backend.common.exception.ErrorCode;
 import com.stockit.backend.common.logging.RequestLoggingFilter;
 
@@ -15,15 +16,18 @@ import com.stockit.backend.common.logging.RequestLoggingFilter;
  *
  * @param code 에러 코드
  * @param message 에러 메시지
+ * @param details 비즈니스 오류 해결에 필요한 구조화된 상세 정보
  * @param fieldErrors 필드 검증 에러 목록
  * @param path 요청 경로
  * @param requestId 요청 추적 식별자 (MDC)
  * @param timestamp 발생 일시
  */
-@JsonPropertyOrder({"code", "message", "fieldErrors", "path", "requestId", "timestamp"})
+@JsonPropertyOrder({"code", "message", "details", "fieldErrors", "path", "requestId", "timestamp"})
 public record ApiErrorResponse(
         String code,
         String message,
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        Object details,
         List<FieldErrorDetail> fieldErrors,
         String path,
         String requestId,
@@ -49,7 +53,7 @@ public record ApiErrorResponse(
      * @return 에러 응답 객체
      */
     public static ApiErrorResponse of(ErrorCode errorCode, String path) {
-        return of(errorCode, errorCode.getMessage(), List.of(), path);
+        return of(errorCode, errorCode.getMessage(), null, List.of(), path);
     }
 
     /**
@@ -61,7 +65,17 @@ public record ApiErrorResponse(
      * @return 에러 응답 객체
      */
     public static ApiErrorResponse of(ErrorCode errorCode, String message, String path) {
-        return of(errorCode, message, List.of(), path);
+        return of(errorCode, message, null, List.of(), path);
+    }
+
+    /** 에러 코드, 커스텀 메시지와 구조화된 상세 정보를 가진 응답을 생성합니다. */
+    public static ApiErrorResponse of(
+            ErrorCode errorCode,
+            String message,
+            Object details,
+            String path
+    ) {
+        return of(errorCode, message, details, List.of(), path);
     }
 
     /**
@@ -79,9 +93,20 @@ public record ApiErrorResponse(
             List<FieldErrorDetail> fieldErrors,
             String path
     ) {
+        return of(errorCode, message, null, fieldErrors, path);
+    }
+
+    private static ApiErrorResponse of(
+            ErrorCode errorCode,
+            String message,
+            Object details,
+            List<FieldErrorDetail> fieldErrors,
+            String path
+    ) {
         return new ApiErrorResponse(
                 errorCode.getCode(),
                 message,
+                details,
                 fieldErrors,
                 path,
                 MDC.get(RequestLoggingFilter.REQUEST_ID_MDC_KEY),
