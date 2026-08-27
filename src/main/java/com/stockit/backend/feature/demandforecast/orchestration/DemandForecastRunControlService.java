@@ -1,5 +1,6 @@
 package com.stockit.backend.feature.demandforecast.orchestration;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 
@@ -43,6 +44,23 @@ public class DemandForecastRunControlService {
 
     @Transactional
     public void fail(Long runId, String errorCode, String errorMessage) {
+        failRun(runId, null, errorCode, errorMessage);
+    }
+
+    @Transactional
+    public void fail(DemandForecastRunVO run, String errorCode, String errorMessage) {
+        if (run == null) {
+            throw new IllegalArgumentException("demand forecast run is required");
+        }
+        failRun(run.getForecastRunId(), run, errorCode, errorMessage);
+    }
+
+    private void failRun(
+            Long runId,
+            DemandForecastRunVO run,
+            String errorCode,
+            String errorMessage
+    ) {
         Long systemUserId = requiredSystemUserId();
         String safeMessage = safeMessage(errorMessage);
         if (mapper.markFailed(runId, errorCode, safeMessage, systemUserId) != 1) {
@@ -55,7 +73,12 @@ public class DemandForecastRunControlService {
                 "일일 수요예측 실패",
                 "수요예측 파이프라인이 실패했습니다. 단계 코드: " + errorCode
                         + ", 원인: " + safeMessage,
-                "DEMAND_FORECAST:" + runId + ":FAILED"
+                "DEMAND_FORECAST:" + runId + ":FAILED",
+                run == null ? null : run.getBaseDate(),
+                run == null ? null : run.getCurrentStage(),
+                errorCode,
+                run == null ? null : run.getAzureJobId(),
+                Instant.now()
         ));
     }
 

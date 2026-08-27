@@ -21,6 +21,10 @@ public class DemandForecastNotificationListener {
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void notifyAdmins(DemandForecastRunNotificationEvent event) {
+        // 실패 이벤트는 Teams 운영 채널 알림에 사용하되 인앱 notification에는 저장하지 않는다.
+        if ("DEMAND_FORECAST_FAILED".equals(event.notificationType())) {
+            return;
+        }
         try {
             writer.write(event);
         } catch (RuntimeException exception) {
