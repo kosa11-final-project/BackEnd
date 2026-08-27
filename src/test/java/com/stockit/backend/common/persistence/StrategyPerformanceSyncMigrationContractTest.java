@@ -24,7 +24,11 @@ class StrategyPerformanceSyncMigrationContractTest {
     void createsDailyUniquenessAndSingletonMutex(@TempDir Path tempDir) throws Exception {
         Path migrationFile = tempDir.resolve("V31__support_strategy_performance_sync.sql");
         try (InputStream input = requiredResource()) {
-            Files.copy(input, migrationFile);
+            String migration = new String(input.readAllBytes(), StandardCharsets.UTF_8);
+            int oracleBlockEnd = migration.indexOf("\n/\n");
+            assertThat(oracleBlockEnd).isNotNegative();
+            // H2 cannot parse Oracle anonymous PL/SQL; its contract is asserted below.
+            Files.writeString(migrationFile, migration.substring(oracleBlockEnd + 3));
         }
 
         String jdbcUrl = "jdbc:h2:mem:strategy-performance-sync-migration;MODE=Oracle;DB_CLOSE_DELAY=-1";
@@ -70,6 +74,9 @@ class StrategyPerformanceSyncMigrationContractTest {
         }
 
         assertThat(migration).contains(
+                "HAVING COUNT(*) > 1",
+                "RAISE_APPLICATION_ERROR(",
+                "V31 blocked: duplicate strategy_performance option/date groups exist",
                 "UNIQUE (strategy_option_id, performance_date)",
                 "CREATE TABLE strategy_perf_sync_mutex",
                 "CHECK (mutex_id = 1)",

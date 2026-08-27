@@ -1,3 +1,24 @@
+DECLARE
+    v_duplicate_group_count NUMBER;
+BEGIN
+    SELECT COUNT(*)
+    INTO v_duplicate_group_count
+    FROM (
+        SELECT strategy_option_id, performance_date
+        FROM strategy_performance
+        GROUP BY strategy_option_id, performance_date
+        HAVING COUNT(*) > 1
+    );
+
+    IF v_duplicate_group_count > 0 THEN
+        RAISE_APPLICATION_ERROR(
+            -20031,
+            'V31 blocked: duplicate strategy_performance option/date groups exist'
+        );
+    END IF;
+END;
+/
+
 ALTER TABLE strategy_performance
     ADD CONSTRAINT uq_strategy_perf_option_date
         UNIQUE (strategy_option_id, performance_date);
