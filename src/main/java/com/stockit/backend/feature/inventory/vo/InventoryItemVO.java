@@ -31,6 +31,7 @@ public class InventoryItemVO {
     private BigDecimal currentQty;
     private BigDecimal availableQty;
     private BigDecimal reservedQty;
+    private BigDecimal expectedDisposalQty;
     private BigDecimal safetyQty;
     private String inventoryFactState;
     private String shortageYn;
@@ -107,6 +108,8 @@ public class InventoryItemVO {
     public void setAvailableQty(BigDecimal availableQty) { this.availableQty = availableQty; }
     public BigDecimal getReservedQty() { return reservedQty; }
     public void setReservedQty(BigDecimal reservedQty) { this.reservedQty = reservedQty; }
+    public BigDecimal getExpectedDisposalQty() { return expectedDisposalQty; }
+    public void setExpectedDisposalQty(BigDecimal expectedDisposalQty) { this.expectedDisposalQty = expectedDisposalQty; }
     public BigDecimal getSafetyQty() { return safetyQty; }
     public void setSafetyQty(BigDecimal safetyQty) { this.safetyQty = safetyQty; }
     public String getInventoryFactState() { return inventoryFactState; }

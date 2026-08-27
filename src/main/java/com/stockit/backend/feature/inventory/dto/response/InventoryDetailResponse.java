@@ -44,7 +44,8 @@ public record InventoryDetailResponse(
         LocalDate nearestExpiryDate,
         Instant updatedAt,
         List<InventoryLotResponse> lots,
-        List<SkuChannelPriceResponse> channelPrices
+        List<SkuChannelPriceResponse> channelPrices,
+        BigDecimal expectedDisposalQuantity
 ) {
 
     public InventoryDetailResponse {
@@ -90,7 +91,7 @@ public record InventoryDetailResponse(
                 channelType, salesPointCode, salesPointName, storageType, sellingPrice, currentQuantity,
                 availableQuantity, reservedQuantity, safetyQuantity, inventoryFactState, risk, locations,
                 locationCount, salesPoints, UnassignedInventoryResponse.empty(), lotCount, nearestExpiryDays, nearestExpiryDate,
-                updatedAt, lots, List.of());
+                updatedAt, lots, List.of(), null);
     }
 
     /** 레거시 테스트 및 코드 호환용 생성자입니다. */
@@ -124,7 +125,7 @@ public record InventoryDetailResponse(
         this(rowId, null, productCode, productName, null, skuCode, skuName, imageUrl, null, null, null, channelType,
                 salesPointCode, salesPointName, storageType, sellingPrice, currentQuantity, availableQuantity,
                 reservedQuantity, safetyQuantity, inventoryFactState, risk, locations, locationCount, salesPoints,
-                UnassignedInventoryResponse.empty(), lotCount, nearestExpiryDays, nearestExpiryDate, updatedAt, lots, List.of());
+                UnassignedInventoryResponse.empty(), lotCount, nearestExpiryDays, nearestExpiryDate, updatedAt, lots, List.of(), null);
     }
 
     public InventoryDetailResponse(
@@ -158,6 +159,6 @@ public record InventoryDetailResponse(
         this(rowId, skuId, productCode, productName, null, skuCode, skuName, imageUrl, null, null, null, channelType,
                 salesPointCode, salesPointName, storageType, sellingPrice, currentQuantity, availableQuantity,
                 reservedQuantity, safetyQuantity, inventoryFactState, risk, locations, locationCount, salesPoints,
-                UnassignedInventoryResponse.empty(), lotCount, nearestExpiryDays, nearestExpiryDate, updatedAt, lots, List.of());
+                UnassignedInventoryResponse.empty(), lotCount, nearestExpiryDays, nearestExpiryDate, updatedAt, lots, List.of(), null);
     }
 }

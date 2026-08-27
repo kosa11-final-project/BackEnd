@@ -235,6 +235,7 @@ class InventoryFilterSqlRenderingTest {
                 new String[]{"currentQuantity,asc", "q.current_qty", "ASC"},
                 new String[]{"availableQuantity,desc", "q.available_qty", "DESC"},
                 new String[]{"reservedQuantity,asc", "q.reserved_qty", "ASC"},
+                new String[]{"expectedDisposalQuantity,desc", "q.expected_disposal_qty", "DESC"},
                 new String[]{"nearestExpiryDays,asc", "q.nearest_expiry_days", "ASC"}
         )) {
             InventoryQueryRequest request = new InventoryQueryRequest();
@@ -251,6 +252,20 @@ class InventoryFilterSqlRenderingTest {
         assertThat(render("selectInventoryList", riskRequest.toQuery(LocalDate.of(2026, 8, 24))))
                 .contains("ORDER BY CASE WHEN q.risk_grade IS NULL THEN 1 ELSE 0 END")
                 .contains("END DESC, q.sku_code ASC");
+    }
+
+    @Test
+    void calculatesExpectedDisposalBeforePaginationSoSortingCoversTheWholeResultSet() {
+        InventoryQueryRequest request = new InventoryQueryRequest();
+        request.setSort("expectedDisposalQuantity,desc");
+
+        String sql = render("selectInventoryList", request.toQuery(LocalDate.of(2026, 8, 24)));
+
+        assertThat(sql)
+                .contains("NVL(db.expected_disposal_qty, 0) AS expected_disposal_qty")
+                .contains("ORDER BY CASE WHEN q.expected_disposal_qty IS NULL THEN 1 ELSE 0 END, "
+                        + "q.expected_disposal_qty DESC, q.sku_code ASC");
+        assertThat(sql.indexOf("disposal_by_sku AS")).isLessThan(sql.indexOf("paged_candidates AS"));
     }
 
     private String render(String statement, InventoryQuery query) {

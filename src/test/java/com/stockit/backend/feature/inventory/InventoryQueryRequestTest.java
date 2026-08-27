@@ -124,6 +124,7 @@ class InventoryQueryRequestTest {
         assertSort("currentQuantity,asc", "current_qty", "ASC");
         assertSort("availableQuantity,desc", "available_qty", "DESC");
         assertSort("reservedQuantity,asc", "reserved_qty", "ASC");
+        assertSort("expectedDisposalQuantity,desc", "expected_disposal_qty", "DESC");
         assertSort("riskGrade,desc", "risk_grade", "DESC");
         assertSort("shortageYn,asc", "shortage_yn", "ASC");
         assertSort("nearestExpiryDays,asc", "nearest_expiry_days", "ASC");

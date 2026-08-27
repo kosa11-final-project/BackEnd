@@ -87,7 +87,8 @@ public class InventoryResponseMapper {
                 item.getLotCount(),
                 item.getNearestExpiryDays(),
                 item.getNearestExpiryDate() == null ? null : item.getNearestExpiryDate().toLocalDate(),
-                item.getUpdatedAt() == null ? null : item.getUpdatedAt().toInstant()
+                item.getUpdatedAt() == null ? null : item.getUpdatedAt().toInstant(),
+                item.getExpectedDisposalQty()
         );
     }
 
@@ -142,7 +143,8 @@ public class InventoryResponseMapper {
                 item.getNearestExpiryDate() == null ? null : item.getNearestExpiryDate().toLocalDate(),
                 item.getUpdatedAt() == null ? null : item.getUpdatedAt().toInstant(),
                 lots,
-                channelPrices
+                channelPrices,
+                item.getExpectedDisposalQty()
         );
     }
 
