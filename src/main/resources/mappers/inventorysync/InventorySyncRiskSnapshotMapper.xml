@@ -3,57 +3,171 @@
 <mapper namespace="com.stockit.backend.feature.inventorysync.risk.InventorySyncRiskSnapshotMapper">
     <select id="selectScopesRequiringRuleVersion" resultType="string">
         SELECT TO_CHAR(ib.sku_id) || ':'
-               || COALESCE(TO_CHAR(ib.allocated_sales_point_id), 'UNASSIGNED') AS scope_key
+               || COALESCE(TO_CHAR(NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id)), 'UNASSIGNED') AS scope_key
           FROM inventory_balance ib
           LEFT JOIN risk_assessment ra
             ON ra.inventory_balance_id = ib.inventory_balance_id
            AND ra.is_deleted = 0
          WHERE ib.is_deleted = 0
-         GROUP BY ib.sku_id, ib.allocated_sales_point_id
+         GROUP BY ib.sku_id, NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id)
         HAVING MAX(CASE WHEN ra.rule_version = #{ruleVersion} THEN 1 ELSE 0 END) = 0
+         ORDER BY scope_key
+    </select>
+
+    <select id="selectScopesRequiringDailyRefresh" resultType="string">
+        WITH lot_balance AS (
+            SELECT ib.lot_id,
+                   SUM(ib.on_hand_qty + ib.reserved_qty) AS total_quantity
+              FROM inventory_balance ib
+             WHERE ib.is_deleted = 0
+             GROUP BY ib.lot_id
+        ), resolved_lot AS (
+            SELECT l.lot_id,
+                   l.lot_status AS current_status,
+                   CASE
+                       WHEN l.expiry_date IS NOT NULL AND l.sale_stop_date IS NOT NULL
+                           THEN LEAST(TRUNC(l.expiry_date), TRUNC(l.sale_stop_date))
+                       WHEN l.expiry_date IS NOT NULL THEN TRUNC(l.expiry_date)
+                       WHEN l.sale_stop_date IS NOT NULL THEN TRUNC(l.sale_stop_date)
+                   END AS sale_end_date,
+                   CASE
+                       WHEN l.expiry_date IS NOT NULL
+                            AND l.sale_stop_date IS NOT NULL
+                            AND LEAST(TRUNC(l.expiry_date), TRUNC(l.sale_stop_date))
+                                &lt;= TRUNC(CAST(#{asOfDate} AS DATE))
+                           THEN CASE
+                               WHEN TRUNC(l.expiry_date) &lt;= TRUNC(l.sale_stop_date) THEN 'EXPIRED'
+                               ELSE 'SALE_STOPPED'
+                           END
+                       WHEN l.expiry_date IS NOT NULL
+                            AND TRUNC(l.expiry_date) &lt;= TRUNC(CAST(#{asOfDate} AS DATE)) THEN 'EXPIRED'
+                       WHEN l.sale_stop_date IS NOT NULL
+                            AND TRUNC(l.sale_stop_date) &lt;= TRUNC(CAST(#{asOfDate} AS DATE)) THEN 'SALE_STOPPED'
+                       WHEN NVL(lb.total_quantity, 0) = 0 THEN 'DEPLETED'
+                       ELSE 'AVAILABLE'
+                   END AS resolved_status
+              FROM lot l
+              LEFT JOIN lot_balance lb ON lb.lot_id = l.lot_id
+             WHERE l.is_deleted = 0
+        ), latest_forecast AS (
+            SELECT df.forecast_id,
+                   df.sku_id,
+                   df.sales_point_id,
+                   df.updated_at AS forecast_updated_at,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY df.sku_id, df.sales_point_id
+                       ORDER BY df.base_date DESC, df.updated_at DESC, df.forecast_id DESC
+                   ) AS rn
+              FROM demand_forecast df
+              INNER JOIN ml_model_version mv
+                      ON mv.model_version_id = df.model_version_id
+                     AND mv.status = 'ACTIVE'
+                     AND mv.is_deleted = 0
+             WHERE df.is_deleted = 0
+               AND df.base_date &lt;= TRUNC(CAST(#{asOfDate} AS DATE))
+               AND df.forecast_source &lt;&gt; 'DUMMY_BASELINE'
+        ), risk_rows AS (
+            SELECT ib.sku_id,
+                   NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id) AS sales_point_id,
+                   ra.forecast_id,
+                   TRUNC(ra.updated_at) AS assessed_date,
+                   ra.updated_at AS assessed_at,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY ib.sku_id,
+                                    NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id)
+                       ORDER BY ra.updated_at DESC, ra.risk_assessment_id DESC
+                   ) AS rn
+              FROM risk_assessment ra
+              INNER JOIN inventory_balance ib
+                      ON ib.inventory_balance_id = ra.inventory_balance_id
+                     AND ib.is_deleted = 0
+             WHERE ra.is_deleted = 0
+        )
+        SELECT DISTINCT TO_CHAR(ib.sku_id) || ':'
+               || COALESCE(TO_CHAR(NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id)), 'UNASSIGNED') AS scope_key
+          FROM inventory_balance ib
+          INNER JOIN resolved_lot rl ON rl.lot_id = ib.lot_id
+          LEFT JOIN latest_forecast lf
+                 ON lf.sku_id = ib.sku_id
+                AND lf.sales_point_id = NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id)
+                AND lf.rn = 1
+          LEFT JOIN risk_rows rr
+                 ON rr.sku_id = ib.sku_id
+                AND (rr.sales_point_id = NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id)
+                     OR (rr.sales_point_id IS NULL
+                         AND NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id) IS NULL))
+                AND rr.rn = 1
+         WHERE ib.is_deleted = 0
+           AND (
+               NVL(rl.current_status, '__NULL__') != rl.resolved_status
+               OR (
+                   rl.resolved_status = 'AVAILABLE'
+                   AND rl.sale_end_date > TRUNC(CAST(#{asOfDate} AS DATE))
+                   AND rl.sale_end_date &lt;= TRUNC(CAST(#{asOfDate} AS DATE)) + 30
+                   AND (rr.assessed_date IS NULL
+                        OR rr.assessed_date &lt; TRUNC(CAST(#{asOfDate} AS DATE)))
+               )
+               OR NVL(rr.forecast_id, -1) != NVL(lf.forecast_id, -1)
+               OR (lf.forecast_updated_at IS NOT NULL
+                   AND (rr.assessed_at IS NULL OR lf.forecast_updated_at > rr.assessed_at))
+           )
          ORDER BY scope_key
     </select>
 
     <!-- balance·policy·latest forecast·LOT를 한 set-based statement snapshot으로 읽습니다. -->
     <select id="selectAffectedScopeSnapshot" resultType="com.stockit.backend.feature.inventorysync.risk.InventorySyncRiskSnapshotMapper$RiskScopeRow">
         WITH latest_forecast AS (
-            SELECT forecast_id, sku_id, sales_point_id, base_date, predicted_qty_d7, predicted_qty_d30,
-                   ROW_NUMBER() OVER (PARTITION BY sku_id, sales_point_id ORDER BY base_date DESC, forecast_id DESC) AS rn
-              FROM demand_forecast
-             WHERE is_deleted = 0
+            SELECT df.forecast_id, df.sku_id, df.sales_point_id, df.base_date,
+                   df.predicted_qty_d7, df.predicted_qty_d14, df.predicted_qty_d30,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY df.sku_id, df.sales_point_id
+                       ORDER BY df.base_date DESC, df.updated_at DESC, df.forecast_id DESC
+                   ) AS rn
+              FROM demand_forecast df
+              INNER JOIN ml_model_version mv
+                      ON mv.model_version_id = df.model_version_id
+                     AND mv.status = 'ACTIVE'
+                     AND mv.is_deleted = 0
+             WHERE df.is_deleted = 0
+               AND df.base_date &lt;= TRUNC(CAST(#{asOfDate} AS DATE))
+               AND df.forecast_source &lt;&gt; 'DUMMY_BASELINE'
         ), latest_policy AS (
-            SELECT sku_id, allocated_sales_point_id AS sales_point_id,
+            SELECT sku_id, NVL(stock_sales_point_id, allocated_sales_point_id) AS sales_point_id,
                    safety_stock_qty,
-                   ROW_NUMBER() OVER (PARTITION BY sku_id, allocated_sales_point_id
+                   ROW_NUMBER() OVER (PARTITION BY sku_id, NVL(stock_sales_point_id, allocated_sales_point_id)
                                       ORDER BY effective_from DESC NULLS LAST, inventory_policy_id DESC) AS rn
               FROM inventory_policy
              WHERE is_deleted = 0
                AND (effective_from IS NULL OR effective_from &lt;= #{asOfDate})
                AND (effective_to IS NULL OR effective_to &gt;= #{asOfDate})
         )
-        SELECT ib.inventory_balance_id, ib.sku_id, ib.allocated_sales_point_id AS sales_point_id,
+        SELECT ib.inventory_balance_id, ib.sku_id,
+               NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id) AS sales_point_id,
                lf.forecast_id, s.sku_code,
                COALESCE(sp.sales_point_code, 'UNASSIGNED') AS sales_point_code,
-               ib.on_hand_qty, lf.predicted_qty_d7, lf.predicted_qty_d30,
+               ib.on_hand_qty, lf.predicted_qty_d7, lf.predicted_qty_d14, lf.predicted_qty_d30,
                lp.safety_stock_qty, lf.base_date AS forecast_base_date,
                TO_CHAR(l.lot_id) AS lot_id, l.lot_no AS lot_number,
                l.expiry_date, l.sale_stop_date, l.received_date, l.lot_status,
                ib.on_hand_qty AS lot_qty
           FROM inventory_balance ib
           JOIN sku s ON s.sku_id = ib.sku_id AND s.is_deleted = 0
-          LEFT JOIN sales_point sp ON sp.sales_point_id = ib.allocated_sales_point_id
+          LEFT JOIN sales_point sp ON sp.sales_point_id = NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id)
                                   AND sp.is_deleted = 0
           LEFT JOIN latest_forecast lf ON lf.sku_id = ib.sku_id
-                                      AND (lf.sales_point_id = ib.allocated_sales_point_id
-                                           OR (lf.sales_point_id IS NULL AND ib.allocated_sales_point_id IS NULL))
+                                      AND (lf.sales_point_id = NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id)
+                                           OR (lf.sales_point_id IS NULL
+                                               AND NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id) IS NULL))
                                       AND lf.rn = 1
           LEFT JOIN latest_policy lp ON lp.sku_id = ib.sku_id
-                                    AND (lp.sales_point_id = ib.allocated_sales_point_id
-                                         OR (lp.sales_point_id IS NULL AND ib.allocated_sales_point_id IS NULL))
+                                    AND (lp.sales_point_id = NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id)
+                                         OR (lp.sales_point_id IS NULL
+                                             AND NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id) IS NULL))
                                     AND lp.rn = 1
           LEFT JOIN lot l ON l.lot_id = ib.lot_id AND l.is_deleted = 0
          WHERE ib.is_deleted = 0
-           AND (TO_CHAR(ib.sku_id) || ':' || COALESCE(TO_CHAR(ib.allocated_sales_point_id), 'UNASSIGNED')) IN
+           AND (TO_CHAR(ib.sku_id) || ':'
+                || COALESCE(TO_CHAR(NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id)), 'UNASSIGNED')) IN
            <foreach collection="scopeKeys" item="scopeKey" open="(" separator="," close=")">#{scopeKey}</foreach>
     </select>
 </mapper>

@@ -18,7 +18,7 @@ public record RiskAssessmentDetailResponse(
         @Schema(description = "DB 내부 위험 등급 (CRITICAL, WARNING, NORMAL, GOOD)", example = "CRITICAL")
         String dbRiskGrade,
 
-        @Schema(description = "마지막 재고 동기화가 RISK_ASSESSMENT.reason_message에 저장한 대표 위험 사유", example = "소비기한 30일 이하 임박 (22일 남음)")
+        @Schema(description = "조회 시점 입력으로 계산한 대표 위험 사유", example = "30일 예상 폐기율이 20% 이상인 상황입니다.")
         String reasonMessage,
 
         @Schema(description = "평가 규칙 버전", example = "v1.1.0")
@@ -45,16 +45,25 @@ public record RiskAssessmentDetailResponse(
         @Schema(description = "안전재고 목표치", example = "30")
         BigDecimal safetyStockQty,
 
+        @Schema(description = "향후 30일 안에 판매가 종료되는 LOT를 실제 종료일까지 판매하고 남을 것으로 예상되는 수량", example = "13")
+        BigDecimal expectedDisposalQty30,
+
+        @Schema(description = "현재 판매 가능 재고 대비 향후 30일 예상 폐기율(%)", example = "16.25")
+        BigDecimal expectedDisposalRate30,
+
+        @Schema(description = "향후 30일 대상 LOT 중 가장 가까운 판매 종료일까지 남은 일수", example = "11")
+        Integer nearestSaleEndDays,
+
         @Schema(description = "가장 가까운 잔여 소비기한(일)", example = "22")
         Integer nearestExpiryDays,
 
-        @Schema(description = "RISK_ASSESSMENT.holding_days에 저장된 최대 보유 일수(일)", example = "14")
+        @Schema(description = "현재 판매 가능한 LOT 중 최대 보유 일수(일)", example = "14")
         Integer maxHoldingDays,
 
         @Schema(description = "세부 위험 사유 및 근거 목록")
         List<RiskReasonDto> reasons,
 
-        @Schema(description = "RISK_ASSESSMENT.stock_days에 저장된 30일 평균 예측수요 기준 예상 소진까지 남은 일수", example = "20.0")
+        @Schema(description = "30일 평균 예측수요 기준 예상 소진까지 남은 일수", example = "20.0")
         BigDecimal stockCoverageDays,
 
         @Schema(description = "현재 판매 가능 재고가 안전재고보다 적은지 여부 (Y, N)", example = "Y")
@@ -95,11 +104,58 @@ public record RiskAssessmentDetailResponse(
                 safetyGapQty,
                 projectedD7,
                 safetyStockQty,
+                null,
+                null,
+                null,
                 nearestExpiryDays,
                 maxHoldingDays,
                 reasons,
                 null,
                 null
+        );
+    }
+
+    /** 기존 stockCoverageDays/shortageYn 포함 응답 생성부의 하위 호환용 생성자입니다. */
+    public RiskAssessmentDetailResponse(
+            String assessmentStatus,
+            String riskGrade,
+            String dbRiskGrade,
+            String reasonMessage,
+            String ruleVersion,
+            Instant assessedAt,
+            LocalDate baseDate,
+            BigDecimal availableQty,
+            BigDecimal shortageQty30,
+            BigDecimal safetyGapQty,
+            BigDecimal projectedD7,
+            BigDecimal safetyStockQty,
+            Integer nearestExpiryDays,
+            Integer maxHoldingDays,
+            List<RiskReasonDto> reasons,
+            BigDecimal stockCoverageDays,
+            String shortageYn
+    ) {
+        this(
+                assessmentStatus,
+                riskGrade,
+                dbRiskGrade,
+                reasonMessage,
+                ruleVersion,
+                assessedAt,
+                baseDate,
+                availableQty,
+                shortageQty30,
+                safetyGapQty,
+                projectedD7,
+                safetyStockQty,
+                null,
+                null,
+                null,
+                nearestExpiryDays,
+                maxHoldingDays,
+                reasons,
+                stockCoverageDays,
+                shortageYn
         );
     }
 }
