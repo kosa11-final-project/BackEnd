@@ -5,7 +5,6 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -15,7 +14,6 @@ import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Component;
 
-import com.stockit.backend.feature.strategy.calculation.candidate.domain.CandidateAssumption;
 import com.stockit.backend.feature.strategy.calculation.candidate.domain.CandidateExclusion;
 import com.stockit.backend.feature.strategy.calculation.candidate.domain.CandidateExclusionReason;
 import com.stockit.backend.feature.strategy.calculation.candidate.domain.CandidateGenerationResult;
@@ -125,13 +123,10 @@ public class PriceDiscountCandidateCalculator implements StrategyCandidateCalcul
         SourceInventoryCapacityPolicy.Capacity currentSourceCapacity =
                 sourceCapacityPolicy.resolve(context, context.evaluationInventory());
         if (currentSourceCapacity.total().signum() == 0) {
-            CandidateExclusionReason reason = currentSourceCapacity.safetyStockBlocked()
-                    ? CandidateExclusionReason.SOURCE_SAFETY_STOCK_VIOLATION
-                    : CandidateExclusionReason.SOURCE_STOCK_INSUFFICIENT;
             return excluded(
                     sourceId,
-                    reason,
-                    "No inventory can be discounted while preserving safety stock"
+                    CandidateExclusionReason.SOURCE_STOCK_INSUFFICIENT,
+                    "No sellable source inventory is available to discount"
             );
         }
 
@@ -298,7 +293,7 @@ public class PriceDiscountCandidateCalculator implements StrategyCandidateCalcul
                     period.startDate(),
                     period.endDate(),
                     actions,
-                    assumptions(sourceCapacity.safetyStockDefaulted()),
+                    List.of(),
                     new StrategyCandidate.Preference(
                             strategyPriority,
                             1,
@@ -391,16 +386,6 @@ public class PriceDiscountCandidateCalculator implements StrategyCandidateCalcul
             result.put(date, demand);
         }
         return result;
-    }
-
-    private static List<CandidateAssumption> assumptions(boolean safetyDefaulted) {
-        EnumSet<CandidateAssumption> assumptions = EnumSet.noneOf(
-                CandidateAssumption.class
-        );
-        if (safetyDefaulted) {
-            assumptions.add(CandidateAssumption.SAFETY_STOCK_DEFAULTED_TO_ZERO);
-        }
-        return List.copyOf(assumptions);
     }
 
     private static CandidateGenerationResult excluded(
