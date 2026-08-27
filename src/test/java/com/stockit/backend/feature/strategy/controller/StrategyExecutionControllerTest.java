@@ -1,7 +1,11 @@
 package com.stockit.backend.feature.strategy.controller;
 
 import static org.hamcrest.Matchers.nullValue;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -21,6 +25,8 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import com.stockit.backend.common.exception.AppException;
 import com.stockit.backend.common.exception.ErrorCode;
+import com.stockit.backend.feature.auth.security.AuthPrincipal;
+import com.stockit.backend.feature.auth.vo.AuthUserVO;
 import com.stockit.backend.feature.strategy.dto.response.StrategyExecutionResponse;
 import com.stockit.backend.feature.strategy.dto.response.StrategyExecutionPageResponse;
 import com.stockit.backend.feature.strategy.dto.response.StrategyPerformanceSyncResponse;
@@ -29,7 +35,7 @@ import com.stockit.backend.feature.strategy.service.StrategyPerformanceSyncServi
 import com.stockit.backend.feature.strategy.vo.StrategyExecutionQuery;
 
 @SpringBootTest
-@AutoConfigureMockMvc(addFilters = false)
+@AutoConfigureMockMvc
 @ActiveProfiles("test")
 class StrategyExecutionControllerTest {
 
@@ -51,7 +57,8 @@ class StrategyExecutionControllerTest {
         ));
         when(service.findByStrategyCaseId(101L)).thenReturn(response);
 
-        mockMvc.perform(get("/api/v1/strategy-executions"))
+        mockMvc.perform(get("/api/v1/strategy-executions")
+                        .with(user(adminPrincipal())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.content[0].id").value(101))
                 .andExpect(jsonPath("$.data.content[0].product.imageUrl").value("https://example.com/product.jpg"))
@@ -63,7 +70,8 @@ class StrategyExecutionControllerTest {
                 .andExpect(jsonPath("$.data.first").value(true))
                 .andExpect(jsonPath("$.data.last").value(true));
 
-        mockMvc.perform(get("/api/v1/strategy-executions/101"))
+        mockMvc.perform(get("/api/v1/strategy-executions/101")
+                        .with(user(adminPrincipal())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.id").value(101))
                 .andExpect(jsonPath("$.data.actions").isArray())
@@ -84,18 +92,46 @@ class StrategyExecutionControllerTest {
 
     @Test
     void exposesManualPerformanceSynchronization() throws Exception {
-        when(strategyPerformanceSyncService.synchronize(null)).thenReturn(
+        when(strategyPerformanceSyncService.synchronize(3L)).thenReturn(
                 new StrategyPerformanceSyncResponse(
                         Instant.parse("2026-08-26T06:30:00Z"), 2, 5, 1, List.of("경고")
                 )
         );
 
-        mockMvc.perform(post("/api/v1/strategy-executions/sync"))
+        mockMvc.perform(post("/api/v1/strategy-executions/sync")
+                        .with(user(adminPrincipal()))
+                        .with(csrf()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.processedStrategyCount").value(2))
                 .andExpect(jsonPath("$.data.updatedPerformanceCount").value(5))
                 .andExpect(jsonPath("$.data.skippedStrategyCount").value(1))
                 .andExpect(jsonPath("$.data.warnings[0]").value("경고"));
+
+        verify(strategyPerformanceSyncService).synchronize(3L);
+    }
+
+    @Test
+    void rejectsUnauthenticatedPerformanceSynchronization() throws Exception {
+        mockMvc.perform(post("/api/v1/strategy-executions/sync")
+                        .with(csrf()))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("AUTH-001"));
+
+        verifyNoInteractions(strategyPerformanceSyncService);
+    }
+
+    @Test
+    void mapsPerformanceSynchronizationConflict() throws Exception {
+        when(strategyPerformanceSyncService.synchronize(3L))
+                .thenThrow(new AppException(ErrorCode.AI_STRATEGY_PERFORMANCE_SYNC_CONFLICT));
+
+        mockMvc.perform(post("/api/v1/strategy-executions/sync")
+                        .with(user(adminPrincipal()))
+                        .with(csrf()))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("AI_STRATEGY-021"));
+
+        verify(strategyPerformanceSyncService).synchronize(3L);
     }
 
     @Test
@@ -108,6 +144,7 @@ class StrategyExecutionControllerTest {
         ));
 
         mockMvc.perform(get("/api/v1/strategy-executions")
+                        .with(user(adminPrincipal()))
                         .param("page", "1")
                         .param("size", "20")
                         .param("query", "  두부  ")
@@ -121,15 +158,21 @@ class StrategyExecutionControllerTest {
 
     @Test
     void rejectsInvalidOrUnknownListParameters() throws Exception {
-        mockMvc.perform(get("/api/v1/strategy-executions").param("size", "101"))
+        mockMvc.perform(get("/api/v1/strategy-executions")
+                        .with(user(adminPrincipal()))
+                        .param("size", "101"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("COMMON-002"));
 
-        mockMvc.perform(get("/api/v1/strategy-executions").param("status", "UNKNOWN"))
+        mockMvc.perform(get("/api/v1/strategy-executions")
+                        .with(user(adminPrincipal()))
+                        .param("status", "UNKNOWN"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("COMMON-002"));
 
-        mockMvc.perform(get("/api/v1/strategy-executions").param("unexpected", "value"))
+        mockMvc.perform(get("/api/v1/strategy-executions")
+                        .with(user(adminPrincipal()))
+                        .param("unexpected", "value"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("COMMON-002"));
     }
@@ -139,7 +182,8 @@ class StrategyExecutionControllerTest {
         when(service.findByStrategyCaseId(999L))
                 .thenThrow(new AppException(ErrorCode.AI_STRATEGY_EXECUTION_NOT_FOUND));
 
-        mockMvc.perform(get("/api/v1/strategy-executions/999"))
+        mockMvc.perform(get("/api/v1/strategy-executions/999")
+                        .with(user(adminPrincipal())))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("AI_STRATEGY-010"));
     }
@@ -214,5 +258,18 @@ class StrategyExecutionControllerTest {
                 null,
                 null
         );
+    }
+
+    private static AuthPrincipal adminPrincipal() {
+        AuthUserVO user = new AuthUserVO();
+        user.setUserId(3L);
+        user.setLoginId("requester");
+        user.setPasswordHash("unused");
+        user.setUserName("요청자");
+        user.setEmail("requester@stockit.test");
+        user.setOrganizationId(1L);
+        user.setOrganizationName("StockIt");
+        user.setRoleCode("GREENFOOD_ADMIN");
+        return AuthPrincipal.from(user);
     }
 }
