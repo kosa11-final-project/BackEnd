@@ -1,5 +1,8 @@
 package com.stockit.backend.feature.strategy.notification;
 
+import java.time.LocalDateTime;
+import java.util.List;
+
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
@@ -15,5 +18,10 @@ public interface StrategyNotificationMapper {
             @Param("title") String title,
             @Param("message") String message,
             @Param("deduplicationKey") String deduplicationKey
+    );
+
+    List<StrategyNotificationRecoveryCandidate> selectMissingFinalNotifications(
+            @Param("completedFrom") LocalDateTime completedFrom,
+            @Param("batchSize") int batchSize
     );
 }
