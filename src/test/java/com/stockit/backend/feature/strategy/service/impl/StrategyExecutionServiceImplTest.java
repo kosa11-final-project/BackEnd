@@ -149,6 +149,8 @@ class StrategyExecutionServiceImplTest {
         assertThat(result.actions().get(0).progress()).isEqualTo(100);
         assertThat(result.actions().get(0).relationship()).isNull();
         assertThat(result.inventoryResults().get(0).moved()).isEqualByComparingTo("-25");
+        assertThat(result.inventoryResults().get(0).guardrail())
+                .isEqualTo("안전재고 기준 30");
         assertThat(result.inventoryResults().get(1).moved()).isEqualByComparingTo("25");
         assertThat(result.inventoryTransfers()).hasSize(2);
         assertThat(result.inventoryTransfers().get(0)).satisfies(transfer -> {

@@ -16,10 +16,21 @@ public record RiskAssessmentResult(
         BigDecimal safetyGapQty,
         BigDecimal projectedD7,
         BigDecimal safetyStockQty,
+        BigDecimal expectedDisposalQty30,
+        BigDecimal expectedDisposalRate30,
+        Integer nearestSaleEndDays,
         Integer nearestExpiryDays,
         Integer maxHoldingDays,
         LocalDate baseDate,
         Instant assessedAt,
         String ruleVersion
 ) {
+    /** 현재 판매 가능 재고가 안전재고보다 작은지 판정합니다. */
+    public boolean isCurrentStockUnderSafety() {
+        if (safetyStockQty == null) {
+            return false;
+        }
+        BigDecimal normalizedAvailableQty = availableQty == null ? BigDecimal.ZERO : availableQty;
+        return normalizedAvailableQty.compareTo(safetyStockQty) < 0;
+    }
 }

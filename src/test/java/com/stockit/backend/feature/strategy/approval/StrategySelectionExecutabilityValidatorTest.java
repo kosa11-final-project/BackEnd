@@ -13,7 +13,6 @@ import org.junit.jupiter.api.Test;
 
 import com.stockit.backend.common.exception.AppException;
 import com.stockit.backend.common.exception.ErrorCode;
-import com.stockit.backend.feature.strategy.calculation.candidate.policy.SafetyStockPolicyResolver;
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculationContext;
 import com.stockit.backend.feature.strategy.calculation.mapper.StrategyCalculationInputMapper;
 import com.stockit.backend.feature.strategy.calculation.vo.StrategyCalculationCostVO;
@@ -94,76 +93,16 @@ class StrategySelectionExecutabilityValidatorTest {
     }
 
     @Test
-    void appliesGlobalSafetyPolicyToActualWarehouseInventory() {
+    void allowsSelectionOfAllAvailableInventoryBelowSafetyStock() {
         StrategyCalculationInputMapper mapper = mock(
                 StrategyCalculationInputMapper.class
         );
-        ResolvedStrategySelection resolved = executableSelection("1");
-        StrategyCalculationInventoryVO current = unassignedInventory("20");
+        ResolvedStrategySelection resolved = executableSelection("19");
+        StrategyCalculationInventoryVO current = unassignedInventory("19");
         when(mapper.selectInventory(100L)).thenReturn(List.of(current));
         when(mapper.selectEffectivePolicies(
                 100L, LocalDate.of(2026, 8, 25)
-        )).thenReturn(List.of(policy(1L, null, "10")));
-        when(mapper.selectEffectiveCosts(
-                100L, LocalDate.of(2026, 8, 25)
-        )).thenReturn(List.of(cost()));
-
-        validator(mapper).validate(resolved, LocalDate.of(2026, 8, 25));
-    }
-
-    @Test
-    void usesMostSpecificSafetyPolicyInsteadOfCheckingEveryMatchingPolicy() {
-        StrategyCalculationInputMapper mapper = mock(
-                StrategyCalculationInputMapper.class
-        );
-        ResolvedStrategySelection resolved = executableSelection("11");
-        StrategyCalculationInventoryVO current = unassignedInventory("20");
-        when(mapper.selectInventory(100L)).thenReturn(List.of(current));
-        when(mapper.selectEffectivePolicies(
-                100L, LocalDate.of(2026, 8, 25)
-        )).thenReturn(List.of(
-                policy(1L, null, "10"),
-                policy(2L, 501L, "5")
-        ));
-        when(mapper.selectEffectiveCosts(
-                100L, LocalDate.of(2026, 8, 25)
-        )).thenReturn(List.of(cost()));
-
-        validator(mapper).validate(resolved, LocalDate.of(2026, 8, 25));
-    }
-
-    @Test
-    void rejectsSelectionThatActuallyConsumesSelectedSafetyStock() {
-        StrategyCalculationInputMapper mapper = mock(
-                StrategyCalculationInputMapper.class
-        );
-        ResolvedStrategySelection resolved = executableSelection("1");
-        StrategyCalculationInventoryVO current = unassignedInventory("10");
-        when(mapper.selectInventory(100L)).thenReturn(List.of(current));
-        when(mapper.selectEffectivePolicies(
-                100L, LocalDate.of(2026, 8, 25)
-        )).thenReturn(List.of(policy(2L, 501L, "10")));
-
-        assertThatThrownBy(() -> validator(mapper).validate(
-                resolved, LocalDate.of(2026, 8, 25)
-        )).isInstanceOfSatisfying(
-                AppException.class,
-                exception -> assertThat(exception.getMessage())
-                        .isEqualTo("최종 선택 수량이 현재 안전재고를 침해합니다.")
-        );
-    }
-
-    @Test
-    void allowsSelectionWhenRemainingQuantityEqualsSafetyStock() {
-        StrategyCalculationInputMapper mapper = mock(
-                StrategyCalculationInputMapper.class
-        );
-        ResolvedStrategySelection resolved = executableSelection("1");
-        StrategyCalculationInventoryVO current = unassignedInventory("11");
-        when(mapper.selectInventory(100L)).thenReturn(List.of(current));
-        when(mapper.selectEffectivePolicies(
-                100L, LocalDate.of(2026, 8, 25)
-        )).thenReturn(List.of(policy(2L, 501L, "10")));
+        )).thenReturn(List.of(policy(2L, 501L, "20")));
         when(mapper.selectEffectiveCosts(
                 100L, LocalDate.of(2026, 8, 25)
         )).thenReturn(List.of(cost()));
@@ -199,7 +138,6 @@ class StrategySelectionExecutabilityValidatorTest {
     ) {
         return new StrategySelectionExecutabilityValidator(
                 mapper,
-                new SafetyStockPolicyResolver(),
                 mock(StrategyTransferInputFreshnessValidator.class)
         );
     }

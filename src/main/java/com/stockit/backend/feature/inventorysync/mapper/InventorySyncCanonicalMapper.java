@@ -1,5 +1,6 @@
 package com.stockit.backend.feature.inventorysync.mapper;
 
+import java.time.LocalDate;
 import java.util.List;
 
 import org.apache.ibatis.annotations.Mapper;
@@ -15,6 +16,7 @@ public interface InventorySyncCanonicalMapper {
     int updatePrices(@Param("records") List<CanonicalInventoryRecord> records, @Param("actorId") Long actorId);
     int updateSkuCosts(@Param("records") List<CanonicalInventoryRecord> records, @Param("actorId") Long actorId);
     int updateLots(@Param("records") List<CanonicalInventoryRecord> records, @Param("actorId") Long actorId);
+    int refreshLotStatuses(@Param("asOfDate") LocalDate asOfDate, @Param("actorId") Long actorId);
     int updatePolicies(@Param("records") List<CanonicalInventoryRecord> records, @Param("actorId") Long actorId);
     int updateInventoryBalances(@Param("records") List<CanonicalInventoryRecord> records, @Param("actorId") Long actorId);
 }

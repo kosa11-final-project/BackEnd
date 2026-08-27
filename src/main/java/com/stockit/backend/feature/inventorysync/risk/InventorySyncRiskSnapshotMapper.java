@@ -11,6 +11,7 @@ import org.apache.ibatis.annotations.Param;
 public interface InventorySyncRiskSnapshotMapper {
     List<RiskScopeRow> selectAffectedScopeSnapshot(@Param("scopeKeys") Set<String> scopeKeys, @Param("asOfDate") LocalDate asOfDate);
     List<String> selectScopesRequiringRuleVersion(@Param("ruleVersion") String ruleVersion);
+    List<String> selectScopesRequiringDailyRefresh(@Param("asOfDate") LocalDate asOfDate);
 
     class RiskScopeRow {
         private Long inventoryBalanceId;
@@ -21,6 +22,7 @@ public interface InventorySyncRiskSnapshotMapper {
         private String salesPointCode;
         private java.math.BigDecimal onHandQty;
         private java.math.BigDecimal predictedQtyD7;
+        private java.math.BigDecimal predictedQtyD14;
         private java.math.BigDecimal predictedQtyD30;
         private java.math.BigDecimal safetyStockQty;
         private LocalDate forecastBaseDate;
@@ -47,6 +49,8 @@ public interface InventorySyncRiskSnapshotMapper {
         public void setOnHandQty(java.math.BigDecimal v) { onHandQty = v; }
         public java.math.BigDecimal getPredictedQtyD7() { return predictedQtyD7; }
         public void setPredictedQtyD7(java.math.BigDecimal v) { predictedQtyD7 = v; }
+        public java.math.BigDecimal getPredictedQtyD14() { return predictedQtyD14; }
+        public void setPredictedQtyD14(java.math.BigDecimal v) { predictedQtyD14 = v; }
         public java.math.BigDecimal getPredictedQtyD30() { return predictedQtyD30; }
         public void setPredictedQtyD30(java.math.BigDecimal v) { predictedQtyD30 = v; }
         public java.math.BigDecimal getSafetyStockQty() { return safetyStockQty; }

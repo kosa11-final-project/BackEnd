@@ -36,6 +36,7 @@ class RiskRuleEngineTest {
         assertThat(result.apiRiskGrade()).isEqualTo("DANGER");
         assertThat(result.availableQty()).isEqualByComparingTo(BigDecimal.ZERO);
         assertThat(result.reasons()).extracting(RiskReason::code).contains("DATA_MISSING");
+        assertThat(result.primaryReason()).contains("부족 위험이 높은 상황입니다");
     }
 
     @Test
@@ -59,6 +60,7 @@ class RiskRuleEngineTest {
         assertThat(result.apiRiskGrade()).isEqualTo("CAUTION");
         assertThat(result.shortageQty30()).isEqualByComparingTo("200");
         assertThat(result.reasons()).extracting(RiskReason::code).contains("PREDICTED_SHORTAGE");
+        assertThat(result.primaryReason()).contains("재고 부족이 예상되는 상황입니다");
     }
 
     @Test
@@ -69,11 +71,12 @@ class RiskRuleEngineTest {
 
         assertThat(result.dbRiskGrade()).isEqualTo("NORMAL");
         assertThat(result.apiRiskGrade()).isEqualTo("NORMAL");
-        assertThat(result.ruleVersion()).isEqualTo("v1.5.0");
+        assertThat(result.ruleVersion()).isEqualTo("v1.6.0");
         assertThat(result.shortageQty30()).isEqualByComparingTo("11");
         assertThat(result.reasons()).extracting(RiskReason::code)
                 .contains("PREDICTED_SHORTAGE_MONITORING")
                 .doesNotContain("PREDICTED_SHORTAGE");
+        assertThat(result.primaryReason()).contains("보충 검토가 필요한 상황입니다");
     }
 
     @Test
@@ -86,6 +89,7 @@ class RiskRuleEngineTest {
         assertThat(result.apiRiskGrade()).isEqualTo("DANGER");
         assertThat(result.projectedD7()).isEqualByComparingTo("10");
         assertThat(result.safetyGapQty()).isEqualByComparingTo("20");
+        assertThat(result.primaryReason()).contains("부족이 예상되는 상황입니다");
     }
 
     @Test
@@ -116,10 +120,10 @@ class RiskRuleEngineTest {
 
         assertThat(result.availableQty()).isEqualByComparingTo("60");
         assertThat(result.nearestExpiryDays()).isEqualTo(60);
-        assertThat(result.dbRiskGrade()).isEqualTo("WARNING");
+        assertThat(result.dbRiskGrade()).isEqualTo("GOOD");
         assertThat(result.reasons()).extracting(RiskReason::code)
-                .contains("EXPIRY_WARNING", "LOT_EXPIRED_EXCLUDED")
-                .doesNotContain("LOT_EXPIRED");
+                .contains("LOT_EXPIRED_EXCLUDED")
+                .doesNotContain("EXPIRY_WARNING", "LOT_EXPIRED");
     }
 
     @Test
@@ -152,12 +156,13 @@ class RiskRuleEngineTest {
 
         assertThat(result.availableQty()).isEqualByComparingTo("100");
         assertThat(result.dbRiskGrade()).isEqualTo("CRITICAL");
-        assertThat(result.reasons()).extracting(RiskReason::code).contains("SALE_STOP_CRITICAL");
+        assertThat(result.reasons()).extracting(RiskReason::code).contains("EXPECTED_DISPOSAL_DANGER");
+        assertThat(result.primaryReason()).contains("30일 예상 폐기수량");
     }
 
     @Test
-    @DisplayName("판매중지일이 8일에서 30일 사이로 남은 판매 가능 LOT는 주의로 판정한다")
-    void upcomingSaleStopWithinThirtyDays_isCaution() {
+    @DisplayName("판매중지일이 30일 이내이고 예상 폐기율이 20퍼센트 이상이면 위험으로 판정한다")
+    void upcomingSaleStopWithinThirtyDaysWithHighDisposalRate_isDanger() {
         RiskAssessmentInput.LotRiskItem lot = new RiskAssessmentInput.LotRiskItem(
                 "1", "LOT-SALE-STOP-CAUTION", BASE_DATE.plusDays(365), BASE_DATE.plusDays(15),
                 BASE_DATE.minusDays(3), BigDecimal.valueOf(100), "AVAILABLE");
@@ -165,8 +170,182 @@ class RiskRuleEngineTest {
         RiskAssessmentResult result = engine.evaluate(input(BigDecimal.valueOf(100),
                 BigDecimal.valueOf(20), BigDecimal.valueOf(80), BigDecimal.valueOf(30), List.of(lot), true, false));
 
-        assertThat(result.dbRiskGrade()).isEqualTo("WARNING");
-        assertThat(result.reasons()).extracting(RiskReason::code).contains("SALE_STOP_WARNING");
+        assertThat(result.dbRiskGrade()).isEqualTo("CRITICAL");
+        assertThat(result.reasons()).extracting(RiskReason::code).contains("EXPECTED_DISPOSAL_DANGER");
+        assertThat(result.primaryReason()).contains("30일 예상 폐기수량");
+    }
+
+    @Test
+    @DisplayName("30일 안에 판매가 종료되어도 예측수요로 전량 소진 가능하면 폐기 위험을 올리지 않는다")
+    void saleEndingWithinThirtyDays_butForecastConsumesEverything_hasNoDisposalRisk() {
+        RiskAssessmentInput.LotRiskItem lot = new RiskAssessmentInput.LotRiskItem(
+                "1", "LOT-SOLD-BEFORE-END", BASE_DATE.plusDays(10), null,
+                BASE_DATE.minusDays(3), BigDecimal.valueOf(20), "AVAILABLE");
+
+        RiskAssessmentResult result = engine.evaluate(inputWithD14(
+                BigDecimal.valueOf(100), BigDecimal.valueOf(15), BigDecimal.valueOf(30),
+                BigDecimal.valueOf(60), BigDecimal.valueOf(10), List.of(lot), true, false));
+
+        assertThat(result.expectedDisposalQty30()).isEqualByComparingTo("0");
+        assertThat(result.expectedDisposalRate30()).isEqualByComparingTo("0");
+        assertThat(result.nearestSaleEndDays()).isEqualTo(10);
+        assertThat(result.reasons()).extracting(RiskReason::code)
+                .contains("EXPECTED_DISPOSAL_CLEAR")
+                .doesNotContain("EXPIRY_CRITICAL", "EXPECTED_DISPOSAL_DANGER", "EXPECTED_DISPOSAL_CAUTION");
+        assertThat(result.apiRiskGrade()).isEqualTo("SAFE");
+    }
+
+    @Test
+    @DisplayName("30일 예상 폐기율이 20퍼센트 이상이면 위험으로 판정한다")
+    void expectedDisposalRateAtLeastTwentyPercent_isDanger() {
+        RiskAssessmentInput.LotRiskItem lot = new RiskAssessmentInput.LotRiskItem(
+                "1", "LOT-HIGH-DISPOSAL", BASE_DATE.plusDays(20), null,
+                BASE_DATE.minusDays(3), BigDecimal.valueOf(50), "AVAILABLE");
+
+        RiskAssessmentResult result = engine.evaluate(inputWithD14(
+                BigDecimal.valueOf(100), BigDecimal.TEN, BigDecimal.valueOf(20),
+                BigDecimal.valueOf(25), BigDecimal.valueOf(5), List.of(lot), true, false));
+
+        assertThat(result.expectedDisposalQty30()).isEqualByComparingTo("28.125");
+        assertThat(result.expectedDisposalRate30()).isEqualByComparingTo("28.13");
+        assertThat(result.nearestSaleEndDays()).isEqualTo(20);
+        assertThat(result.reasons()).extracting(RiskReason::code).contains("EXPECTED_DISPOSAL_DANGER");
+        assertThat(result.apiRiskGrade()).isEqualTo("DANGER");
+    }
+
+    @Test
+    @DisplayName("판매종료 7일 이내이고 예상 폐기율이 5퍼센트 이상이면 위험으로 판정한다")
+    void urgentSaleEndWithFivePercentDisposal_isDanger() {
+        RiskAssessmentInput.LotRiskItem lot = new RiskAssessmentInput.LotRiskItem(
+                "1", "LOT-URGENT-DISPOSAL", BASE_DATE.plusDays(5), null,
+                BASE_DATE.minusDays(3), BigDecimal.valueOf(15), "AVAILABLE");
+
+        RiskAssessmentResult result = engine.evaluate(inputWithD14(
+                BigDecimal.valueOf(100), BigDecimal.valueOf(7), BigDecimal.valueOf(20),
+                BigDecimal.valueOf(40), BigDecimal.valueOf(5), List.of(lot), true, false));
+
+        assertThat(result.expectedDisposalQty30()).isEqualByComparingTo("10");
+        assertThat(result.expectedDisposalRate30()).isEqualByComparingTo("10.00");
+        assertThat(result.reasons()).extracting(RiskReason::code).contains("EXPECTED_DISPOSAL_DANGER");
+        assertThat(result.apiRiskGrade()).isEqualTo("DANGER");
+    }
+
+    @Test
+    @DisplayName("예상 폐기율이 5퍼센트 이상 20퍼센트 미만이면 주의로 판정한다")
+    void expectedDisposalRateBetweenFiveAndTwentyPercent_isCaution() {
+        RiskAssessmentInput.LotRiskItem lot = new RiskAssessmentInput.LotRiskItem(
+                "1", "LOT-CAUTION-DISPOSAL", BASE_DATE.plusDays(20), null,
+                BASE_DATE.minusDays(3), BigDecimal.valueOf(30), "AVAILABLE");
+
+        RiskAssessmentResult result = engine.evaluate(inputWithD14(
+                BigDecimal.valueOf(100), BigDecimal.TEN, BigDecimal.valueOf(20),
+                BigDecimal.valueOf(25), BigDecimal.valueOf(5), List.of(lot), true, false));
+
+        assertThat(result.expectedDisposalQty30()).isEqualByComparingTo("8.125");
+        assertThat(result.expectedDisposalRate30()).isEqualByComparingTo("8.13");
+        assertThat(result.reasons()).extracting(RiskReason::code).contains("EXPECTED_DISPOSAL_CAUTION");
+        assertThat(result.apiRiskGrade()).isEqualTo("CAUTION");
+    }
+
+    @Test
+    @DisplayName("수요예측이 없는 미할당 재고는 30일 안에 판매 종료되는 수량 전부를 예상 폐기로 본다")
+    void unassignedWithoutForecast_countsAllEndingStockAsExpectedDisposal() {
+        RiskAssessmentInput.LotRiskItem lot = new RiskAssessmentInput.LotRiskItem(
+                "1", "LOT-UNASSIGNED", BASE_DATE.plusDays(12), null,
+                BASE_DATE.minusDays(3), BigDecimal.valueOf(40), "AVAILABLE");
+
+        RiskAssessmentResult result = engine.evaluate(new RiskAssessmentInput(
+                "SKU-001", "UNASSIGNED", BigDecimal.valueOf(100),
+                null, null, null, BigDecimal.valueOf(5), BASE_DATE,
+                List.of(lot), false, false, BASE_DATE));
+
+        assertThat(result.expectedDisposalQty30()).isEqualByComparingTo("40");
+        assertThat(result.expectedDisposalRate30()).isEqualByComparingTo("40.00");
+        assertThat(result.reasons()).extracting(RiskReason::code).contains("EXPECTED_DISPOSAL_DANGER");
+        assertThat(result.apiRiskGrade()).isEqualTo("DANGER");
+    }
+
+    @Test
+    @DisplayName("예상 폐기는 D+30을 포함하고 D+31은 제외한다")
+    void expectedDisposal_includesDayThirtyAndExcludesDayThirtyOne() {
+        RiskAssessmentInput.LotRiskItem dayThirty = new RiskAssessmentInput.LotRiskItem(
+                "1", "LOT-D30", BASE_DATE.plusDays(30), null,
+                BASE_DATE.minusDays(3), BigDecimal.valueOf(20), "AVAILABLE");
+        RiskAssessmentInput.LotRiskItem dayThirtyOne = new RiskAssessmentInput.LotRiskItem(
+                "2", "LOT-D31", BASE_DATE.plusDays(31), null,
+                BASE_DATE.minusDays(3), BigDecimal.valueOf(80), "AVAILABLE");
+
+        RiskAssessmentResult result = engine.evaluate(new RiskAssessmentInput(
+                "SKU-001", "UNASSIGNED", BigDecimal.valueOf(100),
+                null, null, null, BigDecimal.valueOf(5), BASE_DATE,
+                List.of(dayThirty, dayThirtyOne), false, false, BASE_DATE));
+
+        assertThat(result.expectedDisposalQty30()).isEqualByComparingTo("20");
+        assertThat(result.nearestSaleEndDays()).isEqualTo(30);
+    }
+
+    @Test
+    @DisplayName("소비기한과 판매중지일 중 더 빠른 날짜를 판매 종료일로 사용한다")
+    void expectedDisposal_usesEarlierOfExpiryAndSaleStopDate() {
+        RiskAssessmentInput.LotRiskItem lot = new RiskAssessmentInput.LotRiskItem(
+                "1", "LOT-EFFECTIVE-END", BASE_DATE.plusDays(20), BASE_DATE.plusDays(5),
+                BASE_DATE.minusDays(3), BigDecimal.TEN, "AVAILABLE");
+
+        RiskAssessmentResult result = engine.evaluate(new RiskAssessmentInput(
+                "SKU-001", "UNASSIGNED", BigDecimal.valueOf(100),
+                null, null, null, BigDecimal.valueOf(5), BASE_DATE,
+                List.of(lot), false, false, BASE_DATE));
+
+        assertThat(result.expectedDisposalQty30()).isEqualByComparingTo("10");
+        assertThat(result.nearestSaleEndDays()).isEqualTo(5);
+    }
+
+    @Test
+    @DisplayName("여러 판매 종료일 중 누적 잔량의 최댓값을 예상 폐기로 사용한다")
+    void expectedDisposal_usesMaximumCumulativeResidualAcrossDeadlines() {
+        RiskAssessmentInput.LotRiskItem daySeven = new RiskAssessmentInput.LotRiskItem(
+                "1", "LOT-D7", BASE_DATE.plusDays(7), null,
+                BASE_DATE.minusDays(3), BigDecimal.valueOf(20), "AVAILABLE");
+        RiskAssessmentInput.LotRiskItem dayFourteen = new RiskAssessmentInput.LotRiskItem(
+                "2", "LOT-D14", BASE_DATE.plusDays(14), null,
+                BASE_DATE.minusDays(3), BigDecimal.valueOf(30), "AVAILABLE");
+
+        RiskAssessmentResult result = engine.evaluate(inputWithD14(
+                BigDecimal.valueOf(100), BigDecimal.valueOf(5), BigDecimal.valueOf(40),
+                BigDecimal.valueOf(40), BigDecimal.valueOf(5),
+                List.of(daySeven, dayFourteen), true, false));
+
+        assertThat(result.expectedDisposalQty30()).isEqualByComparingTo("15");
+        assertThat(result.expectedDisposalRate30()).isEqualByComparingTo("15.00");
+        assertThat(result.nearestSaleEndDays()).isEqualTo(7);
+    }
+
+    @Test
+    @DisplayName("D+7과 D+14 경계 전후에서 각 구간의 누적 수요를 보간한다")
+    void expectedDisposal_interpolatesEveryForecastSegmentAtItsBoundaries() {
+        assertExpectedDisposalAtDay(1, "98");
+        assertExpectedDisposalAtDay(7, "86");
+        assertExpectedDisposalAtDay(8, "82");
+        assertExpectedDisposalAtDay(14, "58");
+        assertExpectedDisposalAtDay(15, "56");
+        assertExpectedDisposalAtDay(30, "26");
+    }
+
+    @Test
+    @DisplayName("판매처가 있어도 사용할 수 있는 수요예측이 없으면 종료 LOT 전량을 예상 폐기로 본다")
+    void assignedWithoutUsableForecast_countsAllEndingStockAsExpectedDisposal() {
+        RiskAssessmentInput.LotRiskItem lot = new RiskAssessmentInput.LotRiskItem(
+                "1", "LOT-ASSIGNED-NO-FORECAST", BASE_DATE.plusDays(12), null,
+                BASE_DATE.minusDays(3), BigDecimal.valueOf(40), "AVAILABLE");
+
+        RiskAssessmentResult result = engine.evaluate(new RiskAssessmentInput(
+                "SKU-001", "GREETING", BigDecimal.valueOf(100),
+                null, null, null, BigDecimal.valueOf(5), BASE_DATE,
+                List.of(lot), false, false, BASE_DATE));
+
+        assertThat(result.expectedDisposalQty30()).isEqualByComparingTo("40");
+        assertThat(result.expectedDisposalRate30()).isEqualByComparingTo("40.00");
+        assertThat(result.shortageQty30()).isNull();
     }
 
     @Test
@@ -181,7 +360,7 @@ class RiskRuleEngineTest {
         assertThat(result.dbRiskGrade()).isEqualTo("GOOD");
         assertThat(result.apiRiskGrade()).isEqualTo("SAFE");
         assertThat(result.projectedD7()).isEqualByComparingTo("80");
-        assertThat(result.primaryReason()).contains("기준일이 오래된 수요예측");
+        assertThat(result.primaryReason()).contains("수요예측 기준일이 오래되어 현재 확보된 값으로 확인한 상황입니다");
     }
 
     @Test
@@ -215,7 +394,7 @@ class RiskRuleEngineTest {
         assertThat(result.shortageQty30()).isNull();
         assertThat(result.projectedD7()).isNull();
         assertThat(result.reasons()).extracting(RiskReason::code).contains("FORECAST_UNAVAILABLE");
-        assertThat(result.primaryReason()).contains("판매 가능 LOT 기준 적정 재고");
+        assertThat(result.primaryReason()).contains("현재 가용재고와 LOT 상태가 양호해 안정적인 재고 상태입니다");
     }
 
     @Test
@@ -229,6 +408,7 @@ class RiskRuleEngineTest {
         assertThat(result.apiRiskGrade()).isEqualTo("NORMAL");
         assertThat(result.reasons()).extracting(RiskReason::code)
                 .contains("FORECAST_UNAVAILABLE", "FORECAST_WITHOUT_SAFETY_POLICY");
+        assertThat(result.primaryReason()).contains("재고 상태를 확정하기 어려운 상황입니다");
     }
 
     @Test
@@ -242,6 +422,7 @@ class RiskRuleEngineTest {
         assertThat(result.apiRiskGrade()).isEqualTo("CAUTION");
         assertThat(result.reasons()).extracting(RiskReason::code)
                 .contains("FORECAST_UNAVAILABLE", "CURRENT_UNDER_SAFETY");
+        assertThat(result.primaryReason()).contains("부족한 상황입니다");
     }
 
     @Test
@@ -255,7 +436,7 @@ class RiskRuleEngineTest {
         assertThat(result.apiRiskGrade()).isEqualTo("SAFE");
         assertThat(result.shortageQty30()).isNull();
         assertThat(result.reasons()).extracting(RiskReason::code).contains("FORECAST_INVALID");
-        assertThat(result.primaryReason()).contains("판매 가능 LOT 기준 적정 재고");
+        assertThat(result.primaryReason()).contains("현재 가용재고와 LOT 상태가 양호해 안정적인 재고 상태입니다");
     }
 
     @Test
@@ -299,6 +480,34 @@ class RiskRuleEngineTest {
                 predictedQtyD7, predictedQtyD30, safetyStockQty,
                 BASE_DATE, lots, forecastAvailable, forecastStale
         );
+    }
+
+    private RiskAssessmentInput inputWithD14(
+            BigDecimal onHandQty,
+            BigDecimal predictedQtyD7,
+            BigDecimal predictedQtyD14,
+            BigDecimal predictedQtyD30,
+            BigDecimal safetyStockQty,
+            List<RiskAssessmentInput.LotRiskItem> lots,
+            boolean forecastAvailable,
+            boolean forecastStale
+    ) {
+        return new RiskAssessmentInput(
+                "SKU-001", "GREETING", onHandQty,
+                predictedQtyD7, predictedQtyD14, predictedQtyD30, safetyStockQty,
+                BASE_DATE, lots, forecastAvailable, forecastStale, BASE_DATE
+        );
+    }
+
+    private void assertExpectedDisposalAtDay(int day, String expectedQuantity) {
+        RiskAssessmentInput.LotRiskItem lot = new RiskAssessmentInput.LotRiskItem(
+                String.valueOf(day), "LOT-D" + day, BASE_DATE.plusDays(day), null,
+                BASE_DATE.minusDays(3), BigDecimal.valueOf(100), "AVAILABLE");
+        RiskAssessmentResult result = engine.evaluate(inputWithD14(
+                BigDecimal.valueOf(200), BigDecimal.valueOf(14), BigDecimal.valueOf(42),
+                BigDecimal.valueOf(74), BigDecimal.valueOf(5), List.of(lot), true, false));
+
+        assertThat(result.expectedDisposalQty30()).isEqualByComparingTo(expectedQuantity);
     }
 
     private RiskAssessmentInput.LotRiskItem lot(LocalDate expiryDate, LocalDate saleStopDate, LocalDate receivedDate) {

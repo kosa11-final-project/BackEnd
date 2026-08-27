@@ -97,7 +97,8 @@ class InventoryFilterSqlRenderingTest {
 
             assertThat(sql)
                     .as(statement)
-                    .contains("OR LOWER(p.product_name) LIKE")
+                    .contains("LOWER(p.product_name) LIKE")
+                    .contains("OR LOWER(s.sku_code) LIKE")
                     .contains("OR EXISTS ( SELECT 1 FROM inventory_balance channel_ib")
                     .contains("OR EXISTS ( SELECT 1 FROM inventory_balance filter_sp_ib")
                     .contains("OR EXISTS ( SELECT 1 FROM inventory_balance filter_region_ib")

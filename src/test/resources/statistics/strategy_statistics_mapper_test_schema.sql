@@ -58,6 +58,7 @@ CREATE TABLE sales_point (
     sales_point_id NUMBER PRIMARY KEY,
     sales_channel_id NUMBER,
     sales_point_code VARCHAR2(50),
+    sales_point_name VARCHAR2(100),
     active_yn CHAR(1),
     is_deleted NUMBER(1)
 );
@@ -65,6 +66,7 @@ CREATE TABLE sales_point (
 CREATE TABLE warehouse (
     warehouse_id NUMBER PRIMARY KEY,
     warehouse_code VARCHAR2(50),
+    warehouse_name VARCHAR2(100),
     active_yn CHAR(1),
     is_deleted NUMBER(1)
 );
@@ -185,8 +187,8 @@ INSERT INTO strategy_execution_result (
 );
 
 INSERT INTO sales_channel VALUES (1, 'OFFLINE', 'Y', 0);
-INSERT INTO sales_point VALUES (10, 1, 'STORE-1', 'Y', 0);
-INSERT INTO warehouse VALUES (20, 'WH-1', 'Y', 0);
+INSERT INTO sales_point VALUES (10, 1, 'STORE-1', '매장 1', 'Y', 0);
+INSERT INTO warehouse VALUES (20, 'WH-1', '물류센터 1', 'Y', 0);
 
 INSERT INTO strategy_action VALUES (
     1, 1001, 'REALLOCATION', DATE '2026-08-01', DATE '2026-08-10',
