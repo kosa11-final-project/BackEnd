@@ -131,7 +131,7 @@ class InventorySyncRiskWriterTest {
         assertEquals("GOOD", records.get(0).riskGrade());
         assertEquals("N", records.get(0).shortageYn());
         org.junit.jupiter.api.Assertions.assertNull(records.get(0).stockDays());
-        org.junit.jupiter.api.Assertions.assertTrue(records.get(0).reasonMessage().contains("수요예측이 없어"));
+        org.junit.jupiter.api.Assertions.assertTrue(records.get(0).reasonMessage().contains("수요예측을 확인할 수 없어 현재 재고 기준으로 확인한 상황입니다"));
         verify(mapper).mergeRiskAssessments(anyList());
     }
 

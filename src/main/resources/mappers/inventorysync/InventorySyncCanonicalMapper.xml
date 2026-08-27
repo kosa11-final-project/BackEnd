@@ -118,8 +118,7 @@
                        #{record.manufacturedDate,jdbcType=DATE} AS manufactured_date,
                        #{record.receivedDate,jdbcType=DATE} AS received_date,
                        #{record.expiryDate,jdbcType=DATE} AS expiry_date,
-                       #{record.saleStopDate,jdbcType=DATE} AS sale_stop_date,
-                       #{record.lotStatus,jdbcType=VARCHAR} AS lot_status
+                       #{record.saleStopDate,jdbcType=DATE} AS sale_stop_date
                   FROM dual
             </foreach>
         ) source ON (target.lot_id = source.lot_id AND target.is_deleted = 0)
@@ -128,14 +127,53 @@
              target.received_date = source.received_date,
              target.expiry_date = source.expiry_date,
              target.sale_stop_date = source.sale_stop_date,
-             target.lot_status = source.lot_status,
              target.updated_at = SYSTIMESTAMP,
              target.updated_by = #{actorId}
          WHERE NVL(target.manufactured_date, DATE '0001-01-01') != NVL(source.manufactured_date, DATE '0001-01-01')
             OR NVL(target.received_date, DATE '0001-01-01') != NVL(source.received_date, DATE '0001-01-01')
             OR NVL(target.expiry_date, DATE '0001-01-01') != NVL(source.expiry_date, DATE '0001-01-01')
             OR NVL(target.sale_stop_date, DATE '0001-01-01') != NVL(source.sale_stop_date, DATE '0001-01-01')
-            OR target.lot_status != source.lot_status
+    </update>
+
+    <!-- 원천별 LOT 상태 대신 기준일과 동일 LOT의 통합 잔량으로 canonical 상태를 확정합니다. -->
+    <update id="refreshLotStatuses">
+        MERGE INTO lot target
+        USING (
+            SELECT resolved.lot_id,
+                   CASE
+                       WHEN resolved.expiry_date IS NOT NULL
+                            AND resolved.sale_stop_date IS NOT NULL
+                            AND LEAST(TRUNC(resolved.expiry_date), TRUNC(resolved.sale_stop_date))
+                                &lt;= TRUNC(CAST(#{asOfDate} AS DATE))
+                           THEN CASE
+                               WHEN TRUNC(resolved.expiry_date) &lt;= TRUNC(resolved.sale_stop_date)
+                                   THEN 'EXPIRED'
+                               ELSE 'SALE_STOPPED'
+                           END
+                       WHEN resolved.expiry_date IS NOT NULL
+                            AND TRUNC(resolved.expiry_date) &lt;= TRUNC(CAST(#{asOfDate} AS DATE))
+                           THEN 'EXPIRED'
+                       WHEN resolved.sale_stop_date IS NOT NULL
+                            AND TRUNC(resolved.sale_stop_date) &lt;= TRUNC(CAST(#{asOfDate} AS DATE))
+                           THEN 'SALE_STOPPED'
+                       WHEN NVL(balance.total_quantity, 0) = 0 THEN 'DEPLETED'
+                       ELSE 'AVAILABLE'
+                   END AS lot_status
+            FROM lot resolved
+            LEFT JOIN (
+                SELECT ib.lot_id,
+                       SUM(ib.on_hand_qty + ib.reserved_qty) AS total_quantity
+                FROM inventory_balance ib
+                WHERE ib.is_deleted = 0
+                GROUP BY ib.lot_id
+            ) balance ON balance.lot_id = resolved.lot_id
+            WHERE resolved.is_deleted = 0
+        ) source ON (target.lot_id = source.lot_id AND target.is_deleted = 0)
+        WHEN MATCHED THEN UPDATE SET
+             target.lot_status = source.lot_status,
+             target.updated_at = SYSTIMESTAMP,
+             target.updated_by = #{actorId}
+         WHERE NVL(target.lot_status, '__NULL__') != source.lot_status
     </update>
 
     <update id="updatePolicies">

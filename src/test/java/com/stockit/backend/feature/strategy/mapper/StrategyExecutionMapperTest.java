@@ -102,11 +102,21 @@ class StrategyExecutionMapperTest {
     }
 
     @Test
-    void searchesByStrategyNumberAndSupportsAscendingStableSort() {
-        StrategyExecutionQuery byNumber = query(0, 10, "SC-101", null, null, "DESC");
-        assertThat(mapper.selectFinalStrategyExecutions(byNumber))
+    void searchesByStrategyCodeSkuCodeAndProductName() {
+        StrategyExecutionQuery bySku = query(0, 10, "SKU-1", null, null, "DESC");
+        assertThat(mapper.selectFinalStrategyExecutions(bySku))
                 .extracting(StrategyExecutionBaseVO::getStrategyCaseId)
                 .containsExactly(101L);
+
+        StrategyExecutionQuery byStrategyCode = query(0, 10, "SC-101", null, null, "DESC");
+        assertThat(mapper.selectFinalStrategyExecutions(byStrategyCode))
+                .extracting(StrategyExecutionBaseVO::getStrategyCaseId)
+                .containsExactly(101L);
+
+        StrategyExecutionQuery byProductName = query(0, 10, "두부", null, null, "DESC");
+        assertThat(mapper.selectFinalStrategyExecutions(byProductName))
+                .extracting(StrategyExecutionBaseVO::getStrategyCaseId)
+                .containsExactly(102L);
 
         StrategyExecutionQuery ascending = query(0, 10, null, null, null, "ASC");
         assertThat(mapper.selectFinalStrategyExecutions(ascending))

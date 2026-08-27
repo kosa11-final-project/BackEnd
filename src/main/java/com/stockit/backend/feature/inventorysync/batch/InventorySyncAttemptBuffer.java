@@ -126,7 +126,8 @@ public final class InventorySyncAttemptBuffer {
             lotRecords.put(record.lotId(), record);
             return;
         }
-        // Physical LOT dates/status are owned by the warehouse current source.
+        // LOT의 물리 날짜는 창고 원천이 우선합니다. 상태는 원천 값을 신뢰하지 않고
+        // publish 마지막에 날짜와 통합 잔량으로 다시 계산합니다.
         if ("WAREHOUSE".equals(record.sourceType())) {
             lotRecords.put(record.lotId(), record);
             return;
@@ -171,8 +172,7 @@ public final class InventorySyncAttemptBuffer {
         return Objects.equals(left.manufacturedDate(), right.manufacturedDate())
                 && Objects.equals(left.receivedDate(), right.receivedDate())
                 && Objects.equals(left.expiryDate(), right.expiryDate())
-                && Objects.equals(left.saleStopDate(), right.saleStopDate())
-                && Objects.equals(left.lotStatus(), right.lotStatus());
+                && Objects.equals(left.saleStopDate(), right.saleStopDate());
     }
 
     private boolean samePolicy(CanonicalInventoryRecord left, CanonicalInventoryRecord right) {

@@ -2,6 +2,8 @@ package com.stockit.backend.feature.inventorysync.risk;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Set;
 
@@ -17,6 +19,7 @@ import com.stockit.backend.feature.inventorysync.mapper.InventorySyncRiskMapper;
 @Component
 public class InventorySyncRiskWriter {
     private static final int WRITE_BATCH_SIZE = 500;
+    private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Seoul");
     private final RiskRuleEngine ruleEngine;
     private final InventorySyncRiskMapper mapper;
 
@@ -32,8 +35,25 @@ public class InventorySyncRiskWriter {
             Set<String> affectedScopes,
             RiskScopeSnapshotLoader snapshotLoader
     ) {
+        return evaluateAndPersist(
+                runId,
+                actorId,
+                affectedScopes,
+                LocalDate.now(BUSINESS_ZONE),
+                snapshotLoader
+        );
+    }
+
+    @Transactional
+    public List<RiskPersistenceRecord> evaluateAndPersist(
+            Long runId,
+            Long actorId,
+            Set<String> affectedScopes,
+            LocalDate asOfDate,
+            RiskScopeSnapshotLoader snapshotLoader
+    ) {
         // loader는 balance·policy·LOT·latest forecast를 하나의 set-based SELECT snapshot으로 반환해야 합니다.
-        List<RiskScopeSnapshot> snapshots = snapshotLoader.load(affectedScopes);
+        List<RiskScopeSnapshot> snapshots = snapshotLoader.load(affectedScopes, asOfDate);
         if (affectedScopes != null && !affectedScopes.isEmpty() && snapshots.isEmpty()) {
             throw new IllegalStateException("risk snapshot is empty for affected scopes");
         }
@@ -77,13 +97,7 @@ public class InventorySyncRiskWriter {
 
     /** RISK_ASSESSMENT.shortage_yn의 DB 계약(현재 판매 가능 재고가 안전재고보다 낮은지)을 따릅니다. */
     private static String safetyStockShortageYn(RiskAssessmentResult result) {
-        BigDecimal availableQty = result.availableQty();
-        BigDecimal safetyStockQty = result.safetyStockQty();
-        if (safetyStockQty == null) {
-            return "N";
-        }
-        BigDecimal normalizedAvailableQty = availableQty == null ? BigDecimal.ZERO : availableQty;
-        return normalizedAvailableQty.compareTo(safetyStockQty) < 0 ? "Y" : "N";
+        return result.isCurrentStockUnderSafety() ? "Y" : "N";
     }
 
     private static BigDecimal stockDays(RiskAssessmentResult result, RiskAssessmentInput input) {
@@ -132,6 +146,18 @@ public class InventorySyncRiskWriter {
             reason.append(", 안전재고부족=max(0, 안전재고-D+7예상잔고)=")
                     .append(format(result.safetyGapQty()));
         }
+        if (result.expectedDisposalQty30() != null) {
+            reason.append(", 30일예상폐기=")
+                    .append(format(result.expectedDisposalQty30()));
+        }
+        if (result.expectedDisposalRate30() != null) {
+            reason.append(", 예상폐기율=")
+                    .append(format(result.expectedDisposalRate30())).append('%');
+        }
+        if (result.nearestSaleEndDays() != null) {
+            reason.append(", 최근판매종료일=D+")
+                    .append(result.nearestSaleEndDays());
+        }
         if (excludedLotQty.signum() > 0) {
             reason.append(", 판매 제외 LOT=").append(format(excludedLotQty));
         }
@@ -160,6 +186,10 @@ public class InventorySyncRiskWriter {
     @FunctionalInterface
     public interface RiskScopeSnapshotLoader {
         List<RiskScopeSnapshot> load(Set<String> affectedScopes);
+
+        default List<RiskScopeSnapshot> load(Set<String> affectedScopes, LocalDate asOfDate) {
+            return load(affectedScopes);
+        }
     }
 
     public record RiskScopeSnapshot(Long inventoryBalanceId, Long forecastId, RiskAssessmentInput input,
