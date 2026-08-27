@@ -1,5 +1,8 @@
 package com.stockit.backend.feature.strategy.notification;
 
+import java.util.Locale;
+
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -12,6 +15,8 @@ public class StrategyNotificationWriter {
 
     static final String COMPLETED_TYPE = "AI_STRATEGY_GENERATION_COMPLETED";
     static final String FAILED_TYPE = "AI_STRATEGY_GENERATION_FAILED";
+    private static final String DEDUPLICATION_CONSTRAINT =
+            "UQ_NOTIFICATION_DEDUPE";
 
     private final StrategyNotificationMapper mapper;
 
@@ -27,15 +32,35 @@ public class StrategyNotificationWriter {
             StrategyCaseStatus caseStatus
     ) {
         NotificationContent content = content(caseName, caseStatus);
-        return mapper.insertIfAbsent(
-                requesterId,
-                strategyCaseId,
-                content.notificationType(),
-                content.severity(),
-                content.title(),
-                content.message(),
-                "AI_STRATEGY:" + strategyCaseId + ":" + caseStatus.name()
-        ) == 1;
+        try {
+            return mapper.insertIfAbsent(
+                    requesterId,
+                    strategyCaseId,
+                    content.notificationType(),
+                    content.severity(),
+                    content.title(),
+                    content.message(),
+                    "AI_STRATEGY:" + strategyCaseId + ":" + caseStatus.name()
+            ) == 1;
+        } catch (DuplicateKeyException exception) {
+            if (isDeduplicationConflict(exception)) {
+                return false;
+            }
+            throw exception;
+        }
+    }
+
+    private static boolean isDeduplicationConflict(Throwable exception) {
+        Throwable current = exception;
+        while (current != null) {
+            String message = current.getMessage();
+            if (message != null && message.toUpperCase(Locale.ROOT)
+                    .contains(DEDUPLICATION_CONSTRAINT)) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     private static NotificationContent content(

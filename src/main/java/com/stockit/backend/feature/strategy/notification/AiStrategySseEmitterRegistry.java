@@ -1,7 +1,6 @@
 package com.stockit.backend.feature.strategy.notification;
 
 import java.io.IOException;
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -12,6 +11,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+
+import com.stockit.backend.feature.strategy.service.StrategyDateTimeProvider;
 
 /**
  * 단일 Backend 인스턴스에서 사용자별 복수 브라우저 탭의 SSE 연결을 관리한다.
@@ -35,13 +36,16 @@ public class AiStrategySseEmitterRegistry {
             new ConcurrentHashMap<>();
     private final AiStrategySseProperties properties;
     private final AiStrategySseEmitterFactory emitterFactory;
+    private final StrategyDateTimeProvider dateTimeProvider;
 
     public AiStrategySseEmitterRegistry(
             AiStrategySseProperties properties,
-            AiStrategySseEmitterFactory emitterFactory
+            AiStrategySseEmitterFactory emitterFactory,
+            StrategyDateTimeProvider dateTimeProvider
     ) {
         this.properties = properties;
         this.emitterFactory = emitterFactory;
+        this.dateTimeProvider = dateTimeProvider;
     }
 
     /** 현재 사용자에게 새 연결을 등록하고 브라우저 재동기화용 connected 이벤트를 보낸다. */
@@ -75,7 +79,7 @@ public class AiStrategySseEmitterRegistry {
                     .reconnectTime(properties.getReconnectTimeMillis())
                     .data(new AiStrategySseConnectedPayload(
                             connectionId,
-                            LocalDateTime.now()
+                            dateTimeProvider.now()
                     )));
         } catch (IOException | IllegalStateException exception) {
             remove(userId, connectionId);

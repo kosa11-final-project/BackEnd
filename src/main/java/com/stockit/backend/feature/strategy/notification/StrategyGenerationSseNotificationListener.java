@@ -1,6 +1,5 @@
 package com.stockit.backend.feature.strategy.notification;
 
-import java.time.LocalDateTime;
 import java.util.UUID;
 
 import org.slf4j.Logger;
@@ -13,6 +12,7 @@ import com.stockit.backend.feature.strategy.domain.StrategyCaseStatus;
 import com.stockit.backend.feature.strategy.domain.StrategyGenerationStage;
 import com.stockit.backend.feature.strategy.domain.StrategyGenerationStateChangedEvent;
 import com.stockit.backend.feature.strategy.mapper.StrategyCaseMapper;
+import com.stockit.backend.feature.strategy.service.StrategyDateTimeProvider;
 import com.stockit.backend.feature.strategy.vo.StrategyCaseVO;
 
 /** 커밋된 Case 상태만 요청자의 SSE 연결에 best-effort로 전달한다. */
@@ -26,15 +26,18 @@ public class StrategyGenerationSseNotificationListener {
     private final StrategyCaseMapper strategyCaseMapper;
     private final StrategyNotificationWriter notificationWriter;
     private final AiStrategySseEmitterRegistry emitterRegistry;
+    private final StrategyDateTimeProvider dateTimeProvider;
 
     public StrategyGenerationSseNotificationListener(
             StrategyCaseMapper strategyCaseMapper,
             StrategyNotificationWriter notificationWriter,
-            AiStrategySseEmitterRegistry emitterRegistry
+            AiStrategySseEmitterRegistry emitterRegistry,
+            StrategyDateTimeProvider dateTimeProvider
     ) {
         this.strategyCaseMapper = strategyCaseMapper;
         this.notificationWriter = notificationWriter;
         this.emitterRegistry = emitterRegistry;
+        this.dateTimeProvider = dateTimeProvider;
     }
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
@@ -63,7 +66,7 @@ public class StrategyGenerationSseNotificationListener {
                     strategyCase.getCaseName(),
                     event.caseStatus(),
                     event.generationStage(),
-                    LocalDateTime.now()
+                    dateTimeProvider.now()
             );
 
             persistFinalNotification(event, strategyCase);

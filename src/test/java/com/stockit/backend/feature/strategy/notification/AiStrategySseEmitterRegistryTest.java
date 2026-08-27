@@ -26,9 +26,20 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import com.stockit.backend.feature.strategy.domain.StrategyCaseStatus;
 import com.stockit.backend.feature.strategy.domain.StrategyGenerationStage;
+import com.stockit.backend.feature.strategy.service.StrategyDateTimeProvider;
 
 @ExtendWith(MockitoExtension.class)
 class AiStrategySseEmitterRegistryTest {
+
+    private static final LocalDateTime FIXED_NOW =
+            LocalDateTime.of(2026, 8, 26, 14, 30);
+    private static final StrategyDateTimeProvider DATE_TIME_PROVIDER =
+            new StrategyDateTimeProvider() {
+                @Override
+                public LocalDateTime now() {
+                    return FIXED_NOW;
+                }
+            };
 
     @Mock private AiStrategySseEmitterFactory emitterFactory;
     @Mock private SseEmitter firstEmitter;
@@ -144,7 +155,11 @@ class AiStrategySseEmitterRegistryTest {
     }
 
     private AiStrategySseEmitterRegistry registry() {
-        return new AiStrategySseEmitterRegistry(properties, emitterFactory);
+        return new AiStrategySseEmitterRegistry(
+                properties,
+                emitterFactory,
+                DATE_TIME_PROVIDER
+        );
     }
 
     private static AiStrategySseEventPayload payload() {

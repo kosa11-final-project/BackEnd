@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -91,6 +92,51 @@ class StrategyNotificationWriterTest {
                 " ",
                 StrategyCaseStatus.GENERATED
         )).isFalse();
+    }
+
+    @Test
+    void treatsConcurrentDeduplicationConstraintConflictAsAlreadyWritten() {
+        when(mapper.insertIfAbsent(
+                7L,
+                101L,
+                StrategyNotificationWriter.COMPLETED_TYPE,
+                "INFO",
+                "AI 전략 생성 완료",
+                "'테스트 AI 전략' 생성이 완료되었습니다.",
+                "AI_STRATEGY:101:GENERATED"
+        )).thenThrow(new DuplicateKeyException(
+                "ORA-00001: unique constraint (UQ_NOTIFICATION_DEDUPE) violated"
+        ));
+
+        assertThat(writer().writeFinalNotification(
+                7L,
+                101L,
+                "테스트 AI 전략",
+                StrategyCaseStatus.GENERATED
+        )).isFalse();
+    }
+
+    @Test
+    void propagatesUnrelatedDuplicateKeyViolation() {
+        DuplicateKeyException exception = new DuplicateKeyException(
+                "ORA-00001: unique constraint (PK_NOTIFICATION) violated"
+        );
+        when(mapper.insertIfAbsent(
+                7L,
+                101L,
+                StrategyNotificationWriter.COMPLETED_TYPE,
+                "INFO",
+                "AI 전략 생성 완료",
+                "'테스트 AI 전략' 생성이 완료되었습니다.",
+                "AI_STRATEGY:101:GENERATED"
+        )).thenThrow(exception);
+
+        assertThatThrownBy(() -> writer().writeFinalNotification(
+                7L,
+                101L,
+                "테스트 AI 전략",
+                StrategyCaseStatus.GENERATED
+        )).isSameAs(exception);
     }
 
     @Test

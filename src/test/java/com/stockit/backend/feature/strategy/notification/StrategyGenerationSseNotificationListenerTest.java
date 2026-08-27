@@ -8,6 +8,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.lang.reflect.Method;
+import java.time.LocalDateTime;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -21,10 +22,21 @@ import com.stockit.backend.feature.strategy.domain.StrategyCaseStatus;
 import com.stockit.backend.feature.strategy.domain.StrategyGenerationStage;
 import com.stockit.backend.feature.strategy.domain.StrategyGenerationStateChangedEvent;
 import com.stockit.backend.feature.strategy.mapper.StrategyCaseMapper;
+import com.stockit.backend.feature.strategy.service.StrategyDateTimeProvider;
 import com.stockit.backend.feature.strategy.vo.StrategyCaseVO;
 
 @ExtendWith(MockitoExtension.class)
 class StrategyGenerationSseNotificationListenerTest {
+
+    private static final LocalDateTime FIXED_NOW =
+            LocalDateTime.of(2026, 8, 26, 14, 30);
+    private static final StrategyDateTimeProvider DATE_TIME_PROVIDER =
+            new StrategyDateTimeProvider() {
+                @Override
+                public LocalDateTime now() {
+                    return FIXED_NOW;
+                }
+            };
 
     @Mock private StrategyCaseMapper strategyCaseMapper;
     @Mock private StrategyNotificationWriter notificationWriter;
@@ -181,14 +193,15 @@ class StrategyGenerationSseNotificationListenerTest {
         assertThat(payload.caseName()).isEqualTo("테스트 AI 전략");
         assertThat(payload.caseStatus()).isEqualTo(caseStatus);
         assertThat(payload.generationStage()).isEqualTo(generationStage);
-        assertThat(payload.occurredAt()).isNotNull();
+        assertThat(payload.occurredAt()).isEqualTo(FIXED_NOW);
     }
 
     private StrategyGenerationSseNotificationListener listener() {
         return new StrategyGenerationSseNotificationListener(
                 strategyCaseMapper,
                 notificationWriter,
-                emitterRegistry
+                emitterRegistry,
+                DATE_TIME_PROVIDER
         );
     }
 
