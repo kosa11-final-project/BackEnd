@@ -13,6 +13,7 @@ import com.stockit.backend.feature.strategy.calculation.domain.StrategyCandidate
 import com.stockit.backend.feature.strategy.calculation.service.StrategyCandidateEvaluationService;
 import com.stockit.backend.feature.strategy.domain.StrategyCaseStatus;
 import com.stockit.backend.feature.strategy.domain.StrategyGenerationStage;
+import com.stockit.backend.feature.strategy.domain.StrategyRecommendationOutcome;
 import com.stockit.backend.feature.strategy.mapper.StrategyCaseMapper;
 import com.stockit.backend.feature.strategy.messaging.PermanentStrategyGenerationException;
 import com.stockit.backend.feature.strategy.messaging.RetryableStrategyGenerationException;
@@ -117,7 +118,7 @@ public class StrategyRecommendationStageProcessorImpl
             );
             saveSimulationContext(recommendation.calculationContext());
             StrategyResultCacheEntry entry = save(result);
-            complete(strategyCaseId, entry);
+            complete(strategyCaseId, entry, result);
         } catch (PermanentStrategyGenerationException
                  | RetryableStrategyGenerationException exception) {
             throw exception;
@@ -144,13 +145,21 @@ public class StrategyRecommendationStageProcessorImpl
                         strategyCaseId
                 ),
                 result.generatedAt().plus(resultProperties.getTtl())
-        ));
+        ), result);
     }
 
-    private void complete(Long strategyCaseId, StrategyResultCacheEntry entry) {
+    private void complete(
+            Long strategyCaseId,
+            StrategyResultCacheEntry entry,
+            StrategyGenerationResult result
+    ) {
         try {
             if (stageService.completeStrategyGeneration(
-                    strategyCaseId, entry.cacheKey(), entry.expiresAt())) return;
+                    strategyCaseId,
+                    entry.cacheKey(),
+                    entry.expiresAt(),
+                    outcomeOf(result)
+            )) return;
             StrategyCaseVO latest = loadCase(strategyCaseId);
             if (isCompleteOrTerminal(latest)) return;
             throw new RetryableStrategyGenerationException(
@@ -165,6 +174,14 @@ public class StrategyRecommendationStageProcessorImpl
                     "Failed to persist AI strategy completion", exception
             );
         }
+    }
+
+    private static StrategyRecommendationOutcome outcomeOf(
+            StrategyGenerationResult result
+    ) {
+        return result.options().isEmpty()
+                ? StrategyRecommendationOutcome.MAINTAIN_CURRENT_STATE
+                : StrategyRecommendationOutcome.OPTIONS_GENERATED;
     }
 
     private StrategyResultCacheEntry save(StrategyGenerationResult result) {

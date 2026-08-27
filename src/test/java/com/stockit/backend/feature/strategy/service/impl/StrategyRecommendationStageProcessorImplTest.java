@@ -7,6 +7,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -21,6 +22,7 @@ import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculati
 import com.stockit.backend.feature.strategy.calculation.service.StrategyCandidateEvaluationService;
 import com.stockit.backend.feature.strategy.domain.StrategyCaseStatus;
 import com.stockit.backend.feature.strategy.domain.StrategyGenerationStage;
+import com.stockit.backend.feature.strategy.domain.StrategyRecommendationOutcome;
 import com.stockit.backend.feature.strategy.mapper.StrategyCaseMapper;
 import com.stockit.backend.feature.strategy.recommendation.StrategyRecommendationResult;
 import com.stockit.backend.feature.strategy.recommendation.StrategyRecommendationService;
@@ -84,16 +86,19 @@ class StrategyRecommendationStageProcessorImplTest {
         when(recommendationService.recommend(1L, evaluation)).thenReturn(recommendation);
         when(recommendation.calculationContext()).thenReturn(calculationContext);
         when(resultFactory.create(1L, recommendation)).thenReturn(result);
+        when(result.options()).thenReturn(List.of(mock(StrategyGenerationResult.Option.class)));
         when(resultStore.save(result)).thenReturn(entry);
         when(stageService.completeStrategyGeneration(
-                1L, entry.cacheKey(), entry.expiresAt())).thenReturn(true);
+                1L, entry.cacheKey(), entry.expiresAt(),
+                StrategyRecommendationOutcome.OPTIONS_GENERATED)).thenReturn(true);
 
         processor.process(1L);
 
         verify(resultStore).save(result);
         verify(simulationContextStore).save(calculationContext);
         verify(stageService).completeStrategyGeneration(
-                1L, entry.cacheKey(), entry.expiresAt());
+                1L, entry.cacheKey(), entry.expiresAt(),
+                StrategyRecommendationOutcome.OPTIONS_GENERATED);
         verify(lockManager).release(lock);
     }
 
@@ -103,9 +108,10 @@ class StrategyRecommendationStageProcessorImplTest {
         StrategyGenerationResult cached = mock(StrategyGenerationResult.class);
         LocalDateTime generatedAt = LocalDateTime.of(2026, 8, 24, 0, 0);
         when(cached.generatedAt()).thenReturn(generatedAt);
+        when(cached.options()).thenReturn(List.of());
         when(caseMapper.selectStrategyCaseById(1L)).thenReturn(generating);
         when(resultStore.find(1L)).thenReturn(Optional.of(cached));
-        when(stageService.completeStrategyGeneration(any(), any(), any()))
+        when(stageService.completeStrategyGeneration(any(), any(), any(), any()))
                 .thenReturn(true);
 
         processor.process(1L);
@@ -113,6 +119,12 @@ class StrategyRecommendationStageProcessorImplTest {
         verify(evaluationService, never()).evaluate(any(), any());
         verify(recommendationService, never()).recommend(any(), any());
         verify(lockManager, never()).tryAcquire(any());
+        verify(stageService).completeStrategyGeneration(
+                any(), any(), any(),
+                org.mockito.ArgumentMatchers.eq(
+                        StrategyRecommendationOutcome.MAINTAIN_CURRENT_STATE
+                )
+        );
     }
 
     private static StrategyCaseVO generatingCase() {

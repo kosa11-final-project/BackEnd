@@ -9,6 +9,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.stockit.backend.feature.strategy.domain.StrategyCaseStatus;
 import com.stockit.backend.feature.strategy.domain.StrategyGenerationStage;
+import com.stockit.backend.feature.strategy.domain.StrategyRecommendationOutcome;
 import com.stockit.backend.feature.strategy.domain.StrategyGenerationStateChangedEvent;
 import com.stockit.backend.feature.strategy.mapper.StrategyCaseMapper;
 
@@ -73,10 +74,11 @@ public class StrategyGenerationStageService {
     public boolean completeStrategyGeneration(
             Long strategyCaseId,
             String resultCacheKey,
-            LocalDateTime resultExpiresAt
+            LocalDateTime resultExpiresAt,
+            StrategyRecommendationOutcome recommendationOutcome
     ) {
         boolean updated = strategyCaseMapper.markGeneratedIfStrategyGenerating(
-                strategyCaseId, resultCacheKey, resultExpiresAt
+                strategyCaseId, resultCacheKey, resultExpiresAt, recommendationOutcome
         ) == 1;
         if (updated) {
             publish(
