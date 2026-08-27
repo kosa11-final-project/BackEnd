@@ -223,6 +223,8 @@ public class AiStrategyGenerationRetryServiceImpl
             return;
         }
         LocalDate effectiveStart = preferredStartDate == null ? today : preferredStartDate;
+        // 예측 종료일은 수요 관측 범위일 뿐 전략 실행 종료일이 아니다. 사용자가 종료일을
+        // 고정하지 않았다면 후보 생성 단계가 이 판매 가능 종료일 안에서 기간을 선택한다.
         if (maximumEndDate.isBefore(effectiveStart)
                 || (preferredEndDate != null && preferredEndDate.isAfter(maximumEndDate))) {
             throw new AppException(

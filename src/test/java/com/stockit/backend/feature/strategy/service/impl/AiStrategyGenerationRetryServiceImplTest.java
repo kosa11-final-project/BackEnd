@@ -307,6 +307,46 @@ class AiStrategyGenerationRetryServiceImplTest {
         );
     }
 
+    @Test
+    void allowsAiToChooseEndDateBeforeLotExpiryWhenPreferredEndIsUnspecified() {
+        StrategyCaseVO original = failedCase(
+                100L,
+                payload(null, null, List.of(501L))
+        );
+        StrategyLotReferenceVO lot = new StrategyLotReferenceVO();
+        lot.setLotId(501L);
+        lot.setSkuId(1001L);
+        lot.setLotStatus("AVAILABLE");
+        lot.setExpiryDate(LocalDate.of(2026, 9, 15));
+        when(strategyCaseMapper.selectStrategyCaseByIdForUpdate(100L)).thenReturn(original);
+        when(strategyCaseMapper.selectRetryCaseByParentId(100L)).thenReturn(null);
+        when(strategyCaseMapper.selectLotReferences(List.of(501L)))
+                .thenReturn(List.of(lot));
+        when(dateTimeProvider.now()).thenReturn(NOW);
+        when(strategyCaseService.createRetryStrategyCase(any(), eq(9L), eq(100L), eq(NOW)))
+                .thenReturn(new StrategyCaseCreated(
+                        101L,
+                        original.getCaseName(),
+                        StrategyCaseStatus.GENERATING,
+                        null,
+                        NOW
+                ));
+
+        RetryAiStrategyGenerationResponse response = retryService.retry(
+                100L,
+                StrategyRetryDateAdjustmentPolicy.REJECT,
+                9L
+        );
+
+        assertThat(response.strategyCaseId()).isEqualTo(101L);
+        ArgumentCaptor<CreateStrategyCaseCommand> command =
+                ArgumentCaptor.forClass(CreateStrategyCaseCommand.class);
+        verify(strategyCaseService).createRetryStrategyCase(
+                command.capture(), eq(9L), eq(100L), eq(NOW)
+        );
+        assertThat(command.getValue().preferredEndDate()).isNull();
+    }
+
     private StrategyCaseVO failedCase(Long id, String requestPayloadJson) {
         StrategyCaseVO strategyCase = new StrategyCaseVO();
         strategyCase.setStrategyCaseId(id);
