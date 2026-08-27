@@ -10,4 +10,5 @@ public class StrategyStatisticsScopeVO {
     private Long finalSelectionId;
     private String scopeType;
     private String scopeCode;
+    private String scopeName;
 }
