@@ -21,6 +21,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.mock.web.MockHttpSession;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import com.stockit.backend.feature.auth.security.AuthPrincipal;
@@ -36,11 +37,16 @@ class AiStrategySseControllerTest {
 
     @Test
     void opensSessionAuthenticatedEventStreamForCurrentUser() throws Exception {
+        MockHttpSession session = new MockHttpSession();
+        java.util.UUID clientId = java.util.UUID.randomUUID();
         SseEmitter emitter = new SseEmitter(30_000L);
         emitter.send(SseEmitter.event().name("connected").data("{}"));
-        when(emitterRegistry.subscribe(3L)).thenReturn(emitter);
+        when(emitterRegistry.subscribe(3L, session.getId(), clientId))
+                .thenReturn(emitter);
 
         MvcResult result = mockMvc.perform(get("/api/v1/ai-strategies/events")
+                        .param("clientId", clientId.toString())
+                        .session(session)
                         .accept(MediaType.TEXT_EVENT_STREAM)
                         .with(authentication(adminAuthentication())))
                 .andExpect(status().isOk())
@@ -53,11 +59,33 @@ class AiStrategySseControllerTest {
                 .andExpect(header().string("X-Accel-Buffering", "no"))
                 .andReturn();
 
-        verify(emitterRegistry).subscribe(3L);
+        verify(emitterRegistry).subscribe(3L, session.getId(), clientId);
         emitter.complete();
 
         mockMvc.perform(asyncDispatch(result))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    void keepsClientIdOptionalForRollingFrontendDeployment()
+            throws Exception {
+        MockHttpSession session = new MockHttpSession();
+        SseEmitter emitter = new SseEmitter(30_000L);
+        emitter.send(SseEmitter.event().name("connected").data("{}"));
+        when(emitterRegistry.subscribe(3L, session.getId(), null))
+                .thenReturn(emitter);
+
+        MvcResult result = mockMvc.perform(get("/api/v1/ai-strategies/events")
+                        .session(session)
+                        .accept(MediaType.TEXT_EVENT_STREAM)
+                        .with(authentication(adminAuthentication())))
+                .andExpect(status().isOk())
+                .andExpect(request().asyncStarted())
+                .andReturn();
+
+        verify(emitterRegistry).subscribe(3L, session.getId(), null);
+        emitter.complete();
+        mockMvc.perform(asyncDispatch(result)).andExpect(status().isOk());
     }
 
     @Test

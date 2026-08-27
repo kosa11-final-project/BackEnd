@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.endsWith;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -95,6 +96,14 @@ class GlobalExceptionHandlerTest {
                 .andExpect(status().isInternalServerError())
                 .andExpect(jsonPath("$.code").value("COMMON-006"))
                 .andExpect(jsonPath("$.message").value("서버 내부 오류가 발생했습니다."));
+    }
+
+    @Test
+    void doesNotWriteJsonErrorForDisconnectedAsyncResponse() throws Exception {
+        mockMvc.perform(get("/api/v1/test/async-disconnect")
+                        .accept(MediaType.TEXT_EVENT_STREAM))
+                .andExpect(status().isOk())
+                .andExpect(content().string(""));
     }
 
     @Test

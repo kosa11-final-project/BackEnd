@@ -3,6 +3,8 @@ package com.stockit.backend.feature.strategy.notification;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -13,6 +15,7 @@ import java.time.LocalDateTime;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.transaction.event.TransactionPhase;
@@ -65,6 +68,12 @@ class StrategyGenerationSseNotificationListenerTest {
     void sendsOnlyFinalSuccessAsCompletedNotificationEvent() {
         when(strategyCaseMapper.selectStrategyCaseById(101L))
                 .thenReturn(strategyCase(101L, 7L));
+        when(notificationWriter.writeFinalNotification(
+                7L,
+                101L,
+                "테스트 AI 전략",
+                StrategyCaseStatus.GENERATED
+        )).thenReturn(true);
 
         listener().notifyRequester(new StrategyGenerationStateChangedEvent(
                 101L,
@@ -83,12 +92,32 @@ class StrategyGenerationSseNotificationListenerTest {
                 "테스트 AI 전략",
                 StrategyCaseStatus.GENERATED
         );
+        InOrder inOrder = inOrder(notificationWriter, emitterRegistry);
+        inOrder.verify(notificationWriter).writeFinalNotification(
+                7L,
+                101L,
+                "테스트 AI 전략",
+                StrategyCaseStatus.GENERATED
+        );
+        inOrder.verify(emitterRegistry).broadcast(
+                org.mockito.ArgumentMatchers.eq(7L),
+                org.mockito.ArgumentMatchers.eq(
+                        AiStrategySseEmitterRegistry.COMPLETED_EVENT
+                ),
+                org.mockito.ArgumentMatchers.any(AiStrategySseEventPayload.class)
+        );
     }
 
     @Test
     void sendsFinalFailureWithoutExposingInternalFailureMessage() {
         when(strategyCaseMapper.selectStrategyCaseById(101L))
                 .thenReturn(strategyCase(101L, 7L));
+        when(notificationWriter.writeFinalNotification(
+                7L,
+                101L,
+                "테스트 AI 전략",
+                StrategyCaseStatus.GENERATION_FAILED
+        )).thenReturn(true);
 
         listener().notifyRequester(new StrategyGenerationStateChangedEvent(
                 101L,
@@ -135,7 +164,7 @@ class StrategyGenerationSseNotificationListenerTest {
     }
 
     @Test
-    void broadcastsFinalEventEvenWhenPersistentNotificationFails() {
+    void skipsFinalEventWhenPersistentNotificationFails() {
         when(strategyCaseMapper.selectStrategyCaseById(101L))
                 .thenReturn(strategyCase(101L, 7L));
         doThrow(new IllegalStateException("notification database unavailable"))
@@ -154,10 +183,34 @@ class StrategyGenerationSseNotificationListenerTest {
                 )
         )).doesNotThrowAnyException();
 
-        verifyPayload(
-                AiStrategySseEmitterRegistry.COMPLETED_EVENT,
+        verify(emitterRegistry, never()).broadcast(
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any()
+        );
+    }
+
+    @Test
+    void skipsDuplicateFinalEventWhenNotificationAlreadyExists() {
+        when(strategyCaseMapper.selectStrategyCaseById(101L))
+                .thenReturn(strategyCase(101L, 7L));
+        when(notificationWriter.writeFinalNotification(
+                7L,
+                101L,
+                "테스트 AI 전략",
+                StrategyCaseStatus.GENERATED
+        )).thenReturn(false);
+
+        listener().notifyRequester(new StrategyGenerationStateChangedEvent(
+                101L,
                 StrategyCaseStatus.GENERATED,
                 StrategyGenerationStage.COMPARISON_READY
+        ));
+
+        verify(emitterRegistry, never()).broadcast(
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any()
         );
     }
 

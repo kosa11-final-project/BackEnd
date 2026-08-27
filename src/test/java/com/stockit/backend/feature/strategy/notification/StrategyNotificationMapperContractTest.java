@@ -36,6 +36,20 @@ class StrategyNotificationMapperContractTest {
                 .contains("strategy_case_id");
     }
 
+    @Test
+    void findsRecentTerminalCasesWithoutFinalNotification() throws IOException {
+        String mapper = readResource(STRATEGY_NOTIFICATION_MAPPER);
+
+        assertThat(mapper).contains(
+                "selectMissingFinalNotifications",
+                "completed_at &gt;= #{completedFrom}",
+                "generation_stage = 'COMPARISON_READY'",
+                "case_status = 'GENERATION_FAILED'",
+                "NOT EXISTS",
+                "ROWNUM &lt;= #{batchSize}"
+        );
+    }
+
     private static String readResource(String path) throws IOException {
         ClassLoader classLoader = StrategyNotificationMapperContractTest.class
                 .getClassLoader();
