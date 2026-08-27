@@ -10,6 +10,7 @@ public class AiStrategySseProperties {
 
     private Duration timeout = Duration.ofMinutes(30);
     private long reconnectTimeMillis = 3000L;
+    private int maxConnectionsPerSession = 5;
 
     public Duration getTimeout() {
         return timeout;
@@ -33,5 +34,18 @@ public class AiStrategySseProperties {
             );
         }
         this.reconnectTimeMillis = reconnectTimeMillis;
+    }
+
+    public int getMaxConnectionsPerSession() {
+        return maxConnectionsPerSession;
+    }
+
+    public void setMaxConnectionsPerSession(int maxConnectionsPerSession) {
+        if (maxConnectionsPerSession < 1 || maxConnectionsPerSession > 20) {
+            throw new IllegalArgumentException(
+                    "maxConnectionsPerSession must be between 1 and 20"
+            );
+        }
+        this.maxConnectionsPerSession = maxConnectionsPerSession;
     }
 }
