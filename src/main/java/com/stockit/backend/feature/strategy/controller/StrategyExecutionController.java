@@ -4,16 +4,21 @@ import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 
 import com.stockit.backend.common.api.ApiErrorResponse;
 import com.stockit.backend.common.api.ApiResponse;
+import com.stockit.backend.feature.auth.security.AuthPrincipal;
+import com.stockit.backend.feature.strategy.dto.response.StrategyPerformanceSyncResponse;
 import com.stockit.backend.feature.strategy.dto.response.StrategyExecutionResponse;
 import com.stockit.backend.feature.strategy.dto.response.StrategyExecutionPageResponse;
 import com.stockit.backend.feature.strategy.dto.request.StrategyExecutionListRequest;
 import com.stockit.backend.feature.strategy.dto.request.StrategyExecutionQueryParameterValidator;
 import com.stockit.backend.feature.strategy.service.StrategyExecutionService;
+import com.stockit.backend.feature.strategy.service.StrategyPerformanceSyncService;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -30,9 +35,44 @@ import jakarta.validation.Valid;
 public class StrategyExecutionController {
 
     private final StrategyExecutionService strategyExecutionService;
+    private final StrategyPerformanceSyncService strategyPerformanceSyncService;
 
-    public StrategyExecutionController(StrategyExecutionService strategyExecutionService) {
+    public StrategyExecutionController(
+            StrategyExecutionService strategyExecutionService,
+            StrategyPerformanceSyncService strategyPerformanceSyncService
+    ) {
         this.strategyExecutionService = strategyExecutionService;
+        this.strategyPerformanceSyncService = strategyPerformanceSyncService;
+    }
+
+    @PostMapping("/sync")
+    @Operation(
+            summary = "AI 전략 성과 수동 동기화",
+            description = "최종 선택 전략의 실제 판매량·매출·기여이익과 최신 잔여재고를 운영 데이터에서 다시 집계합니다."
+    )
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "성과 동기화 성공"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "401",
+                    description = "세션이 없거나 만료됨",
+                    content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "403",
+                    description = "동기화 권한이 없음",
+                    content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "409",
+                    description = "성과 동기화 충돌",
+                    content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))
+            )
+    })
+    public ApiResponse<StrategyPerformanceSyncResponse> synchronize(
+            @AuthenticationPrincipal AuthPrincipal principal
+    ) {
+        Long requestedBy = principal == null ? null : principal.getUserId();
+        return ApiResponse.of(strategyPerformanceSyncService.synchronize(requestedBy));
     }
 
     @GetMapping

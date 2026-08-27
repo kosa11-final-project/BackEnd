@@ -19,6 +19,7 @@ import com.stockit.backend.feature.strategy.vo.StrategyExecutionDailySalesVO;
 import com.stockit.backend.feature.strategy.vo.StrategyExecutionInventoryVO;
 import com.stockit.backend.feature.strategy.vo.StrategyExecutionPerformanceVO;
 import com.stockit.backend.feature.strategy.vo.StrategyExecutionQuery;
+import com.stockit.backend.feature.strategy.vo.StrategyPerformanceSyncRowVO;
 
 @SpringBootTest
 @ActiveProfiles("test")
@@ -38,6 +39,9 @@ class StrategyExecutionMapperTest {
 
     @Autowired
     private StrategyExecutionMapper mapper;
+
+    @Autowired
+    private StrategyPerformanceSyncMapper performanceSyncMapper;
 
     @Test
     void readsOnlyFinalSelectionsAndSupportedActionsInBulk() {
@@ -117,14 +121,42 @@ class StrategyExecutionMapperTest {
         List<StrategyExecutionDailySalesVO> sales = mapper.selectDailySales(101L, asOfDate);
         StrategyExecutionPerformanceVO performance = mapper.selectPerformance(1001L);
 
-        assertThat(inventory).singleElement().satisfies(row -> {
-            assertThat(row.getBeforeQuantity()).isEqualByComparingTo("100");
-            assertThat(row.getCurrentQuantity()).isEqualByComparingTo("80");
-        });
+        assertThat(inventory)
+                .extracting(StrategyExecutionInventoryVO::getLocationType, StrategyExecutionInventoryVO::getLocationId)
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple("SALES_POINT", 10L),
+                        org.assertj.core.groups.Tuple.tuple("WAREHOUSE", 502L),
+                        org.assertj.core.groups.Tuple.tuple("WAREHOUSE", 501L)
+                );
+        assertThat(inventory).filteredOn(row -> Long.valueOf(501L).equals(row.getLocationId()))
+                .singleElement().satisfies(row -> {
+                    assertThat(row.getBeforeQuantity()).isEqualByComparingTo("100");
+                    assertThat(row.getCurrentQuantity()).isEqualByComparingTo("80");
+                });
         assertThat(sales).extracting(StrategyExecutionDailySalesVO::getSalesDate)
                 .containsExactly(LocalDate.of(2026, 5, 2));
         assertThat(performance.getActualSalesQuantity()).isEqualByComparingTo("12");
         assertThat(performance.getActualRemainingQuantity()).isEqualByComparingTo("88");
+    }
+
+    @Test
+    void buildsDailyPerformanceFromScopedSalesAndCurrentInventory() {
+        LocalDate businessDate = LocalDate.of(2026, 8, 26);
+
+        List<StrategyPerformanceSyncRowVO> rows = performanceSyncMapper.selectPerformanceRows(businessDate);
+
+        assertThat(performanceSyncMapper.countEligibleSelections(businessDate)).isEqualTo(3);
+        assertThat(rows).filteredOn(row -> row.getFinalSelectionId().equals(5001L))
+                .anySatisfy(row -> {
+                    assertThat(row.getPerformanceDate()).isEqualTo(LocalDate.of(2026, 5, 2));
+                    assertThat(row.getActualSalesQuantity()).isEqualByComparingTo("7");
+                    assertThat(row.getActualRevenue()).isEqualByComparingTo("70000");
+                    assertThat(row.getActualContributionMargin()).isEqualByComparingTo("28000");
+                })
+                .anySatisfy(row -> {
+                    assertThat(row.getPerformanceDate()).isEqualTo(businessDate);
+                    assertThat(row.getActualRemainingQuantity()).isEqualByComparingTo("80");
+                });
     }
 
     @Test

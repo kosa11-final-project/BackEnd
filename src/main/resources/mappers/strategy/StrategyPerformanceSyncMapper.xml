@@ -1,0 +1,323 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.stockit.backend.feature.strategy.mapper.StrategyPerformanceSyncMapper">
+
+    <select id="lockSyncMutex" resultType="int">
+        SELECT mutex_id
+        FROM strategy_perf_sync_mutex
+        WHERE mutex_id = 1
+        FOR UPDATE NOWAIT
+    </select>
+
+    <sql id="eligibleSelections">
+        WITH action_period AS (
+            SELECT strategy_option_id,
+                   MIN(start_date) AS planned_start_date,
+                   MAX(end_date) AS planned_end_date
+            FROM strategy_action
+            WHERE is_deleted = 0
+              AND start_date IS NOT NULL
+              AND end_date IS NOT NULL
+            GROUP BY strategy_option_id
+        ),
+        final_ranked AS (
+            SELECT selection.*,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY selection.strategy_case_id
+                       ORDER BY selection.created_at DESC, selection.final_selection_id DESC
+                   ) AS selection_rank
+            FROM final_strategy_selection selection
+            WHERE selection.is_deleted = 0
+        ),
+        eligible_selection AS (
+            SELECT selection.final_selection_id,
+                   selection.strategy_case_id,
+                   selection.strategy_option_id,
+                   strategy_case.sku_id,
+                   period.planned_start_date,
+                   period.planned_end_date
+            FROM final_ranked selection
+            JOIN strategy_case
+              ON strategy_case.strategy_case_id = selection.strategy_case_id
+             AND strategy_case.is_deleted = 0
+             AND strategy_case.case_status IN ('READY_TO_EXECUTE', 'EXECUTING', 'EXECUTION_COMPLETED')
+            JOIN action_period period
+              ON period.strategy_option_id = selection.strategy_option_id
+            WHERE selection.selection_rank = 1
+              AND period.planned_start_date &lt;= #{businessDate,jdbcType=DATE}
+        )
+    </sql>
+
+    <select id="countEligibleSelections" resultType="int">
+        <include refid="eligibleSelections"/>
+        SELECT COUNT(*)
+        FROM eligible_selection
+    </select>
+
+    <select id="selectPerformanceRows" resultType="StrategyPerformanceSyncRowVO">
+        WITH action_period AS (
+            SELECT strategy_option_id,
+                   MIN(start_date) AS planned_start_date,
+                   MAX(end_date) AS planned_end_date
+            FROM strategy_action
+            WHERE is_deleted = 0
+              AND start_date IS NOT NULL
+              AND end_date IS NOT NULL
+            GROUP BY strategy_option_id
+        ),
+        final_ranked AS (
+            SELECT selection.*,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY selection.strategy_case_id
+                       ORDER BY selection.created_at DESC, selection.final_selection_id DESC
+                   ) AS selection_rank
+            FROM final_strategy_selection selection
+            WHERE selection.is_deleted = 0
+        ),
+        eligible_selection AS (
+            SELECT selection.final_selection_id,
+                   selection.strategy_case_id,
+                   selection.strategy_option_id,
+                   strategy_case.sku_id,
+                   period.planned_start_date,
+                   period.planned_end_date
+            FROM final_ranked selection
+            JOIN strategy_case
+              ON strategy_case.strategy_case_id = selection.strategy_case_id
+             AND strategy_case.is_deleted = 0
+             AND strategy_case.case_status IN ('READY_TO_EXECUTE', 'EXECUTING', 'EXECUTION_COMPLETED')
+            JOIN action_period period
+              ON period.strategy_option_id = selection.strategy_option_id
+            WHERE selection.selection_rank = 1
+              AND period.planned_start_date &lt;= #{businessDate,jdbcType=DATE}
+        ),
+        relevant_sales_point AS (
+            SELECT DISTINCT scope.strategy_case_id, scope.strategy_option_id, scope.sales_point_id
+            FROM (
+                SELECT selection.strategy_case_id,
+                       selection.strategy_option_id,
+                       snapshot.sales_point_id
+                FROM eligible_selection selection
+                JOIN strategy_inventory_snapshot snapshot
+                  ON snapshot.strategy_case_id = selection.strategy_case_id
+                 AND snapshot.is_deleted = 0
+                WHERE snapshot.sales_point_id IS NOT NULL
+
+                UNION ALL
+
+                SELECT selection.strategy_case_id,
+                       selection.strategy_option_id,
+                       action.source_sales_point_id
+                FROM eligible_selection selection
+                JOIN strategy_action action
+                  ON action.strategy_option_id = selection.strategy_option_id
+                 AND action.is_deleted = 0
+                WHERE action.source_sales_point_id IS NOT NULL
+
+                UNION ALL
+
+                SELECT selection.strategy_case_id,
+                       selection.strategy_option_id,
+                       action.target_sales_point_id
+                FROM eligible_selection selection
+                JOIN strategy_action action
+                  ON action.strategy_option_id = selection.strategy_option_id
+                 AND action.is_deleted = 0
+                WHERE action.target_sales_point_id IS NOT NULL
+            ) scope
+        ),
+        scoped_sales AS (
+            SELECT selection.final_selection_id,
+                   selection.strategy_option_id,
+                   selection.sku_id,
+                   sales.sales_daily_id,
+                   sales.sales_date,
+                   sales.sales_point_id,
+                   sales.net_sales_qty,
+                   sales.net_sales_amount
+            FROM eligible_selection selection
+            JOIN relevant_sales_point point
+              ON point.strategy_case_id = selection.strategy_case_id
+             AND point.strategy_option_id = selection.strategy_option_id
+            JOIN sales_daily sales
+              ON sales.sku_id = selection.sku_id
+             AND sales.sales_point_id = point.sales_point_id
+             AND sales.sales_date BETWEEN selection.planned_start_date
+                                      AND LEAST(selection.planned_end_date, #{businessDate,jdbcType=DATE})
+             AND sales.is_deleted = 0
+        ),
+        priced_sales AS (
+            SELECT sales.*,
+                   price.sku_channel_price_id,
+                   price.product_cost,
+                   price.payment_fee,
+                   price.logistics_cost,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY sales.final_selection_id, sales.sales_daily_id
+                       ORDER BY price.effective_from DESC,
+                                price.updated_at DESC,
+                                price.sku_channel_price_id DESC
+                   ) AS price_rank
+            FROM scoped_sales sales
+            LEFT JOIN sku_channel_price price
+              ON price.sku_id = sales.sku_id
+             AND price.sales_point_id = sales.sales_point_id
+             AND price.effective_from &lt;= sales.sales_date
+             AND (price.effective_to IS NULL OR price.effective_to &gt;= sales.sales_date)
+             AND price.is_deleted = 0
+        ),
+        daily_performance AS (
+            SELECT final_selection_id,
+                   strategy_option_id,
+                   sales_date AS performance_date,
+                   SUM(net_sales_qty) AS actual_sales_quantity,
+                   SUM(net_sales_amount) AS actual_revenue,
+                   CASE
+                       WHEN MAX(CASE WHEN sku_channel_price_id IS NULL THEN 1 ELSE 0 END) = 1 THEN NULL
+                       ELSE SUM(
+                           net_sales_amount
+                           - net_sales_qty * (
+                               product_cost + COALESCE(payment_fee, 0) + COALESCE(logistics_cost, 0)
+                           )
+                       )
+                   END AS actual_contribution_margin
+            FROM priced_sales
+            WHERE price_rank = 1
+            GROUP BY final_selection_id, strategy_option_id, sales_date
+        ),
+        current_inventory AS (
+            SELECT selection.final_selection_id,
+                   COALESCE(SUM(balance.on_hand_qty), 0) AS actual_remaining_quantity
+            FROM eligible_selection selection
+            LEFT JOIN inventory_balance balance
+              ON balance.sku_id = selection.sku_id
+             AND balance.is_deleted = 0
+             AND (
+                 EXISTS (
+                     SELECT 1
+                     FROM strategy_inventory_snapshot snapshot
+                     WHERE snapshot.strategy_case_id = selection.strategy_case_id
+                       AND snapshot.inventory_balance_id = balance.inventory_balance_id
+                       AND snapshot.is_deleted = 0
+                 )
+                 OR EXISTS (
+                     SELECT 1
+                     FROM strategy_action action
+                     WHERE action.strategy_option_id = selection.strategy_option_id
+                       AND action.is_deleted = 0
+                       AND (
+                           balance.warehouse_id IN (action.source_warehouse_id, action.destination_warehouse_id)
+                           OR balance.stock_sales_point_id IN (action.source_sales_point_id, action.target_sales_point_id)
+                           OR balance.allocated_sales_point_id IN (action.source_sales_point_id, action.target_sales_point_id)
+                       )
+                 )
+             )
+            GROUP BY selection.final_selection_id
+        )
+        SELECT performance.final_selection_id,
+               performance.strategy_option_id,
+               performance.performance_date,
+               performance.actual_sales_quantity,
+               performance.actual_revenue,
+               performance.actual_contribution_margin,
+               CASE
+                   WHEN performance.performance_date = #{businessDate,jdbcType=DATE}
+                   THEN inventory.actual_remaining_quantity
+                   ELSE 0
+               END AS actual_remaining_quantity
+        FROM daily_performance performance
+        JOIN current_inventory inventory
+          ON inventory.final_selection_id = performance.final_selection_id
+
+        UNION ALL
+
+        SELECT selection.final_selection_id,
+               selection.strategy_option_id,
+               #{businessDate,jdbcType=DATE} AS performance_date,
+               0 AS actual_sales_quantity,
+               0 AS actual_revenue,
+               0 AS actual_contribution_margin,
+               inventory.actual_remaining_quantity
+        FROM eligible_selection selection
+        JOIN current_inventory inventory
+          ON inventory.final_selection_id = selection.final_selection_id
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM daily_performance performance
+            WHERE performance.final_selection_id = selection.final_selection_id
+              AND performance.performance_date = #{businessDate,jdbcType=DATE}
+        )
+        ORDER BY final_selection_id, performance_date
+    </select>
+
+    <select id="lockFinalSelections" resultType="long">
+        SELECT final_selection_id
+        FROM final_strategy_selection
+        WHERE final_selection_id IN
+        <foreach collection="finalSelectionIds" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+        ORDER BY final_selection_id
+        FOR UPDATE
+    </select>
+
+    <update id="updatePerformance">
+        UPDATE strategy_performance
+        SET actual_sales_qty = #{row.actualSalesQuantity},
+            actual_revenue = #{row.actualRevenue},
+            actual_contribution_margin = #{row.actualContributionMargin},
+            actual_remaining_qty = #{row.actualRemainingQuantity},
+            updated_at = SYSTIMESTAMP,
+            updated_by = #{actorId},
+            is_deleted = 0
+        WHERE strategy_option_id = #{row.strategyOptionId}
+          AND performance_date = #{row.performanceDate,jdbcType=DATE}
+    </update>
+
+    <insert id="insertPerformanceIfAbsent">
+        INSERT INTO strategy_performance (
+            strategy_option_id,
+            performance_date,
+            actual_sales_qty,
+            actual_revenue,
+            actual_contribution_margin,
+            actual_remaining_qty,
+            created_at,
+            updated_at,
+            created_by,
+            updated_by,
+            is_deleted
+        )
+        SELECT #{row.strategyOptionId},
+               #{row.performanceDate,jdbcType=DATE},
+               #{row.actualSalesQuantity},
+               #{row.actualRevenue},
+               #{row.actualContributionMargin},
+               #{row.actualRemainingQuantity},
+               SYSTIMESTAMP,
+               SYSTIMESTAMP,
+               #{actorId},
+               #{actorId},
+               0
+        FROM dual
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM strategy_performance existing
+            WHERE existing.strategy_option_id = #{row.strategyOptionId}
+              AND existing.performance_date = #{row.performanceDate,jdbcType=DATE}
+        )
+    </insert>
+
+    <update id="updateLastSyncedAt">
+        UPDATE final_strategy_selection
+        SET last_synced_at = #{syncedAt,jdbcType=TIMESTAMP},
+            updated_at = SYSTIMESTAMP,
+            updated_by = #{actorId}
+        WHERE final_selection_id IN
+        <foreach collection="finalSelectionIds" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+          AND is_deleted = 0
+    </update>
+</mapper>

@@ -101,6 +101,7 @@ public enum ErrorCode {
     AI_STRATEGY_DUPLICATE_INPUT(HttpStatus.CONFLICT, "AI 전략 생성 요청에 중복된 값이 포함되어 있습니다.", "AI_STRATEGY-002"),
     AI_STRATEGY_SELECTION_CONFLICT(HttpStatus.CONFLICT, "이미 확정된 AI 전략과 요청이 충돌합니다.", "AI_STRATEGY-017"),
     AI_STRATEGY_CASE_NOT_READY(HttpStatus.CONFLICT, "AI 전략 생성 결과가 아직 조정 가능한 상태가 아닙니다.", "AI_STRATEGY-020"),
+    AI_STRATEGY_PERFORMANCE_SYNC_CONFLICT(HttpStatus.CONFLICT, "전략 성과 동기화가 이미 진행 중입니다.", "AI_STRATEGY-021"),
 
     // TMP - 구조 확인 후 실제 기능과 함께 제거
     TMP_CONFLICT(HttpStatus.CONFLICT, "테스트 요청이 충돌했습니다.", "TMP-001"),
