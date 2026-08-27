@@ -5,6 +5,7 @@ import java.time.LocalDateTime;
 import com.stockit.backend.common.persistence.BaseEntity;
 import com.stockit.backend.feature.strategy.domain.StrategyCaseStatus;
 import com.stockit.backend.feature.strategy.domain.StrategyGenerationStage;
+import com.stockit.backend.feature.strategy.domain.StrategyRecommendationOutcome;
 
 import lombok.Getter;
 import lombok.Setter;
@@ -17,12 +18,14 @@ import lombok.Setter;
 public class StrategyCaseVO extends BaseEntity {
 
     private Long strategyCaseId;
+    private Long retryParentCaseId;
     private Long skuId;
     private Long requestedSalesPointId;
     private String caseCode;
     private String caseName;
     private StrategyCaseStatus caseStatus;
     private StrategyGenerationStage generationStage;
+    private StrategyRecommendationOutcome recommendationOutcome;
     private String requestPayloadJson;
     private String resultCacheKey;
     private LocalDateTime resultExpiresAt;
@@ -41,7 +44,29 @@ public class StrategyCaseVO extends BaseEntity {
             String requestPayloadJson,
             Long requesterId
     ) {
+        return generating(
+                skuId,
+                requestedSalesPointId,
+                caseCode,
+                caseName,
+                requestPayloadJson,
+                requesterId,
+                null
+        );
+    }
+
+    /** 사용자 재시도 관계를 포함한 신규 생성 상태를 만든다. */
+    public static StrategyCaseVO generating(
+            Long skuId,
+            Long requestedSalesPointId,
+            String caseCode,
+            String caseName,
+            String requestPayloadJson,
+            Long requesterId,
+            Long retryParentCaseId
+    ) {
         StrategyCaseVO strategyCase = new StrategyCaseVO();
+        strategyCase.setRetryParentCaseId(retryParentCaseId);
         strategyCase.setSkuId(skuId);
         strategyCase.setRequestedSalesPointId(requestedSalesPointId);
         strategyCase.setCaseCode(caseCode);

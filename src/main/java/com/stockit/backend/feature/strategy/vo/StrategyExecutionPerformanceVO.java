@@ -13,6 +13,4 @@ public class StrategyExecutionPerformanceVO {
     private BigDecimal actualRevenue;
     private BigDecimal actualContributionMargin;
     private BigDecimal actualRemainingQuantity;
-    private BigDecimal movedQuantity;
-    private BigDecimal disposedQuantity;
 }

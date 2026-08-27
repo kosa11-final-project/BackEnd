@@ -147,6 +147,13 @@ app:
       timeout: ${AI_STRATEGY_SSE_TIMEOUT:30m}
       heartbeat-interval: ${AI_STRATEGY_SSE_HEARTBEAT_INTERVAL:25s}
       reconnect-time-millis: ${AI_STRATEGY_SSE_RECONNECT_TIME_MILLIS:3000}
+      max-connections-per-session: ${AI_STRATEGY_SSE_MAX_CONNECTIONS_PER_SESSION:5}
+    notification-recovery:
+      enabled: ${AI_STRATEGY_NOTIFICATION_RECOVERY_ENABLED:true}
+      initial-delay: ${AI_STRATEGY_NOTIFICATION_RECOVERY_INITIAL_DELAY:30s}
+      fixed-delay: ${AI_STRATEGY_NOTIFICATION_RECOVERY_FIXED_DELAY:60s}
+      lookback: ${AI_STRATEGY_NOTIFICATION_RECOVERY_LOOKBACK:3d}
+      batch-size: ${AI_STRATEGY_NOTIFICATION_RECOVERY_BATCH_SIZE:100}
     messaging:
       enabled: ${AI_STRATEGY_MESSAGING_ENABLED:true}
       max-attempts: ${AI_STRATEGY_MAX_ATTEMPTS:3}

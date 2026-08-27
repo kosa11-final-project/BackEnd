@@ -230,7 +230,8 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
                 : inventory.getCurrentQuantity().subtract(inventory.getBeforeQuantity());
         String guardrail = inventory.getSafetyStockQuantity() == null
                 ? null
-                : "안전재고 " + inventory.getSafetyStockQuantity().stripTrailingZeros().toPlainString() + " 유지";
+                : "안전재고 기준 "
+                + inventory.getSafetyStockQuantity().stripTrailingZeros().toPlainString();
         return new StrategyExecutionResponse.InventoryResult(
                 inventory.getLocationName(),
                 inventory.getLocationType(),
@@ -393,9 +394,7 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
                 performance.getActualSalesQuantity(),
                 performance.getActualRevenue(),
                 performance.getActualContributionMargin(),
-                performance.getActualRemainingQuantity(),
-                performance.getMovedQuantity(),
-                performance.getDisposedQuantity()
+                performance.getActualRemainingQuantity()
         );
     }
 

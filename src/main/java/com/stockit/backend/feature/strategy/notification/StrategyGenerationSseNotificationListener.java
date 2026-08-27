@@ -69,7 +69,9 @@ public class StrategyGenerationSseNotificationListener {
                     dateTimeProvider.now()
             );
 
-            persistFinalNotification(event, strategyCase);
+            if (!persistFinalNotification(event, strategyCase)) {
+                return;
+            }
             broadcast(strategyCase.getCreatedBy(), eventName, payload);
         } catch (RuntimeException exception) {
             // Case 조회 실패도 이미 커밋된 생성 상태나 RabbitMQ ACK를 되돌리지 않는다.
@@ -84,23 +86,23 @@ public class StrategyGenerationSseNotificationListener {
         }
     }
 
-    private void persistFinalNotification(
+    private boolean persistFinalNotification(
             StrategyGenerationStateChangedEvent event,
             StrategyCaseVO strategyCase
     ) {
         if (event.caseStatus() != StrategyCaseStatus.GENERATED
                 && event.caseStatus() != StrategyCaseStatus.GENERATION_FAILED) {
-            return;
+            return true;
         }
         try {
-            notificationWriter.writeFinalNotification(
+            return notificationWriter.writeFinalNotification(
                     strategyCase.getCreatedBy(),
                     event.strategyCaseId(),
                     strategyCase.getCaseName(),
                     event.caseStatus()
             );
         } catch (RuntimeException exception) {
-            // 알림 저장 실패가 실시간 SSE 전송까지 막지 않도록 경계를 분리한다.
+            // 영속 알림이 없는 일시적 Toast를 만들지 않는다. Reconciler가 재시도한다.
             log.error(
                     "AI strategy in-app notification persistence failed. "
                             + "strategyCaseId={}, caseStatus={}",
@@ -108,6 +110,7 @@ public class StrategyGenerationSseNotificationListener {
                     event.caseStatus(),
                     exception
             );
+            return false;
         }
     }
 

@@ -33,6 +33,7 @@ import com.stockit.backend.common.exception.AppException;
 import com.stockit.backend.common.exception.ErrorCode;
 import com.stockit.backend.feature.strategy.domain.StrategyCaseCreated;
 import com.stockit.backend.feature.strategy.domain.StrategyCaseStatus;
+import com.stockit.backend.feature.strategy.domain.StrategyRetryDateAdjustmentPolicy;
 import com.stockit.backend.feature.strategy.domain.StrategyType;
 import com.stockit.backend.feature.strategy.approval.StrategyReviewStatus;
 import com.stockit.backend.feature.strategy.dto.response.AiStrategyReviewerListResponse;
@@ -41,6 +42,7 @@ import com.stockit.backend.feature.strategy.dto.response.AiStrategySelectionVali
 import com.stockit.backend.feature.strategy.dto.response.AiStrategyTeamsRequestResponse.DeliveryStatus;
 import com.stockit.backend.feature.strategy.dto.response.AiStrategyCaseResponse;
 import com.stockit.backend.feature.strategy.dto.response.AiStrategyCaseListPageResponse;
+import com.stockit.backend.feature.strategy.dto.response.RetryAiStrategyGenerationResponse;
 import com.stockit.backend.feature.strategy.dto.response.AdjustedAiStrategySimulationResponse;
 import com.stockit.backend.feature.strategy.dto.response.AiStrategyChartRangeResponse;
 import com.stockit.backend.feature.strategy.dto.response.AiStrategyPeriodConstraintsResponse;
@@ -50,6 +52,7 @@ import com.stockit.backend.feature.strategy.service.AiStrategyApprovalService;
 import com.stockit.backend.feature.strategy.service.AiStrategyApprovalRetryService;
 import com.stockit.backend.feature.strategy.service.AiStrategyCaseListService;
 import com.stockit.backend.feature.strategy.service.AiStrategyCaseQueryService;
+import com.stockit.backend.feature.strategy.service.AiStrategyGenerationRetryService;
 import com.stockit.backend.feature.strategy.service.AiStrategyReviewerService;
 import com.stockit.backend.feature.strategy.service.AiStrategySelectionValidationService;
 import com.stockit.backend.feature.strategy.simulation.AdjustStrategySimulationCommand;
@@ -68,6 +71,7 @@ class AiStrategyControllerTest {
     @Autowired private MockMvc mockMvc;
     @Autowired private ObjectMapper objectMapper;
     @MockitoBean private StrategyCaseService caseService;
+    @MockitoBean private AiStrategyGenerationRetryService generationRetryService;
     @MockitoBean private AiStrategyCaseQueryService queryService;
     @MockitoBean private AiStrategyCaseListService listService;
     @MockitoBean private StrategyAdjustmentSimulationService adjustmentSimulationService;
@@ -106,10 +110,139 @@ class AiStrategyControllerTest {
     }
 
     @Test
+    void acceptsFailedCaseRetryAndExposesNewCaseLocation() throws Exception {
+        when(generationRetryService.retry(
+                123L,
+                StrategyRetryDateAdjustmentPolicy.REJECT,
+                3L
+        )).thenReturn(new RetryAiStrategyGenerationResponse(
+                123L,
+                456L,
+                123L,
+                "테스트 전략",
+                StrategyCaseStatus.GENERATING,
+                null,
+                LocalDateTime.of(2026, 8, 27, 10, 0),
+                false,
+                new RetryAiStrategyGenerationResponse.DateAdjustment(
+                        false, null, null, null, null
+                )
+        ));
+
+        CsrfCredentials csrf = requestCsrf();
+        mockMvc.perform(post("/api/v1/ai-strategies/123/retries")
+                        .with(user(adminPrincipal()))
+                        .cookie(csrf.cookie())
+                        .header(csrf.headerName(), csrf.token())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"dateAdjustmentPolicy\":\"REJECT\"}"))
+                .andExpect(status().isAccepted())
+                .andExpect(header().string(
+                        "Location", "/api/v1/ai-strategies/456"
+                ))
+                .andExpect(jsonPath("$.data.originalStrategyCaseId").value(123))
+                .andExpect(jsonPath("$.data.strategyCaseId").value(456))
+                .andExpect(jsonPath("$.data.reusedExistingRetry").value(false));
+    }
+
+    @Test
+    void returnsOkForAlreadyExistingRetryCase() throws Exception {
+        when(generationRetryService.retry(123L, null, 3L)).thenReturn(
+                new RetryAiStrategyGenerationResponse(
+                        123L,
+                        456L,
+                        123L,
+                        "테스트 전략",
+                        StrategyCaseStatus.GENERATING,
+                        null,
+                        LocalDateTime.of(2026, 8, 27, 10, 0),
+                        true,
+                        null
+                )
+        );
+
+        CsrfCredentials csrf = requestCsrf();
+        mockMvc.perform(post("/api/v1/ai-strategies/123/retries")
+                        .with(user(adminPrincipal()))
+                        .cookie(csrf.cookie())
+                        .header(csrf.headerName(), csrf.token()))
+                .andExpect(status().isOk())
+                .andExpect(header().string(
+                        "Location", "/api/v1/ai-strategies/456"
+                ))
+                .andExpect(jsonPath("$.data.reusedExistingRetry").value(true));
+    }
+
+    @Test
+    void exposesDateAdjustmentDetailsForRetryConfirmation() throws Exception {
+        when(generationRetryService.retry(
+                123L,
+                StrategyRetryDateAdjustmentPolicy.REJECT,
+                3L
+        )).thenThrow(new AppException(
+                ErrorCode.AI_STRATEGY_RETRY_DATE_ADJUSTMENT_REQUIRED,
+                "기존 전략의 판매 시작일이 지났습니다.",
+                new com.stockit.backend.feature.strategy.dto.response.RetryDateAdjustmentRequiredDetails(
+                        "PREFERRED_START_DATE_PASSED",
+                        LocalDate.of(2026, 8, 24),
+                        LocalDate.of(2026, 8, 31),
+                        LocalDate.of(2026, 8, 27),
+                        LocalDate.of(2026, 8, 31)
+                )
+        ));
+
+        CsrfCredentials csrf = requestCsrf();
+        mockMvc.perform(post("/api/v1/ai-strategies/123/retries")
+                        .with(user(adminPrincipal()))
+                        .cookie(csrf.cookie())
+                        .header(csrf.headerName(), csrf.token())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"dateAdjustmentPolicy\":\"REJECT\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("AI_STRATEGY-023"))
+                .andExpect(jsonPath("$.details.reason")
+                        .value("PREFERRED_START_DATE_PASSED"))
+                .andExpect(jsonPath("$.details.adjustedPreferredStartDate")
+                        .value("2026-08-27"));
+    }
+
+    @Test
+    void rejectsAnonymousGenerationRetryBeforeServiceCall() throws Exception {
+        CsrfCredentials csrf = requestCsrf();
+
+        mockMvc.perform(post("/api/v1/ai-strategies/123/retries")
+                        .cookie(csrf.cookie())
+                        .header(csrf.headerName(), csrf.token())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"dateAdjustmentPolicy\":\"REJECT\"}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("AUTH-001"));
+
+        verifyNoInteractions(generationRetryService);
+    }
+
+    @Test
+    void rejectsNonAdminGenerationRetryBeforeServiceCall() throws Exception {
+        CsrfCredentials csrf = requestCsrf();
+
+        mockMvc.perform(post("/api/v1/ai-strategies/123/retries")
+                        .with(user("branch").roles("BRANCH_MANAGER"))
+                        .cookie(csrf.cookie())
+                        .header(csrf.headerName(), csrf.token())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"dateAdjustmentPolicy\":\"REJECT\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("COMMON-003"));
+
+        verifyNoInteractions(generationRetryService);
+    }
+
+    @Test
     @WithMockUser(roles = "GREENFOOD_ADMIN")
     void returnsCurrentGenerationStageAndOptionalResult() throws Exception {
         when(queryService.find(123L)).thenReturn(new AiStrategyCaseResponse(
                 123L, "테스트 전략", StrategyCaseStatus.GENERATING, null,
+                null,
                 new AiStrategyCaseResponse.Sku(
                         1001L, "SKU-1001", "테스트 상품", null,
                         new AiStrategyCaseResponse.Category(301L, "국·탕", 3)
@@ -655,6 +788,8 @@ class AiStrategyControllerTest {
                         .value("AI 전략 생성 Case 목록 조회"))
                 .andExpect(jsonPath("$.paths['/api/v1/ai-strategies/{strategyCaseId}'].get.summary")
                         .value("AI 전략 생성 상태·결과 조회"))
+                .andExpect(jsonPath("$.paths['/api/v1/ai-strategies/{strategyCaseId}/retries'].post.summary")
+                        .value("실패한 AI 전략 생성 재시도"))
                 .andExpect(jsonPath("$.paths['/api/v1/ai-strategies/{strategyCaseId}/candidates/{candidateId}/simulations'].post.summary")
                         .value("AI 전략 조건 조정 시뮬레이션"))
                 .andExpect(jsonPath("$.paths['/api/v1/ai-strategies/reviewers'].get.summary")

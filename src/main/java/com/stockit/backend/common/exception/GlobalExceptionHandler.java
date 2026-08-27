@@ -15,6 +15,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
@@ -67,6 +68,7 @@ public class GlobalExceptionHandler {
         ApiErrorResponse response = ApiErrorResponse.of(
                 errorCode,
                 safeMessage(exception.getMessage(), errorCode.getMessage()),
+                exception.getDetails(),
                 request.getRequestURI()
         );
         return ResponseEntity.status(errorCode.getHttpStatus()).body(response);
@@ -202,6 +204,25 @@ public class GlobalExceptionHandler {
         ErrorCode errorCode = ErrorCode.METHOD_NOT_ALLOWED;
         return ResponseEntity.status(errorCode.getHttpStatus())
                 .body(ApiErrorResponse.of(errorCode, request.getRequestURI()));
+    }
+
+    /**
+     * 이미 종료된 비동기 응답에는 오류 Body를 다시 쓰지 않고 연결 종료로 처리합니다.
+     *
+     * @param exception 비동기 응답을 더 이상 사용할 수 없음을 나타내는 예외
+     * @param request HTTP 요청 객체
+     */
+    @ExceptionHandler(AsyncRequestNotUsableException.class)
+    public void handleAsyncRequestNotUsableException(
+            AsyncRequestNotUsableException exception,
+            HttpServletRequest request
+    ) {
+        log.debug(
+                "Client disconnected from async response. method={}, path={}, reason={}",
+                request.getMethod(),
+                request.getRequestURI(),
+                exception.getMessage()
+        );
     }
 
     /**

@@ -17,7 +17,6 @@ import org.junit.jupiter.api.Test;
 
 import com.stockit.backend.feature.strategy.calculation.candidate.domain.CandidateAssumption;
 import com.stockit.backend.feature.strategy.calculation.candidate.domain.StrategyCandidate;
-import com.stockit.backend.feature.strategy.calculation.candidate.policy.SafetyStockPolicyResolver;
 import com.stockit.backend.feature.strategy.calculation.candidate.policy.SourceInventoryCapacityPolicy;
 import com.stockit.backend.feature.strategy.calculation.candidate.policy.TargetAdditionalDemandPolicy;
 import com.stockit.backend.feature.strategy.calculation.domain.BaselineSimulation;
@@ -46,7 +45,7 @@ class StrategyCandidateSimulationEngineTest {
                 new SalesPointDiscountPolicy(discountProperties);
         engine = new StrategyCandidateSimulationEngine(
                 new TargetAdditionalDemandPolicy(),
-                new SourceInventoryCapacityPolicy(new SafetyStockPolicyResolver()),
+                new SourceInventoryCapacityPolicy(),
                 new DiscountDemandPolicy(
                         discountProperties,
                         salesPointDiscountPolicy

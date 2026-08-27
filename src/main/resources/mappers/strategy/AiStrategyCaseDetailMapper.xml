@@ -11,6 +11,7 @@
                strategy_case.case_name,
                strategy_case.case_status,
                strategy_case.generation_stage,
+               strategy_case.recommendation_outcome,
                strategy_case.request_payload_json,
                strategy_case.result_cache_key,
                strategy_case.result_expires_at,

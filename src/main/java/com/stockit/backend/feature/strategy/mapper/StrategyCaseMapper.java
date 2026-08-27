@@ -9,6 +9,7 @@ import com.stockit.backend.feature.strategy.vo.StrategyCaseVO;
 import com.stockit.backend.feature.strategy.vo.StrategyLotReferenceVO;
 import com.stockit.backend.feature.strategy.vo.StrategySkuReferenceVO;
 import com.stockit.backend.feature.strategy.domain.StrategyGenerationStage;
+import com.stockit.backend.feature.strategy.domain.StrategyRecommendationOutcome;
 import java.time.LocalDateTime;
 
 /**
@@ -48,6 +49,16 @@ public interface StrategyCaseMapper {
      */
     StrategyCaseVO selectStrategyCaseById(@Param("strategyCaseId") Long strategyCaseId);
 
+    /** 사용자 재시도 생성과 중복 방지를 직렬화하기 위한 원본 Case 잠금 조회 */
+    StrategyCaseVO selectStrategyCaseByIdForUpdate(
+            @Param("strategyCaseId") Long strategyCaseId
+    );
+
+    /** 동일 실패 Case에서 이미 생성된 직접 재시도 Case 조회 */
+    StrategyCaseVO selectRetryCaseByParentId(
+            @Param("retryParentCaseId") Long retryParentCaseId
+    );
+
     /**
      * 아직 Worker가 선점하지 않은 생성 Case만 수요예측 단계로 전이
      */
@@ -64,7 +75,8 @@ public interface StrategyCaseMapper {
     int markGeneratedIfStrategyGenerating(
             @Param("strategyCaseId") Long strategyCaseId,
             @Param("resultCacheKey") String resultCacheKey,
-            @Param("resultExpiresAt") LocalDateTime resultExpiresAt
+            @Param("resultExpiresAt") LocalDateTime resultExpiresAt,
+            @Param("recommendationOutcome") StrategyRecommendationOutcome recommendationOutcome
     );
 
     /**

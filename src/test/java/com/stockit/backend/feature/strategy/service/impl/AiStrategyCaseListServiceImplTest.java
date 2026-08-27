@@ -18,6 +18,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import com.stockit.backend.feature.strategy.domain.StrategyCaseStatus;
+import com.stockit.backend.feature.strategy.domain.StrategyRecommendationOutcome;
 import com.stockit.backend.feature.strategy.dto.response.AiStrategyCaseListPageResponse;
 import com.stockit.backend.feature.strategy.mapper.AiStrategyCaseListMapper;
 import com.stockit.backend.feature.strategy.result.StrategyResultProperties;
@@ -62,6 +63,8 @@ class AiStrategyCaseListServiceImplTest {
             assertThat(value.strategyCaseId()).isEqualTo(102L);
             assertThat(value.sku().skuCode()).isEqualTo("SKU-1");
             assertThat(value.requester().userName()).isEqualTo("이주영");
+            assertThat(value.recommendationOutcome())
+                    .isEqualTo(StrategyRecommendationOutcome.OPTIONS_GENERATED);
         });
         assertThat(result.statusCounts().all()).isEqualTo(6);
         assertThat(result.statusCounts().generating()).isEqualTo(2);
@@ -98,6 +101,9 @@ class AiStrategyCaseListServiceImplTest {
         value.setStrategyCaseId(id);
         value.setCaseName("테스트 전략");
         value.setCaseStatus(status);
+        value.setRecommendationOutcome(
+                StrategyRecommendationOutcome.OPTIONS_GENERATED
+        );
         value.setSkuId(1L);
         value.setSkuCode("SKU-1");
         value.setSkuName("테스트 SKU");

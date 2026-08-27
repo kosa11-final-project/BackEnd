@@ -5,12 +5,14 @@
 
     <resultMap id="strategyCaseResultMap" type="StrategyCaseVO">
         <id property="strategyCaseId" column="strategy_case_id"/>
+        <result property="retryParentCaseId" column="retry_parent_case_id"/>
         <result property="skuId" column="sku_id"/>
         <result property="requestedSalesPointId" column="requested_sales_point_id"/>
         <result property="caseCode" column="case_code"/>
         <result property="caseName" column="case_name"/>
         <result property="caseStatus" column="case_status"/>
         <result property="generationStage" column="generation_stage"/>
+        <result property="recommendationOutcome" column="recommendation_outcome"/>
         <result property="requestPayloadJson" column="request_payload_json"/>
         <result property="resultCacheKey" column="result_cache_key"/>
         <result property="resultExpiresAt" column="result_expires_at"/>
@@ -70,6 +72,8 @@
         SELECT lot.lot_id,
                lot.sku_id,
                lot.lot_status,
+               lot.expiry_date,
+               lot.sale_stop_date,
                (
                    SELECT MIN(balance.warehouse_id)
                    FROM inventory_balance balance
@@ -93,6 +97,7 @@
             sku_id,
             created_by,
             updated_by,
+            retry_parent_case_id,
             requested_sales_point_id,
             case_code,
             case_name,
@@ -103,6 +108,7 @@
             #{skuId},
             #{createdBy},
             #{updatedBy},
+            #{retryParentCaseId,jdbcType=NUMERIC},
             #{requestedSalesPointId,jdbcType=NUMERIC},
             #{caseCode},
             #{caseName},
@@ -114,12 +120,14 @@
 
     <select id="selectStrategyCaseById" resultMap="strategyCaseResultMap">
         SELECT strategy_case_id,
+               retry_parent_case_id,
                sku_id,
                requested_sales_point_id,
                case_code,
                case_name,
                case_status,
                generation_stage,
+               recommendation_outcome,
                request_payload_json,
                result_cache_key,
                result_expires_at,
@@ -133,6 +141,59 @@
                is_deleted
         FROM strategy_case
         WHERE strategy_case_id = #{strategyCaseId}
+          AND is_deleted = 0
+    </select>
+
+    <select id="selectStrategyCaseByIdForUpdate" resultMap="strategyCaseResultMap">
+        SELECT strategy_case_id,
+               retry_parent_case_id,
+               sku_id,
+               requested_sales_point_id,
+               case_code,
+               case_name,
+               case_status,
+               generation_stage,
+               recommendation_outcome,
+               request_payload_json,
+               result_cache_key,
+               result_expires_at,
+               failure_code,
+               failure_message,
+               completed_at,
+               created_at,
+               updated_at,
+               created_by,
+               updated_by,
+               is_deleted
+        FROM strategy_case
+        WHERE strategy_case_id = #{strategyCaseId}
+          AND is_deleted = 0
+        FOR UPDATE
+    </select>
+
+    <select id="selectRetryCaseByParentId" resultMap="strategyCaseResultMap">
+        SELECT strategy_case_id,
+               retry_parent_case_id,
+               sku_id,
+               requested_sales_point_id,
+               case_code,
+               case_name,
+               case_status,
+               generation_stage,
+               recommendation_outcome,
+               request_payload_json,
+               result_cache_key,
+               result_expires_at,
+               failure_code,
+               failure_message,
+               completed_at,
+               created_at,
+               updated_at,
+               created_by,
+               updated_by,
+               is_deleted
+        FROM strategy_case
+        WHERE retry_parent_case_id = #{retryParentCaseId}
           AND is_deleted = 0
     </select>
 
@@ -162,6 +223,7 @@
         UPDATE strategy_case
         SET case_status = 'GENERATED',
             generation_stage = 'COMPARISON_READY',
+            recommendation_outcome = #{recommendationOutcome},
             result_cache_key = #{resultCacheKey},
             result_expires_at = #{resultExpiresAt},
             completed_at = SYSTIMESTAMP,

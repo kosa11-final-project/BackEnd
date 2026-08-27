@@ -2,6 +2,15 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.stockit.backend.feature.strategy.notification.StrategyNotificationMapper">
+    <resultMap id="notificationRecoveryCandidateMap"
+               type="com.stockit.backend.feature.strategy.notification.StrategyNotificationRecoveryCandidate">
+        <id property="strategyCaseId" column="strategy_case_id"/>
+        <result property="requesterId" column="requester_id"/>
+        <result property="caseName" column="case_name"/>
+        <result property="finalStatus" column="final_status"/>
+        <result property="generationStage" column="generation_stage"/>
+    </resultMap>
+
     <insert id="insertIfAbsent">
         INSERT INTO notification (
             user_id,
@@ -41,4 +50,48 @@
               AND existing.deduplication_key = #{deduplicationKey}
         )
     </insert>
+
+    <select id="selectMissingFinalNotifications"
+            resultMap="notificationRecoveryCandidateMap">
+        SELECT candidate.strategy_case_id,
+               candidate.requester_id,
+               candidate.case_name,
+               candidate.final_status,
+               candidate.generation_stage
+        FROM (
+            SELECT strategy_case.strategy_case_id,
+                   strategy_case.created_by AS requester_id,
+                   strategy_case.case_name,
+                   strategy_case.generation_stage,
+                   CASE
+                       WHEN strategy_case.case_status = 'GENERATION_FAILED'
+                           THEN 'GENERATION_FAILED'
+                       ELSE 'GENERATED'
+                   END AS final_status,
+                   strategy_case.completed_at
+            FROM strategy_case
+            WHERE strategy_case.completed_at &gt;= #{completedFrom}
+              AND strategy_case.created_by IS NOT NULL
+              AND strategy_case.is_deleted = 0
+              AND (
+                    strategy_case.case_status = 'GENERATION_FAILED'
+                    OR strategy_case.generation_stage = 'COMPARISON_READY'
+              )
+              AND NOT EXISTS (
+                    SELECT 1
+                    FROM notification existing
+                    WHERE existing.user_id = strategy_case.created_by
+                      AND existing.deduplication_key =
+                          'AI_STRATEGY:' || strategy_case.strategy_case_id || ':' ||
+                          CASE
+                              WHEN strategy_case.case_status = 'GENERATION_FAILED'
+                                  THEN 'GENERATION_FAILED'
+                              ELSE 'GENERATED'
+                          END
+              )
+            ORDER BY strategy_case.completed_at,
+                     strategy_case.strategy_case_id
+        ) candidate
+        WHERE ROWNUM &lt;= #{batchSize}
+    </select>
 </mapper>

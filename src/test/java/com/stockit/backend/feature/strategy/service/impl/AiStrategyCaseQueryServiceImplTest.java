@@ -30,6 +30,7 @@ import com.stockit.backend.feature.strategy.calculation.domain.BaselineSimulatio
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculationContext;
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCandidateSimulation;
 import com.stockit.backend.feature.strategy.domain.StrategyCaseStatus;
+import com.stockit.backend.feature.strategy.domain.StrategyRecommendationOutcome;
 import com.stockit.backend.feature.strategy.domain.StrategyGenerationStage;
 import com.stockit.backend.feature.strategy.domain.StrategyType;
 import com.stockit.backend.feature.strategy.dto.StrategyCaseRequestPayload;
@@ -97,6 +98,8 @@ class AiStrategyCaseQueryServiceImplTest {
 
         AiStrategyCaseResponse response = service.find(123L);
 
+        assertThat(response.recommendationOutcome())
+                .isEqualTo(StrategyRecommendationOutcome.OPTIONS_GENERATED);
         assertThat(response.sku()).satisfies(sku -> {
             assertThat(sku.skuCode()).isEqualTo("GF-SOUP-MSH-06");
             assertThat(sku.skuName()).isEqualTo("버섯 들깨탕 6팩");
@@ -408,6 +411,9 @@ class AiStrategyCaseQueryServiceImplTest {
         detail.setCaseName("버섯 들깨탕 수도권 재배치 전략");
         detail.setCaseStatus(StrategyCaseStatus.GENERATED);
         detail.setGenerationStage(StrategyGenerationStage.COMPARISON_READY);
+        detail.setRecommendationOutcome(
+                StrategyRecommendationOutcome.OPTIONS_GENERATED
+        );
         detail.setRequestPayloadJson("{request-payload}");
         detail.setResultCacheKey("ai-strategy:case:123:result:v1");
         detail.setResultExpiresAt(expiresAt);

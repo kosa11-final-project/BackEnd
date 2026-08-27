@@ -6,6 +6,7 @@ package com.stockit.backend.common.exception;
 public class AppException extends RuntimeException {
 
     private final ErrorCode errorCode;
+    private final Object details;
 
     /**
      * 에러 코드를 기반으로 기본 메시지를 사용하는 예외를 생성합니다.
@@ -13,8 +14,7 @@ public class AppException extends RuntimeException {
      * @param errorCode 에러 코드
      */
     public AppException(ErrorCode errorCode) {
-        super(errorCode.getMessage());
-        this.errorCode = errorCode;
+        this(errorCode, errorCode.getMessage(), null);
     }
 
     /**
@@ -24,8 +24,14 @@ public class AppException extends RuntimeException {
      * @param message 커스텀 상세 메시지
      */
     public AppException(ErrorCode errorCode, String message) {
+        this(errorCode, message, null);
+    }
+
+    /** 에러 코드와 사용자 메시지, 구조화된 상세 정보를 함께 보존합니다. */
+    public AppException(ErrorCode errorCode, String message, Object details) {
         super(message != null && !message.isBlank() ? message : errorCode.getMessage());
         this.errorCode = errorCode;
+        this.details = details;
     }
 
     /**
@@ -35,5 +41,9 @@ public class AppException extends RuntimeException {
      */
     public ErrorCode getErrorCode() {
         return errorCode;
+    }
+
+    public Object getDetails() {
+        return details;
     }
 }

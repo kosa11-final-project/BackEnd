@@ -101,6 +101,13 @@ public enum ErrorCode {
     AI_STRATEGY_DUPLICATE_INPUT(HttpStatus.CONFLICT, "AI 전략 생성 요청에 중복된 값이 포함되어 있습니다.", "AI_STRATEGY-002"),
     AI_STRATEGY_SELECTION_CONFLICT(HttpStatus.CONFLICT, "이미 확정된 AI 전략과 요청이 충돌합니다.", "AI_STRATEGY-017"),
     AI_STRATEGY_CASE_NOT_READY(HttpStatus.CONFLICT, "AI 전략 생성 결과가 아직 조정 가능한 상태가 아닙니다.", "AI_STRATEGY-020"),
+    AI_STRATEGY_PERFORMANCE_SYNC_CONFLICT(HttpStatus.CONFLICT, "전략 성과 동기화가 이미 진행 중입니다.", "AI_STRATEGY-021"),
+    AI_STRATEGY_RETRY_NOT_ALLOWED(HttpStatus.CONFLICT, "현재 상태에서는 AI 전략 생성을 재시도할 수 없습니다.", "AI_STRATEGY-022"),
+    AI_STRATEGY_RETRY_DATE_ADJUSTMENT_REQUIRED(HttpStatus.CONFLICT, "기존 전략의 판매 시작일이 지났습니다.", "AI_STRATEGY-023"),
+    AI_STRATEGY_RETRY_PERIOD_EXPIRED(HttpStatus.CONFLICT, "기존 전략의 판매 기간이 모두 지났습니다. 조건을 수정하여 새 전략을 생성해 주세요.", "AI_STRATEGY-024"),
+    AI_STRATEGY_RETRY_CONDITIONS_STALE(HttpStatus.CONFLICT, "기존 전략의 판매 조건이 현재 실행 가능 범위를 벗어났습니다.", "AI_STRATEGY-025"),
+    AI_STRATEGY_RETRY_REFERENCE_CHANGED(HttpStatus.CONFLICT, "기존 요청의 재고 또는 판매처 상태가 변경되었습니다.", "AI_STRATEGY-026"),
+    AI_STRATEGY_RETRY_PAYLOAD_INVALID(HttpStatus.CONFLICT, "기존 AI 전략 요청 정보를 복원할 수 없습니다.", "AI_STRATEGY-027"),
 
     // TMP - 구조 확인 후 실제 기능과 함께 제거
     TMP_CONFLICT(HttpStatus.CONFLICT, "테스트 요청이 충돌했습니다.", "TMP-001"),
