@@ -76,6 +76,30 @@ class InventoryQuantitySqlContractTest {
     }
 
     @Test
+    void expectedDisposalIncludesFutureExpiryOrSaleStopDatesEvenWhenLotStatusAlreadyMarksThem() throws IOException {
+        String inventorySql = read("inventory/InventoryMapper.xml");
+        String listDisposalSql = inventorySql.substring(
+                inventorySql.indexOf("disposal_lots AS"),
+                inventorySql.indexOf("disposal_scope AS")
+        );
+        String detailDisposalSql = inventorySql.substring(
+                inventorySql.indexOf("detail_disposal_scope AS"),
+                inventorySql.indexOf("detail_disposal AS")
+        );
+
+        assertThat(listDisposalSql)
+                .contains("sale_end_date > TRUNC(CAST(#{asOfDate} AS DATE))")
+                .contains("sale_end_date &lt;= TRUNC(CAST(#{asOfDate} AS DATE)) + 30")
+                .contains("lot_status IS NULL OR lot_status &lt;&gt; 'DEPLETED'")
+                .doesNotContain("lot_status NOT IN ('EXPIRED', 'SALE_STOPPED', 'DEPLETED')");
+        assertThat(detailDisposalSql)
+                .contains("sale_end_date &gt; TRUNC(CAST(#{asOfDate} AS DATE))")
+                .contains("sale_end_date &lt;= TRUNC(CAST(#{asOfDate} AS DATE)) + 30")
+                .contains("lot_status IS NULL OR lot_status &lt;&gt; 'DEPLETED'")
+                .doesNotContain("lot_status NOT IN ('EXPIRED', 'SALE_STOPPED', 'DEPLETED')");
+    }
+
+    @Test
     void reservedQuantityIsZeroForInventoryThatCannotBeSold() throws IOException {
         String inventorySql = read("inventory/InventoryMapper.xml");
 
