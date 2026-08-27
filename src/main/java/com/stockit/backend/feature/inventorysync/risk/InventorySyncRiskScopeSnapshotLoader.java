@@ -32,10 +32,28 @@ public class InventorySyncRiskScopeSnapshotLoader implements InventorySyncRiskWr
         return new LinkedHashSet<>(mapper.selectScopesRequiringRuleVersion(ruleVersion));
     }
 
+    public Set<String> findScopesRequiringDailyRefresh(LocalDate asOfDate) {
+        if (asOfDate == null) {
+            throw new IllegalArgumentException("daily risk refresh date is required");
+        }
+        return new LinkedHashSet<>(mapper.selectScopesRequiringDailyRefresh(asOfDate));
+    }
+
     @Override
     public List<InventorySyncRiskWriter.RiskScopeSnapshot> load(Set<String> affectedScopes) {
+        return load(affectedScopes, LocalDate.now(clock));
+    }
+
+    @Override
+    public List<InventorySyncRiskWriter.RiskScopeSnapshot> load(
+            Set<String> affectedScopes,
+            LocalDate asOfDate
+    ) {
         if (affectedScopes == null || affectedScopes.isEmpty()) return List.of();
-        LocalDate baseDate = LocalDate.now(clock);
+        if (asOfDate == null) {
+            throw new IllegalArgumentException("risk snapshot date is required");
+        }
+        LocalDate baseDate = asOfDate;
         Map<String, List<InventorySyncRiskSnapshotMapper.RiskScopeRow>> grouped = new LinkedHashMap<>();
         List<String> keys = new ArrayList<>(affectedScopes);
         for (int start = 0; start < keys.size(); start += 500) {
@@ -64,9 +82,16 @@ public class InventorySyncRiskScopeSnapshotLoader implements InventorySyncRiskWr
                     .filter(value -> value != null)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
             LocalDate forecastDate = first.getForecastBaseDate();
-            boolean forecastAvailable = first.getPredictedQtyD7() != null && first.getPredictedQtyD30() != null;
+            boolean forecastAvailable = first.getPredictedQtyD7() != null
+                    && first.getPredictedQtyD14() != null
+                    && first.getPredictedQtyD30() != null;
             boolean stale = forecastDate != null && forecastDate.isBefore(baseDate.minusDays(14));
-            var input = new RiskAssessmentInput(first.getSkuCode(), first.getSalesPointCode(), totalOnHand, first.getPredictedQtyD7(), first.getPredictedQtyD30(), first.getSafetyStockQty(), forecastDate == null ? baseDate : forecastDate, lots, forecastAvailable, stale, baseDate);
+            var input = new RiskAssessmentInput(
+                    first.getSkuCode(), first.getSalesPointCode(), totalOnHand,
+                    first.getPredictedQtyD7(), first.getPredictedQtyD14(), first.getPredictedQtyD30(),
+                    first.getSafetyStockQty(), forecastDate == null ? baseDate : forecastDate,
+                    lots, forecastAvailable, stale, baseDate
+            );
             List<Long> siblingIds = rows.stream().skip(1).map(InventorySyncRiskSnapshotMapper.RiskScopeRow::getInventoryBalanceId).toList();
             return new InventorySyncRiskWriter.RiskScopeSnapshot(first.getInventoryBalanceId(), first.getForecastId(), input, siblingIds);
         }).toList();

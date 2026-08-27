@@ -63,9 +63,14 @@ class StrategyStatisticsServiceImplTest {
             assertThat(summary.goalAchievedStrategyRate()).isEqualByComparingTo("50.0000");
             assertThat(summary.averageAchievementRate()).isEqualByComparingTo("100.0000");
             assertThat(summary.baselineRiskStockQty()).isEqualByComparingTo("300");
+            assertThat(summary.endRiskStockQty()).isEqualByComparingTo("250");
             assertThat(summary.riskStockReductionQty()).isEqualByComparingTo("50");
             assertThat(summary.riskStockReductionRate()).isEqualByComparingTo("16.6667");
+            assertThat(summary.baselineExpectedDisposalQty()).isEqualByComparingTo("70");
+            assertThat(summary.endExpectedDisposalQty()).isEqualByComparingTo("60");
             assertThat(summary.avoidedDisposalQty()).isEqualByComparingTo("10");
+            assertThat(summary.baselineEstimatedLossAmount()).isEqualByComparingTo("7000");
+            assertThat(summary.endEstimatedLossAmount()).isEqualByComparingTo("6000");
             assertThat(summary.estimatedLossSavingsAmount()).isEqualByComparingTo("1500");
         });
         assertThat(response.dailyTrend()).hasSize(2);
@@ -80,6 +85,7 @@ class StrategyStatisticsServiceImplTest {
         when(mapper.selectCompletedResults(FROM_DATE, TO_DATE)).thenReturn(List.of(first, second));
         when(mapper.selectResultScopes(List.of(1L, 2L))).thenReturn(List.of(
                 scope(1, "WAREHOUSE", "WH-1"),
+                scope(1, "WAREHOUSE", "WH-2"),
                 scope(1, "OFFLINE_STORE", "STORE-1"),
                 scope(2, "ONLINE_STORE", "ONLINE-1")
         ));
@@ -94,6 +100,14 @@ class StrategyStatisticsServiceImplTest {
 
         assertThat(response.summary().completedCount()).isEqualTo(1);
         assertThat(response.summary().riskStockReductionQty()).isEqualByComparingTo("60");
+        assertThat(response.locationPerformance()).extracting("code")
+                .containsExactlyInAnyOrder("WH-1", "WH-2");
+        assertThat(response.locationPerformance()).allSatisfy(location ->
+                assertThat(location.completedCount()).isEqualTo(1));
+        assertThat(response.scopePerformance())
+                .filteredOn(location -> "WAREHOUSE".equals(location.scopeType()))
+                .singleElement()
+                .satisfies(location -> assertThat(location.completedCount()).isEqualTo(1));
     }
 
     @Test
@@ -127,6 +141,7 @@ class StrategyStatisticsServiceImplTest {
         value.setEndRiskStockQty(BigDecimal.valueOf(endRisk));
         value.setStartExpectedDisposalQty(BigDecimal.valueOf(startDisposal));
         value.setEndExpectedDisposalQty(BigDecimal.valueOf(endDisposal));
+        value.setStartUnitCost(BigDecimal.valueOf(100));
         value.setEstimatedLossSavingsAmount(BigDecimal.valueOf(savings));
         return value;
     }
@@ -143,6 +158,7 @@ class StrategyStatisticsServiceImplTest {
         value.setFinalSelectionId(selectionId);
         value.setScopeType(scopeType);
         value.setScopeCode(scopeCode);
+        value.setScopeName(scopeCode);
         return value;
     }
 }

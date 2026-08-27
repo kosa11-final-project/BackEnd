@@ -73,7 +73,8 @@ public record CanonicalInventoryRecord(
         productStatus = requireText(productStatus, "productStatus");
         skuName = requireText(skuName, "skuName");
         unitCode = requireText(unitCode, "unitCode");
-        lotStatus = requireText(lotStatus, "lotStatus");
+        // 원천 시스템의 LOT 상태는 authority가 아닙니다. 날짜와 통합 잔량으로 동기화 종료 시 재산정합니다.
+        lotStatus = null;
         if (!"WAREHOUSE".equals(sourceType)) {
             saleAvailableYn = requireFlag(saleAvailableYn, "saleAvailableYn");
         }

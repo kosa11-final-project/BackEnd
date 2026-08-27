@@ -12,6 +12,8 @@ public record StrategyStatisticsResponse(
         String scopeType,
         String scopeCode,
         StrategyStatisticsSummaryResponse summary,
+        List<StrategyLocationPerformanceResponse> locationPerformance,
+        List<StrategyLocationPerformanceResponse> scopePerformance,
         List<StrategyStatisticsTrendPointResponse> dailyTrend,
         List<StrategyActionCombinationStatisticsResponse> actionCombinationBreakdown
 ) {

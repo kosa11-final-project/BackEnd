@@ -354,6 +354,7 @@
                result.end_risk_stock_qty,
                result.start_expected_disposal_qty,
                result.end_expected_disposal_qty,
+               result.start_unit_cost,
                result.estimated_loss_savings_amount
         FROM strategy_execution_result result
         JOIN final_strategy_selection selection
@@ -386,11 +387,13 @@
             resultType="com.stockit.backend.feature.statistics.vo.StrategyStatisticsScopeVO">
         SELECT DISTINCT scopes.final_selection_id,
                         scopes.scope_type,
-                        scopes.scope_code
+                        scopes.scope_code,
+                        scopes.scope_name
         FROM (
             SELECT selection.final_selection_id,
                    'WAREHOUSE' AS scope_type,
-                   source_warehouse.warehouse_code AS scope_code
+                   source_warehouse.warehouse_code AS scope_code,
+                   source_warehouse.warehouse_name AS scope_name
             FROM final_strategy_selection selection
             JOIN strategy_action action
               ON action.strategy_option_id = selection.strategy_option_id
@@ -408,7 +411,8 @@
 
             SELECT selection.final_selection_id,
                    'WAREHOUSE',
-                   destination_warehouse.warehouse_code
+                   destination_warehouse.warehouse_code,
+                   destination_warehouse.warehouse_name
             FROM final_strategy_selection selection
             JOIN strategy_action action
               ON action.strategy_option_id = selection.strategy_option_id
@@ -426,7 +430,8 @@
 
             SELECT selection.final_selection_id,
                    'WAREHOUSE',
-                   snapshot_warehouse.warehouse_code
+                   snapshot_warehouse.warehouse_code,
+                   snapshot_warehouse.warehouse_name
             FROM final_strategy_selection selection
             JOIN strategy_inventory_snapshot snapshot
               ON snapshot.strategy_case_id = selection.strategy_case_id
@@ -448,7 +453,8 @@
                        WHEN 'OFFLINE' THEN 'OFFLINE_STORE'
                        ELSE 'ONLINE_STORE'
                    END,
-                   source_point.sales_point_code
+                   source_point.sales_point_code,
+                   source_point.sales_point_name
             FROM final_strategy_selection selection
             JOIN strategy_action action
               ON action.strategy_option_id = selection.strategy_option_id
@@ -474,7 +480,8 @@
                        WHEN 'OFFLINE' THEN 'OFFLINE_STORE'
                        ELSE 'ONLINE_STORE'
                    END,
-                   target_point.sales_point_code
+                   target_point.sales_point_code,
+                   target_point.sales_point_name
             FROM final_strategy_selection selection
             JOIN strategy_action action
               ON action.strategy_option_id = selection.strategy_option_id
@@ -500,7 +507,8 @@
                        WHEN 'OFFLINE' THEN 'OFFLINE_STORE'
                        ELSE 'ONLINE_STORE'
                    END,
-                   snapshot_point.sales_point_code
+                   snapshot_point.sales_point_code,
+                   snapshot_point.sales_point_name
             FROM final_strategy_selection selection
             JOIN strategy_inventory_snapshot snapshot
               ON snapshot.strategy_case_id = selection.strategy_case_id

@@ -128,9 +128,13 @@ public class InventorySyncCanonicalBatchWriter implements InventorySyncPublisher
     @Override
     public int finish(String runId, Map<String, Long> sourceVersions, Set<String> riskScopes, Long actorId,
                       int changedCount) {
+        requireActor(actorId);
+        LocalDate asOfDate = LocalDate.now(ZoneId.of("Asia/Seoul"));
         Set<String> sourceTypes = sourceVersions.keySet();
         sourceWriteMapper.refreshState(sourceTypes, Long.valueOf(runId));
         sourceVersions.forEach((sourceType, version) -> runSourceMapper.completeSource(Long.valueOf(runId), sourceType, version, "SUCCESS"));
+        Set<String> dailyRefreshScopes = riskSnapshotLoader.findScopesRequiringDailyRefresh(asOfDate);
+        int refreshedLotCount = mapper.refreshLotStatuses(asOfDate, actorId);
         var run = runMapper.selectByIdForUpdate(Long.valueOf(runId));
         if (run == null || !"RUNNING".equals(run.getRunStatus())
                 || runMapper.updatePhase(Long.valueOf(runId), run.getMainAttemptNo(), run.getFencingToken(),
@@ -141,20 +145,24 @@ public class InventorySyncCanonicalBatchWriter implements InventorySyncPublisher
         if (riskScopes != null) {
             scopesToEvaluate.addAll(riskScopes);
         }
+        scopesToEvaluate.addAll(dailyRefreshScopes);
         Set<String> outdatedRuleScopes = riskSnapshotLoader.findScopesRequiringRuleVersion(
                 RiskRuleEngine.RULE_VERSION
         );
-        int riskOnlyChangedCount = (int) outdatedRuleScopes.stream()
-                .filter(scope -> !scopesToEvaluate.contains(scope))
-                .count();
         scopesToEvaluate.addAll(outdatedRuleScopes);
-        riskWriter.evaluateAndPersist(Long.valueOf(runId), actorId, scopesToEvaluate, riskSnapshotLoader);
-        if (snapshotCoordinator != null && changedCount + riskOnlyChangedCount > 0) {
+        Set<String> sourceChangedScopes = riskScopes == null ? Set.of() : riskScopes;
+        int riskOnlyChangedCount = (int) scopesToEvaluate.stream()
+                .filter(scope -> !sourceChangedScopes.contains(scope))
+                .count();
+        riskWriter.evaluateAndPersist(
+                Long.valueOf(runId), actorId, scopesToEvaluate, asOfDate, riskSnapshotLoader
+        );
+        if (snapshotCoordinator != null && changedCount + refreshedLotCount + riskOnlyChangedCount > 0) {
             snapshotCoordinator.scheduleAfterCommit(
                     Long.valueOf(runId),
-                    LocalDate.now(ZoneId.of("Asia/Seoul"))
+                    asOfDate
             );
         }
-        return riskOnlyChangedCount;
+        return refreshedLotCount + riskOnlyChangedCount;
     }
 }

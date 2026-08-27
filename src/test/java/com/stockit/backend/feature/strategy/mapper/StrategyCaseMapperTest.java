@@ -1,6 +1,7 @@
 package com.stockit.backend.feature.strategy.mapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
@@ -18,6 +19,8 @@ import org.apache.ibatis.type.JdbcType;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.dao.DataAccessException;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.jdbc.Sql;
 
@@ -39,6 +42,9 @@ class StrategyCaseMapperTest {
 
     @Autowired
     private SqlSessionFactory sqlSessionFactory;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @Test
     void readsActiveReferencesInBulk() {
@@ -141,6 +147,7 @@ class StrategyCaseMapperTest {
         new DefaultParameterHandler(mappedStatement, strategyCase, boundSql)
                 .setParameters(preparedStatement);
         verify(preparedStatement).setNull(4, Types.NUMERIC);
+        verify(preparedStatement).setNull(5, Types.NUMERIC);
 
         strategyCaseMapper.insertStrategyCase(strategyCase);
 
@@ -148,6 +155,86 @@ class StrategyCaseMapperTest {
                 strategyCase.getStrategyCaseId()
         );
         assertThat(saved.getRequestedSalesPointId()).isNull();
+    }
+
+    @Test
+    void locksFailedParentAndPersistsOneDirectRetryRelationship() {
+        StrategyCaseVO parent = StrategyCaseVO.generating(
+                101L,
+                10L,
+                "SC-0123456789abcdef0123456789abcd01",
+                "원본 실패 전략",
+                "{\"lotIds\":[]}",
+                99L
+        );
+        strategyCaseMapper.insertStrategyCase(parent);
+        assertThat(strategyCaseMapper.markGenerationFailedIfGenerating(
+                parent.getStrategyCaseId(),
+                "PROVIDER_FAILED",
+                "provider failure"
+        )).isEqualTo(1);
+
+        StrategyCaseVO locked = strategyCaseMapper.selectStrategyCaseByIdForUpdate(
+                parent.getStrategyCaseId()
+        );
+        assertThat(locked.getCaseStatus()).isEqualTo(
+                StrategyCaseStatus.GENERATION_FAILED
+        );
+
+        StrategyCaseVO retry = StrategyCaseVO.generating(
+                101L,
+                10L,
+                "SC-0123456789abcdef0123456789abcd02",
+                "원본 실패 전략",
+                "{\"lotIds\":[]}",
+                100L,
+                parent.getStrategyCaseId()
+        );
+        strategyCaseMapper.insertStrategyCase(retry);
+
+        StrategyCaseVO selected = strategyCaseMapper.selectRetryCaseByParentId(
+                parent.getStrategyCaseId()
+        );
+        assertThat(selected.getStrategyCaseId()).isEqualTo(
+                retry.getStrategyCaseId()
+        );
+        assertThat(selected.getRetryParentCaseId()).isEqualTo(
+                parent.getStrategyCaseId()
+        );
+        assertThat(selected.getCreatedBy()).isEqualTo(100L);
+
+        StrategyCaseVO duplicatedRetry = StrategyCaseVO.generating(
+                101L,
+                10L,
+                "SC-0123456789abcdef0123456789abcd03",
+                "중복 재시도 전략",
+                "{\"lotIds\":[]}",
+                101L,
+                parent.getStrategyCaseId()
+        );
+        assertThatThrownBy(() -> strategyCaseMapper.insertStrategyCase(
+                duplicatedRetry
+        )).isInstanceOf(DataAccessException.class);
+    }
+
+    @Test
+    void rejectsSelfReferentialRetryRelationshipLikeProductionSchema() {
+        StrategyCaseVO strategyCase = StrategyCaseVO.generating(
+                101L,
+                10L,
+                "SC-0123456789abcdef0123456789abcd04",
+                "자기 참조 방지 전략",
+                "{\"lotIds\":[]}",
+                99L
+        );
+        strategyCaseMapper.insertStrategyCase(strategyCase);
+
+        assertThatThrownBy(() -> jdbcTemplate.update(
+                "UPDATE strategy_case "
+                        + "SET retry_parent_case_id = strategy_case_id "
+                        + "WHERE strategy_case_id = ?",
+                strategyCase.getStrategyCaseId()
+        )).isInstanceOf(DataAccessException.class);
     }
 
     @Test

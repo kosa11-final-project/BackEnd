@@ -60,6 +60,7 @@
           AND (
               UPPER(strategy_case.case_code) LIKE '%' || UPPER(#{query.query}) || '%'
               OR UPPER(product.product_name) LIKE '%' || UPPER(#{query.query}) || '%'
+              OR UPPER(sku.sku_code) LIKE '%' || UPPER(#{query.query}) || '%'
           )
         </if>
         <if test="query.caseStatus != null">

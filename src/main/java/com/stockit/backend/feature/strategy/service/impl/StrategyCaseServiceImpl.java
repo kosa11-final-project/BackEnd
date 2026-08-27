@@ -77,6 +77,39 @@ public class StrategyCaseServiceImpl implements StrategyCaseService {
             CreateStrategyCaseCommand command,
             Long requesterId
     ) {
+        return createStrategyCase(
+                command,
+                requesterId,
+                null,
+                dateTimeProvider.now()
+        );
+    }
+
+    @Override
+    @Transactional
+    public StrategyCaseCreated createRetryStrategyCase(
+            CreateStrategyCaseCommand command,
+            Long requesterId,
+            Long retryParentCaseId,
+            LocalDateTime requestedAt
+    ) {
+        if (!isPositive(retryParentCaseId) || requestedAt == null) {
+            throw new AppException(ErrorCode.AI_STRATEGY_INVALID_REQUEST);
+        }
+        return createStrategyCase(
+                command,
+                requesterId,
+                retryParentCaseId,
+                requestedAt
+        );
+    }
+
+    private StrategyCaseCreated createStrategyCase(
+            CreateStrategyCaseCommand command,
+            Long requesterId,
+            Long retryParentCaseId,
+            LocalDateTime requestedAt
+    ) {
         validateRequiredValues(command, requesterId);
         validateDuplicates(command);
         validateStrategyTypes(command.strategyTypes());
@@ -90,7 +123,6 @@ public class StrategyCaseServiceImpl implements StrategyCaseService {
         validateLots(command.skuId(), command.lotIds());
 
         // 날짜 검증과 생성 이벤트의 기준 시각이 자정 경계를 사이에 두고 달라지지 않도록 한 번만 고정
-        LocalDateTime requestedAt = dateTimeProvider.now();
         ForecastDateRange forecastDateRange = dateRangeResolver.resolve(
                 command.preferredStartDate(),
                 command.preferredEndDate(),
@@ -115,7 +147,8 @@ public class StrategyCaseServiceImpl implements StrategyCaseService {
                 caseCodeGenerator.generate(),
                 caseName,
                 requestPayloadJson,
-                requesterId
+                requesterId,
+                retryParentCaseId
         );
         strategyCaseMapper.insertStrategyCase(strategyCase);
 

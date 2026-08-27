@@ -27,7 +27,6 @@ import com.stockit.backend.feature.strategy.calculation.candidate.domain.Strateg
 import com.stockit.backend.feature.strategy.calculation.candidate.domain.StrategyCandidateIdGenerator;
 import com.stockit.backend.feature.strategy.calculation.candidate.policy.DiscountRateCandidatePolicy;
 import com.stockit.backend.feature.strategy.calculation.candidate.policy.MovementLotAllocationPolicy;
-import com.stockit.backend.feature.strategy.calculation.candidate.policy.SafetyStockPolicyResolver;
 import com.stockit.backend.feature.strategy.calculation.candidate.policy.SourceInventoryCapacityPolicy;
 import com.stockit.backend.feature.strategy.calculation.candidate.policy.StrategyPeriodCandidatePolicy;
 import com.stockit.backend.feature.strategy.calculation.candidate.policy.StrategyPeriodEligibilityPolicy;
@@ -51,9 +50,8 @@ class DiscountAndChannelCandidateCalculatorTest {
 
     @BeforeEach
     void setUp() {
-        SafetyStockPolicyResolver safetyResolver = new SafetyStockPolicyResolver();
         SourceInventoryCapacityPolicy capacityPolicy =
-                new SourceInventoryCapacityPolicy(safetyResolver);
+                new SourceInventoryCapacityPolicy();
         allocationPolicy = spy(new MovementLotAllocationPolicy());
         StrategyCandidateIdGenerator idGenerator =
                 new StrategyCandidateIdGenerator();
@@ -131,6 +129,28 @@ class DiscountAndChannelCandidateCalculatorTest {
         assertThat(tenPercentMaximum.actions().get(0).actionQuantity())
                 .isEqualByComparingTo("11");
         verify(allocationPolicy, times(22)).plan(any(), any(), any(), any());
+    }
+
+    @Test
+    void allowsDiscountingAllAvailableInventoryBelowSafetyStock() {
+        StrategyCalculationContext context = withSafetyStock(
+                context(
+                        null,
+                        List.of(StrategyType.PRICE_DISCOUNT),
+                        "19",
+                        "20"
+                ),
+                "20"
+        );
+
+        CandidateGenerationResult result = discountCalculator.generate(context, 1);
+
+        assertThat(result.exclusions()).isEmpty();
+        assertThat(result.candidates()).isNotEmpty();
+        assertThat(result.candidates().stream()
+                .filter(candidate -> candidate.preference().quantityPercentage() == 100)
+                .map(candidate -> candidate.actions().get(0).actionQuantity())
+                .toList()).containsOnly(decimal("19.000"));
     }
 
     @Test
@@ -461,6 +481,38 @@ class DiscountAndChannelCandidateCalculatorTest {
                 original.evaluationInventory(),
                 original.referenceInventory(),
                 original.inventoryPolicies(),
+                original.salesPoints(),
+                original.forecastMetadata(),
+                original.transferRoutes(),
+                original.transferCostPolicies()
+        );
+    }
+
+    private static StrategyCalculationContext withSafetyStock(
+            StrategyCalculationContext original,
+            String safetyStockQuantity
+    ) {
+        return new StrategyCalculationContext(
+                original.strategyCaseId(),
+                original.sourceSalesPointId(),
+                original.calculatedAt(),
+                original.forecastStartDate(),
+                original.forecastEndDate(),
+                original.sku(),
+                original.unitCost(),
+                original.requestConstraints(),
+                original.evaluationInventory(),
+                original.referenceInventory(),
+                List.of(new StrategyCalculationContext.InventoryPolicy(
+                        1L,
+                        501L,
+                        10L,
+                        10L,
+                        decimal(safetyStockQuantity),
+                        null,
+                        null,
+                        null
+                )),
                 original.salesPoints(),
                 original.forecastMetadata(),
                 original.transferRoutes(),

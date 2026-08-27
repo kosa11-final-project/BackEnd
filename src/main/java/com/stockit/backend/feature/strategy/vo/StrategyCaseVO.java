@@ -18,6 +18,7 @@ import lombok.Setter;
 public class StrategyCaseVO extends BaseEntity {
 
     private Long strategyCaseId;
+    private Long retryParentCaseId;
     private Long skuId;
     private Long requestedSalesPointId;
     private String caseCode;
@@ -43,7 +44,29 @@ public class StrategyCaseVO extends BaseEntity {
             String requestPayloadJson,
             Long requesterId
     ) {
+        return generating(
+                skuId,
+                requestedSalesPointId,
+                caseCode,
+                caseName,
+                requestPayloadJson,
+                requesterId,
+                null
+        );
+    }
+
+    /** 사용자 재시도 관계를 포함한 신규 생성 상태를 만든다. */
+    public static StrategyCaseVO generating(
+            Long skuId,
+            Long requestedSalesPointId,
+            String caseCode,
+            String caseName,
+            String requestPayloadJson,
+            Long requesterId,
+            Long retryParentCaseId
+    ) {
         StrategyCaseVO strategyCase = new StrategyCaseVO();
+        strategyCase.setRetryParentCaseId(retryParentCaseId);
         strategyCase.setSkuId(skuId);
         strategyCase.setRequestedSalesPointId(requestedSalesPointId);
         strategyCase.setCaseCode(caseCode);

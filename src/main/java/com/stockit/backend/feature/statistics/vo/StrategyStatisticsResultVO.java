@@ -19,5 +19,6 @@ public class StrategyStatisticsResultVO {
     private BigDecimal endRiskStockQty;
     private BigDecimal startExpectedDisposalQty;
     private BigDecimal endExpectedDisposalQty;
+    private BigDecimal startUnitCost;
     private BigDecimal estimatedLossSavingsAmount;
 }

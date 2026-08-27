@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anySet;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verify;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -55,6 +56,21 @@ class InventorySyncRiskScopeSnapshotLoaderTest {
     }
 
     @Test
+    void usesTheSyncPinnedDateForSnapshotSelectionAndAssessment() {
+        InventorySyncRiskSnapshotMapper mapper = org.mockito.Mockito.mock(InventorySyncRiskSnapshotMapper.class);
+        LocalDate asOfDate = LocalDate.of(2026, 8, 27);
+        var row = row(10L, "SKU-1", "DEPT-1", "LOT-1", BigDecimal.TEN);
+        row.setForecastBaseDate(asOfDate.minusDays(1));
+        when(mapper.selectAffectedScopeSnapshot(Set.of("1:10"), asOfDate)).thenReturn(List.of(row));
+
+        var snapshots = new InventorySyncRiskScopeSnapshotLoader(mapper).load(Set.of("1:10"), asOfDate);
+
+        assertThat(snapshots).singleElement().satisfies(snapshot ->
+                assertThat(snapshot.input().assessmentDate()).isEqualTo(asOfDate));
+        verify(mapper).selectAffectedScopeSnapshot(Set.of("1:10"), asOfDate);
+    }
+
+    @Test
     void keepsUnassignedScopeForWarehouseCommonStock() {
         InventorySyncRiskSnapshotMapper mapper = org.mockito.Mockito.mock(InventorySyncRiskSnapshotMapper.class);
         var common = row(30L, "SKU-1", "UNASSIGNED", "LOT-COMMON", new BigDecimal("12"));
@@ -81,6 +97,7 @@ class InventorySyncRiskScopeSnapshotLoaderTest {
         row.setLotQty(onHandQty);
         row.setOnHandQty(onHandQty);
         row.setPredictedQtyD7(BigDecimal.ONE);
+        row.setPredictedQtyD14(BigDecimal.valueOf(5));
         row.setPredictedQtyD30(BigDecimal.TEN);
         row.setSafetyStockQty(BigDecimal.ONE);
         row.setForecastBaseDate(LocalDate.now());

@@ -147,6 +147,42 @@ class StrategyCaseServiceImplTest {
     }
 
     @Test
+    void createsRetryCaseWithParentAndUsesCallerFixedRequestTime() {
+        CreateStrategyCaseCommand command = new CreateStrategyCaseCommand(
+                "재시도 전략",
+                101L,
+                null,
+                List.of(),
+                List.of(),
+                List.of(StrategyType.PRICE_DISCOUNT),
+                null,
+                null
+        );
+        givenActiveSku();
+        when(caseCodeGenerator.generate()).thenReturn(LEGACY_CASE_CODE);
+        mockInsertAndSelect();
+
+        strategyCaseService.createRetryStrategyCase(
+                command,
+                99L,
+                123L,
+                REQUESTED_AT
+        );
+
+        ArgumentCaptor<StrategyCaseVO> captor = ArgumentCaptor.forClass(
+                StrategyCaseVO.class
+        );
+        verify(strategyCaseMapper).insertStrategyCase(captor.capture());
+        assertThat(captor.getValue().getRetryParentCaseId()).isEqualTo(123L);
+        assertThat(captor.getValue().getCreatedBy()).isEqualTo(99L);
+        verify(dateTimeProvider, never()).now();
+        verify(eventPublisher).publishEvent(new StrategyGenerationRequestedEvent(
+                777L,
+                REQUESTED_AT
+        ));
+    }
+
+    @Test
     void generatesDefaultNameAndNormalizesNullLists() throws Exception {
         CreateStrategyCaseCommand command = new CreateStrategyCaseCommand(
                 null,

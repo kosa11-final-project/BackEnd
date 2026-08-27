@@ -18,19 +18,9 @@ import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculati
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculationException;
 import com.stockit.backend.feature.strategy.calculation.engine.CalculationPrecisionPolicy;
 
-/**
- * 전략 시작 시점의 예상 재고와 안전재고를 반영해 실행 가능한 창고별 수량을 계산하는 정책
- */
+/** 전략 시작 시점의 판매 가능 재고를 기준으로 실행 가능한 위치별 수량을 계산하는 정책 */
 @Component
 public class SourceInventoryCapacityPolicy {
-
-    private final SafetyStockPolicyResolver safetyStockResolver;
-
-    public SourceInventoryCapacityPolicy(
-            SafetyStockPolicyResolver safetyStockResolver
-    ) {
-        this.safetyStockResolver = safetyStockResolver;
-    }
 
     /** 현재 전략 시작일을 기준으로 선택 LOT의 실행 가능량을 계산한다 */
     public Capacity resolve(
@@ -40,9 +30,7 @@ public class SourceInventoryCapacityPolicy {
         return resolve(context, eligibleLots, context.strategyStartDate());
     }
 
-    /**
-     * 지정 시점의 판매 가능 재고에서 안전재고를 제외한 전략 실행 가능량을 계산한다
-     */
+    /** 지정 시점의 판매 가능 재고 안에서 전략 실행 가능량을 계산한다 */
     public Capacity resolve(
             StrategyCalculationContext context,
             List<InventoryLot> eligibleLots,
@@ -57,8 +45,6 @@ public class SourceInventoryCapacityPolicy {
                         Collectors.toList()
                 ));
         Map<PhysicalLocation, BigDecimal> byLocation = new LinkedHashMap<>();
-        boolean defaulted = false;
-        boolean safetyBlocked = false;
         for (Map.Entry<PhysicalLocation, List<InventoryLot>> entry
                 : selectedByLocation.entrySet()) {
             PhysicalLocation location = entry.getKey();
@@ -71,25 +57,14 @@ public class SourceInventoryCapacityPolicy {
                     .filter(lot -> isSellableAt(lot, asOfDate))
                     .map(InventoryLot::availableQty)
                     .toList());
-            SafetyStockPolicyResolver.Resolution safety = safetyStockResolver.resolve(
-                    context.inventoryPolicies(),
-                    location.warehouseId(),
-                    location.salesPointId() != null
-                            ? location.salesPointId()
-                            : context.sourceSalesPointId()
+            byLocation.put(
+                    location,
+                    quantity(selectedQuantity.min(sourceAvailable))
             );
-            defaulted |= safety.defaultedToZero();
-            BigDecimal afterSafety = quantity(sourceAvailable.subtract(
-                    safety.safetyStockQty()
-            ).max(BigDecimal.ZERO));
-            safetyBlocked |= sourceAvailable.signum() > 0 && afterSafety.signum() == 0;
-            byLocation.put(location, quantity(selectedQuantity.min(afterSafety)));
         }
         return new Capacity(
                 Map.copyOf(byLocation),
-                sum(byLocation.values()),
-                defaulted,
-                safetyBlocked
+                sum(byLocation.values())
         );
     }
 
@@ -284,9 +259,7 @@ public class SourceInventoryCapacityPolicy {
 
     public record Capacity(
             Map<PhysicalLocation, BigDecimal> byLocation,
-            BigDecimal total,
-            boolean safetyStockDefaulted,
-            boolean safetyStockBlocked
+            BigDecimal total
     ) {
     }
 

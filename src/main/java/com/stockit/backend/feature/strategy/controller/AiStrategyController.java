@@ -24,6 +24,7 @@ import com.stockit.backend.feature.strategy.dto.request.AiStrategyCaseListReques
 import com.stockit.backend.feature.strategy.dto.request.AdjustAiStrategySimulationRequest;
 import com.stockit.backend.feature.strategy.dto.request.AiStrategyCaseListQueryParameterValidator;
 import com.stockit.backend.feature.strategy.dto.request.CreateAiStrategyRequest;
+import com.stockit.backend.feature.strategy.dto.request.RetryAiStrategyGenerationRequest;
 import com.stockit.backend.feature.strategy.dto.request.SendAiStrategyTeamsRequest;
 import com.stockit.backend.feature.strategy.dto.request.ValidateAiStrategySelectionRequest;
 import com.stockit.backend.feature.strategy.dto.response.AiStrategyCaseListPageResponse;
@@ -32,10 +33,12 @@ import com.stockit.backend.feature.strategy.dto.response.AdjustedAiStrategySimul
 import com.stockit.backend.feature.strategy.dto.response.AiStrategyReviewerListResponse;
 import com.stockit.backend.feature.strategy.dto.response.AiStrategyTeamsRequestResponse;
 import com.stockit.backend.feature.strategy.dto.response.AiStrategySelectionValidationResponse;
+import com.stockit.backend.feature.strategy.dto.response.RetryAiStrategyGenerationResponse;
 import com.stockit.backend.feature.strategy.service.AiStrategyApprovalService;
 import com.stockit.backend.feature.strategy.service.AiStrategyApprovalRetryService;
 import com.stockit.backend.feature.strategy.service.AiStrategyCaseListService;
 import com.stockit.backend.feature.strategy.service.AiStrategyCaseQueryService;
+import com.stockit.backend.feature.strategy.service.AiStrategyGenerationRetryService;
 import com.stockit.backend.feature.strategy.service.AiStrategyReviewerService;
 import com.stockit.backend.feature.strategy.service.AiStrategySelectionValidationService;
 import com.stockit.backend.feature.strategy.service.StrategyCaseService;
@@ -57,6 +60,7 @@ import jakarta.validation.Valid;
 public class AiStrategyController {
 
     private final StrategyCaseService caseService;
+    private final AiStrategyGenerationRetryService generationRetryService;
     private final AiStrategyCaseQueryService queryService;
     private final AiStrategyCaseListService listService;
     private final StrategyAdjustmentSimulationService adjustmentSimulationService;
@@ -67,6 +71,7 @@ public class AiStrategyController {
 
     public AiStrategyController(
             StrategyCaseService caseService,
+            AiStrategyGenerationRetryService generationRetryService,
             AiStrategyCaseQueryService queryService,
             AiStrategyCaseListService listService,
             StrategyAdjustmentSimulationService adjustmentSimulationService,
@@ -76,6 +81,7 @@ public class AiStrategyController {
             AiStrategyApprovalRetryService approvalRetryService
     ) {
         this.caseService = caseService;
+        this.generationRetryService = generationRetryService;
         this.queryService = queryService;
         this.listService = listService;
         this.adjustmentSimulationService = adjustmentSimulationService;
@@ -121,6 +127,45 @@ public class AiStrategyController {
         );
         URI location = URI.create("/api/v1/ai-strategies/" + created.strategyCaseId());
         return ResponseEntity.accepted().location(location).body(ApiResponse.of(created));
+    }
+
+    @PostMapping("/{strategyCaseId}/retries")
+    @Operation(
+            summary = "실패한 AI 전략 생성 재시도",
+            description = "기존 사용자 조건을 복원해 신규 Case를 저장하고 커밋 후 RabbitMQ에 새 생성 작업을 발행합니다. 과거 사용자 지정 시작일은 명시적으로 동의한 경우에만 오늘로 보정합니다."
+    )
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "202", description = "신규 재시도 Case 생성"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "이미 존재하는 재시도 Case 반환"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "인증 필요", content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "Case 조회·재시도 권한 없음", content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "원본 Case 없음", content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "상태·날짜·현재 참조 데이터 충돌", content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
+    })
+    public ResponseEntity<ApiResponse<RetryAiStrategyGenerationResponse>> retryGeneration(
+            @PathVariable Long strategyCaseId,
+            @RequestBody(required = false) RetryAiStrategyGenerationRequest request,
+            @Parameter(description = "GET /api/v1/auth/csrf에서 발급받은 CSRF 토큰")
+            @RequestHeader(name = "X-XSRF-TOKEN") String csrfToken,
+            @AuthenticationPrincipal AuthPrincipal principal
+    ) {
+        AuthPrincipal authenticated = requirePrincipal(principal);
+        RetryAiStrategyGenerationResponse response = generationRetryService.retry(
+                strategyCaseId,
+                request == null ? null : request.effectiveDateAdjustmentPolicy(),
+                authenticated.getUserId()
+        );
+        URI location = URI.create(
+                "/api/v1/ai-strategies/" + response.strategyCaseId()
+        );
+        if (response.reusedExistingRetry()) {
+            return ResponseEntity.ok()
+                    .location(location)
+                    .body(ApiResponse.of(response));
+        }
+        return ResponseEntity.accepted()
+                .location(location)
+                .body(ApiResponse.of(response));
     }
 
     /** Case 정보와 생성 당시 조건, 만료되지 않은 추천 결과의 상세 조회 */
