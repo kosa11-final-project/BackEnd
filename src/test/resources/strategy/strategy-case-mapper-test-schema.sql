@@ -60,7 +60,11 @@ CREATE TABLE strategy_case (
     is_deleted NUMBER(1) DEFAULT 0 NOT NULL,
     CONSTRAINT fk_test_strategy_retry_parent
         FOREIGN KEY (retry_parent_case_id) REFERENCES strategy_case(strategy_case_id),
-    CONSTRAINT uq_test_strategy_retry_parent UNIQUE (retry_parent_case_id)
+    CONSTRAINT uq_test_strategy_retry_parent UNIQUE (retry_parent_case_id),
+    CONSTRAINT ck_test_strategy_retry_not_self CHECK (
+        retry_parent_case_id IS NULL
+        OR retry_parent_case_id <> strategy_case_id
+    )
 );
 
 INSERT INTO sku (sku_id, sku_name, active_yn, is_deleted)

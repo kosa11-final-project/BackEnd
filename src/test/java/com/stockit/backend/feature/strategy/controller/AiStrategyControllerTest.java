@@ -207,6 +207,37 @@ class AiStrategyControllerTest {
     }
 
     @Test
+    void rejectsAnonymousGenerationRetryBeforeServiceCall() throws Exception {
+        CsrfCredentials csrf = requestCsrf();
+
+        mockMvc.perform(post("/api/v1/ai-strategies/123/retries")
+                        .cookie(csrf.cookie())
+                        .header(csrf.headerName(), csrf.token())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"dateAdjustmentPolicy\":\"REJECT\"}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("AUTH-001"));
+
+        verifyNoInteractions(generationRetryService);
+    }
+
+    @Test
+    void rejectsNonAdminGenerationRetryBeforeServiceCall() throws Exception {
+        CsrfCredentials csrf = requestCsrf();
+
+        mockMvc.perform(post("/api/v1/ai-strategies/123/retries")
+                        .with(user("branch").roles("BRANCH_MANAGER"))
+                        .cookie(csrf.cookie())
+                        .header(csrf.headerName(), csrf.token())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"dateAdjustmentPolicy\":\"REJECT\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("COMMON-003"));
+
+        verifyNoInteractions(generationRetryService);
+    }
+
+    @Test
     @WithMockUser(roles = "GREENFOOD_ADMIN")
     void returnsCurrentGenerationStageAndOptionalResult() throws Exception {
         when(queryService.find(123L)).thenReturn(new AiStrategyCaseResponse(

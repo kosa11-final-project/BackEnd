@@ -20,6 +20,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataAccessException;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.jdbc.Sql;
 
@@ -41,6 +42,9 @@ class StrategyCaseMapperTest {
 
     @Autowired
     private SqlSessionFactory sqlSessionFactory;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @Test
     void readsActiveReferencesInBulk() {
@@ -210,6 +214,26 @@ class StrategyCaseMapperTest {
         );
         assertThatThrownBy(() -> strategyCaseMapper.insertStrategyCase(
                 duplicatedRetry
+        )).isInstanceOf(DataAccessException.class);
+    }
+
+    @Test
+    void rejectsSelfReferentialRetryRelationshipLikeProductionSchema() {
+        StrategyCaseVO strategyCase = StrategyCaseVO.generating(
+                101L,
+                10L,
+                "SC-0123456789abcdef0123456789abcd04",
+                "자기 참조 방지 전략",
+                "{\"lotIds\":[]}",
+                99L
+        );
+        strategyCaseMapper.insertStrategyCase(strategyCase);
+
+        assertThatThrownBy(() -> jdbcTemplate.update(
+                "UPDATE strategy_case "
+                        + "SET retry_parent_case_id = strategy_case_id "
+                        + "WHERE strategy_case_id = ?",
+                strategyCase.getStrategyCaseId()
         )).isInstanceOf(DataAccessException.class);
     }
 
