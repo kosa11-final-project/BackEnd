@@ -153,33 +153,97 @@
     </select>
 
     <select id="selectInventoryResults" resultType="StrategyExecutionInventoryVO">
-        SELECT CASE WHEN snapshot.sales_point_id IS NOT NULL THEN 'SALES_POINT' ELSE 'WAREHOUSE' END AS location_type,
-               COALESCE(snapshot.sales_point_id, snapshot.warehouse_id) AS location_id,
-               COALESCE(sales_point.sales_point_code, warehouse.warehouse_code) AS location_code,
-               COALESCE(sales_point.sales_point_name, warehouse.warehouse_name) AS location_name,
-               SUM(snapshot.on_hand_qty) AS before_quantity,
-               CASE WHEN COUNT(current_balance.inventory_balance_id) = 0
-                    THEN NULL
-                    ELSE SUM(current_balance.on_hand_qty)
+        WITH selected_strategy AS (
+            SELECT selection.strategy_option_id,
+                   strategy_case.sku_id
+            FROM final_strategy_selection selection
+            JOIN strategy_case
+              ON strategy_case.strategy_case_id = selection.strategy_case_id
+             AND strategy_case.is_deleted = 0
+            WHERE selection.strategy_case_id = #{strategyCaseId}
+              AND selection.is_deleted = 0
+            ORDER BY selection.created_at DESC, selection.final_selection_id DESC
+            FETCH FIRST 1 ROW ONLY
+        ),
+        location_source AS (
+            SELECT CASE WHEN snapshot.sales_point_id IS NOT NULL THEN 'SALES_POINT' ELSE 'WAREHOUSE' END AS location_type,
+                   COALESCE(snapshot.sales_point_id, snapshot.warehouse_id) AS location_id,
+                   COALESCE(sales_point.sales_point_code, warehouse.warehouse_code) AS location_code,
+                   COALESCE(sales_point.sales_point_name, warehouse.warehouse_name) AS location_name,
+                   snapshot.on_hand_qty AS before_quantity,
+                   snapshot.safety_stock_qty AS safety_stock_quantity
+            FROM strategy_inventory_snapshot snapshot
+            LEFT JOIN sales_point
+              ON sales_point.sales_point_id = snapshot.sales_point_id
+             AND sales_point.is_deleted = 0
+            LEFT JOIN warehouse
+              ON warehouse.warehouse_id = snapshot.warehouse_id
+             AND warehouse.is_deleted = 0
+            WHERE snapshot.strategy_case_id = #{strategyCaseId}
+              AND snapshot.is_deleted = 0
+
+            UNION ALL
+
+            SELECT 'SALES_POINT', point.sales_point_id, point.sales_point_code, point.sales_point_name, 0, NULL
+            FROM selected_strategy selected
+            JOIN strategy_action action
+              ON action.strategy_option_id = selected.strategy_option_id
+             AND action.is_deleted = 0
+            JOIN sales_point point
+              ON point.sales_point_id IN (action.source_sales_point_id, action.target_sales_point_id)
+             AND point.is_deleted = 0
+
+            UNION ALL
+
+            SELECT 'WAREHOUSE', warehouse.warehouse_id, warehouse.warehouse_code, warehouse.warehouse_name, 0, NULL
+            FROM selected_strategy selected
+            JOIN strategy_action action
+              ON action.strategy_option_id = selected.strategy_option_id
+             AND action.is_deleted = 0
+            JOIN warehouse
+              ON warehouse.warehouse_id IN (action.source_warehouse_id, action.destination_warehouse_id)
+             AND warehouse.is_deleted = 0
+        ),
+        location_scope AS (
+            SELECT location_type,
+                   location_id,
+                   MAX(location_code) AS location_code,
+                   MAX(location_name) AS location_name,
+                   SUM(before_quantity) AS before_quantity,
+                   SUM(safety_stock_quantity) AS safety_stock_quantity
+            FROM location_source
+            WHERE location_id IS NOT NULL
+            GROUP BY location_type, location_id
+        )
+        SELECT scope.location_type,
+               scope.location_id,
+               scope.location_code,
+               scope.location_name,
+               scope.before_quantity,
+               CASE
+                   WHEN COUNT(balance.inventory_balance_id) = 0 THEN NULL
+                   ELSE SUM(balance.on_hand_qty)
                END AS current_quantity,
-               SUM(snapshot.safety_stock_qty) AS safety_stock_quantity
-        FROM strategy_inventory_snapshot snapshot
-        LEFT JOIN inventory_balance current_balance
-          ON current_balance.inventory_balance_id = snapshot.inventory_balance_id
-         AND current_balance.is_deleted = 0
-        LEFT JOIN sales_point
-          ON sales_point.sales_point_id = snapshot.sales_point_id
-         AND sales_point.is_deleted = 0
-        LEFT JOIN warehouse
-          ON warehouse.warehouse_id = snapshot.warehouse_id
-         AND warehouse.is_deleted = 0
-        WHERE snapshot.strategy_case_id = #{strategyCaseId}
-          AND snapshot.is_deleted = 0
-        GROUP BY CASE WHEN snapshot.sales_point_id IS NOT NULL THEN 'SALES_POINT' ELSE 'WAREHOUSE' END,
-                 COALESCE(snapshot.sales_point_id, snapshot.warehouse_id),
-                 COALESCE(sales_point.sales_point_code, warehouse.warehouse_code),
-                 COALESCE(sales_point.sales_point_name, warehouse.warehouse_name)
-        ORDER BY location_type, location_name
+               scope.safety_stock_quantity
+        FROM location_scope scope
+        CROSS JOIN selected_strategy selected
+        LEFT JOIN inventory_balance balance
+          ON balance.sku_id = selected.sku_id
+         AND balance.is_deleted = 0
+         AND (
+             (scope.location_type = 'WAREHOUSE' AND balance.warehouse_id = scope.location_id)
+             OR (
+                 scope.location_type = 'SALES_POINT'
+                 AND scope.location_id IN (balance.stock_sales_point_id, balance.allocated_sales_point_id)
+             )
+         )
+        GROUP BY scope.location_type,
+                 scope.location_id,
+                 scope.location_code,
+                 scope.location_name,
+                 scope.before_quantity,
+                 scope.safety_stock_quantity
+        ORDER BY scope.location_type, scope.location_name
     </select>
 
     <select id="selectDailySales" resultType="StrategyExecutionDailySalesVO">
@@ -250,16 +314,12 @@
                    ORDER BY latest.performance_date DESC,
                             latest.strategy_performance_id DESC
                    FETCH FIRST 1 ROW ONLY
-               ) AS actual_remaining_quantity,
-               aggregated.moved_quantity,
-               aggregated.disposed_quantity
+               ) AS actual_remaining_quantity
         FROM (
             SELECT COUNT(*) AS performance_count,
                    SUM(performance.actual_sales_qty) AS actual_sales_quantity,
                    SUM(performance.actual_revenue) AS actual_revenue,
-                   SUM(performance.actual_contribution_margin) AS actual_contribution_margin,
-                   SUM(performance.moved_quantity) AS moved_quantity,
-                   SUM(performance.disposed_quantity) AS disposed_quantity
+                   SUM(performance.actual_contribution_margin) AS actual_contribution_margin
             FROM strategy_performance performance
             WHERE performance.strategy_option_id = #{strategyOptionId}
               AND performance.is_deleted = 0
