@@ -69,6 +69,7 @@
                strategy_case.case_name,
                strategy_case.case_status,
                strategy_case.generation_stage,
+               strategy_case.recommendation_outcome,
                sku.sku_id,
                sku.sku_code,
                sku.sku_name,

@@ -110,6 +110,7 @@ class AiStrategyControllerTest {
     void returnsCurrentGenerationStageAndOptionalResult() throws Exception {
         when(queryService.find(123L)).thenReturn(new AiStrategyCaseResponse(
                 123L, "테스트 전략", StrategyCaseStatus.GENERATING, null,
+                null,
                 new AiStrategyCaseResponse.Sku(
                         1001L, "SKU-1001", "테스트 상품", null,
                         new AiStrategyCaseResponse.Category(301L, "국·탕", 3)

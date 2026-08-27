@@ -7,6 +7,7 @@ import java.util.Map;
 
 import com.stockit.backend.feature.strategy.domain.StrategyCaseStatus;
 import com.stockit.backend.feature.strategy.domain.StrategyGenerationStage;
+import com.stockit.backend.feature.strategy.domain.StrategyRecommendationOutcome;
 import com.stockit.backend.feature.strategy.domain.StrategyType;
 import com.stockit.backend.feature.strategy.dto.StrategyCaseRequestPayload;
 import com.stockit.backend.feature.strategy.vo.AiStrategyCaseDetailVO;
@@ -19,6 +20,7 @@ public record AiStrategyCaseResponse(
         String caseName,
         StrategyCaseStatus caseStatus,
         StrategyGenerationStage generationStage,
+        StrategyRecommendationOutcome recommendationOutcome,
         Sku sku,
         Requester requester,
         String failureCode,
@@ -53,6 +55,7 @@ public record AiStrategyCaseResponse(
                 strategyCase.getCaseName(),
                 strategyCase.getCaseStatus(),
                 strategyCase.getGenerationStage(),
+                strategyCase.getRecommendationOutcome(),
                 new Sku(
                         strategyCase.getSkuId(),
                         strategyCase.getSkuCode(),

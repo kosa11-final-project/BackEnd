@@ -16,6 +16,7 @@ import org.springframework.test.context.jdbc.Sql;
 import com.stockit.backend.feature.strategy.vo.AiStrategyCaseListQuery;
 import com.stockit.backend.feature.strategy.vo.AiStrategyCaseListVO;
 import com.stockit.backend.feature.strategy.vo.AiStrategyCaseStatusCountVO;
+import com.stockit.backend.feature.strategy.domain.StrategyRecommendationOutcome;
 
 @SpringBootTest
 @ActiveProfiles("test")
@@ -55,6 +56,8 @@ class AiStrategyCaseListMapperTest {
             assertThat(value.getImageUrl()).isEqualTo("https://example.com/tofu.jpg");
             assertThat(value.getCategoryName()).isEqualTo("가공식품");
             assertThat(value.getRequesterName()).isEqualTo("이주영");
+            assertThat(value.getRecommendationOutcome())
+                    .isEqualTo(StrategyRecommendationOutcome.OPTIONS_GENERATED);
         });
     }
 

@@ -4,6 +4,7 @@ import java.time.LocalDateTime;
 
 import com.stockit.backend.feature.strategy.domain.StrategyCaseStatus;
 import com.stockit.backend.feature.strategy.domain.StrategyGenerationStage;
+import com.stockit.backend.feature.strategy.domain.StrategyRecommendationOutcome;
 import com.stockit.backend.feature.strategy.vo.AiStrategyCaseListVO;
 
 public record AiStrategyCaseListItemResponse(
@@ -11,6 +12,7 @@ public record AiStrategyCaseListItemResponse(
         String caseName,
         StrategyCaseStatus caseStatus,
         StrategyGenerationStage generationStage,
+        StrategyRecommendationOutcome recommendationOutcome,
         Sku sku,
         Requester requester,
         LocalDateTime createdAt,
@@ -30,6 +32,7 @@ public record AiStrategyCaseListItemResponse(
                 value.getCaseName(),
                 value.getCaseStatus(),
                 value.getGenerationStage(),
+                value.getRecommendationOutcome(),
                 new Sku(value.getSkuId(), value.getSkuCode(), value.getSkuName(), value.getImageUrl(), category),
                 new Requester(value.getRequesterId(), value.getRequesterName()),
                 value.getCreatedAt(),

@@ -42,6 +42,7 @@ CREATE TABLE strategy_case (
     case_name VARCHAR2(200),
     case_status VARCHAR2(30),
     generation_stage VARCHAR2(30),
+    recommendation_outcome VARCHAR2(30),
     request_payload_json CLOB,
     result_cache_key VARCHAR2(500),
     result_expires_at TIMESTAMP,
@@ -68,7 +69,7 @@ INSERT INTO lot VALUES (502, 'LOT-260802-B');
 
 INSERT INTO strategy_case VALUES (
     123, 6032, 10, 'SC-123', '버섯 들깨탕 수도권 재배치 전략',
-    'GENERATED', 'COMPARISON_READY',
+    'GENERATED', 'COMPARISON_READY', 'OPTIONS_GENERATED',
     '{"lotIds":[501],"candidateSalesPointIds":[20],"strategyTypes":["RT_TRANSFER"],"forecastStartDate":"2026-08-20","forecastEndDate":"2026-08-27"}',
     'ai-strategy:case:123:result:v1', TIMESTAMP '2026-08-27 10:00:00',
     NULL, NULL, TIMESTAMP '2026-08-24 10:01:00',
