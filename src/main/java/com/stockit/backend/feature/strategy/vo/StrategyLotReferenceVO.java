@@ -1,5 +1,7 @@
 package com.stockit.backend.feature.strategy.vo;
 
+import java.time.LocalDate;
+
 import lombok.Getter;
 import lombok.Setter;
 
@@ -14,4 +16,6 @@ public class StrategyLotReferenceVO {
     private Long skuId;
     private Long warehouseId;
     private String lotStatus;
+    private LocalDate expiryDate;
+    private LocalDate saleStopDate;
 }

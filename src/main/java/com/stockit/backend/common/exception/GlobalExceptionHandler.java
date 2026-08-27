@@ -68,6 +68,7 @@ public class GlobalExceptionHandler {
         ApiErrorResponse response = ApiErrorResponse.of(
                 errorCode,
                 safeMessage(exception.getMessage(), errorCode.getMessage()),
+                exception.getDetails(),
                 request.getRequestURI()
         );
         return ResponseEntity.status(errorCode.getHttpStatus()).body(response);
