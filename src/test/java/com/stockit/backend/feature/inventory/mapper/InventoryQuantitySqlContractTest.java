@@ -30,9 +30,13 @@ class InventoryQuantitySqlContractTest {
                 .doesNotContain("SALES_DAILY")
                 .doesNotContain("sales_daily");
         assertThat(forecastSql).contains("SUM(ib.on_hand_qty)");
-        assertThat(riskSql)
+        String quantitySql = riskSql.substring(
+                riskSql.indexOf("<select id=\"selectInventoryQuantities\""),
+                riskSql.indexOf("<select id=\"selectSafetyStock\""));
+        assertThat(quantitySql)
                 .contains("SUM(ib.on_hand_qty) AS on_hand_qty")
                 .doesNotContain("SUM(ib.reserved_qty)");
+        assertThat(riskSql).contains("SUM(ib.reserved_qty) AS reservedQty");
         assertThat(forecastSql)
                 .contains("#{salesPointCode} != 'UNASSIGNED' AND sp.sales_point_code = #{salesPointCode}")
                 .contains("#{salesPointCode} = 'UNASSIGNED'");
@@ -201,6 +205,31 @@ class InventoryQuantitySqlContractTest {
                 .contains("LEFT JOIN sku_risk_agg sr ON sr.sku_id = ib.sku_id")
                 .contains("NVL(sr.risk_grade, 'UNASSESSED') =")
                 .doesNotContain("NVL(r.risk_grade, 'UNASSESSED') =");
+    }
+
+    @Test
+    void highestSkuRiskUsesTheSameCriticalWarningNormalGoodValuesAsTheDatabase() throws IOException {
+        String inventorySql = read("inventory/InventoryMapper.xml");
+
+        assertThat(occurrences(inventorySql,
+                "WHEN SUM(CASE WHEN r.risk_grade = 'CRITICAL' THEN 1 ELSE 0 END) &gt; 0 THEN 'CRITICAL'"))
+                .isEqualTo(3);
+        assertThat(occurrences(inventorySql,
+                "WHEN SUM(CASE WHEN r.risk_grade = 'WARNING' THEN 1 ELSE 0 END) &gt; 0 THEN 'WARNING'"))
+                .isEqualTo(3);
+        assertThat(occurrences(inventorySql,
+                "WHEN SUM(CASE WHEN r.risk_grade = 'NORMAL' THEN 1 ELSE 0 END) &gt; 0 THEN 'NORMAL'"))
+                .isEqualTo(3);
+        assertThat(occurrences(inventorySql,
+                "WHEN SUM(CASE WHEN r.risk_grade = 'GOOD' THEN 1 ELSE 0 END) &gt; 0 THEN 'GOOD'"))
+                .isEqualTo(3);
+        assertThat(occurrences(inventorySql,
+                "WHEN COUNT(*) &lt;&gt; COUNT(r.risk_grade) THEN NULL"))
+                .isEqualTo(3);
+        assertThat(inventorySql)
+                .doesNotContain("WHEN 'GOOD' THEN 'SAFE'")
+                .doesNotContain("WHEN 'WARNING' THEN 'CAUTION'")
+                .doesNotContain("WHEN 'CRITICAL' THEN 'DANGER'");
     }
 
     @Test

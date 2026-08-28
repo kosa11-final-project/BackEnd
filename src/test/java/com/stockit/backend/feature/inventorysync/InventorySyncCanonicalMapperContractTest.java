@@ -72,8 +72,10 @@ class InventorySyncCanonicalMapperContractTest {
 
         assertThat(sql)
                 .contains("selectScopesRequiringDailyRefresh")
+                .contains("WITH candidate_scopes AS")
                 .contains("NVL(rl.current_status, '__NULL__') != rl.resolved_status")
-                .contains("rl.sale_end_date &lt;= TRUNC(CAST(#{asOfDate} AS DATE)) + 30")
+                .contains("rl.sale_end_date &gt; TRUNC(CAST(#{asOfDate} AS DATE))")
+                .contains("rl.sale_end_date &lt;= TRUNC(CAST(#{asOfDate} AS DATE)) + 90")
                 .contains("rr.assessed_date &lt; TRUNC(CAST(#{asOfDate} AS DATE))")
                 .contains("NVL(rr.forecast_id, -1) != NVL(lf.forecast_id, -1)")
                 .contains("lf.forecast_updated_at > rr.assessed_at")
