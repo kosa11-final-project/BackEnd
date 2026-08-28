@@ -25,6 +25,40 @@ import com.stockit.backend.feature.strategy.calculation.engine.CalculationPrecis
 @Component
 public class TargetAdditionalDemandPolicy {
 
+    /**
+     * 공용 미할당 재고를 새 판매처에 배치할 때 사용할 일자별 총 예측수요를 계산한다.
+     *
+     * <p>이미 특정 판매처에 귀속된 재고 이동과 달리 공용 재고는 배치 자체가
+     * 필요하므로 대상 기존 재고를 차감하지 않는다. 실제 판매·잔여 효과는 이후
+     * 시뮬레이션과 기준 시나리오 비교에서 검증한다.</p>
+     */
+    public Map<LocalDate, BigDecimal> calculateGrossDemand(
+            StrategyCalculationContext context,
+            Long targetSalesPointId
+    ) {
+        SalesPoint target = context.salesPoints().get(targetSalesPointId);
+        if (target == null) {
+            throw new StrategyCalculationException(
+                    "CANDIDATE_TARGET_NOT_FOUND",
+                    "Target sales point is missing from calculation context"
+            );
+        }
+        Map<LocalDate, BigDecimal> demandByDate = new LinkedHashMap<>();
+        for (LocalDate date = context.strategyStartDate();
+                !date.isAfter(context.strategyEndDate());
+                date = date.plusDays(1)) {
+            BigDecimal forecast = target.dailyForecast().get(date);
+            if (forecast == null || forecast.signum() < 0) {
+                throw new StrategyCalculationException(
+                        "CALCULATION_FORECAST_INVALID",
+                        "Target daily forecast is missing or negative: " + date
+                );
+            }
+            demandByDate.put(date, quantity(forecast));
+        }
+        return demandByDate;
+    }
+
     public Map<LocalDate, BigDecimal> calculate(
             StrategyCalculationContext context,
             Long targetSalesPointId

@@ -67,12 +67,13 @@ public class StrategyCandidateGenerationServiceImpl
         for (int index = 0; index < orderedTypes.size(); index++) {
             StrategyType strategyType = orderedTypes.get(index);
             if (context.sourceSalesPointId() == null
-                    && strategyType != StrategyType.REALLOCATION) {
+                    && strategyType != StrategyType.REALLOCATION
+                    && strategyType != StrategyType.RT_TRANSFER) {
                 exclusions.add(new CandidateExclusion(
                         strategyType,
                         null,
                         CandidateExclusionReason.PUBLIC_UNASSIGNED_STRATEGY_NOT_SUPPORTED,
-                        "Public unassigned inventory supports sales point allocation only"
+                        "Public unassigned inventory supports allocation or physical transfer only"
                 ));
                 continue;
             }
@@ -161,7 +162,10 @@ public class StrategyCandidateGenerationServiceImpl
     ) {
         List<StrategyType> requested = context.requestConstraints().orderedStrategyTypes();
         if (context.sourceSalesPointId() == null && requested.isEmpty()) {
-            return List.of(StrategyType.REALLOCATION);
+            return List.of(
+                    StrategyType.REALLOCATION,
+                    StrategyType.RT_TRANSFER
+            );
         }
         List<StrategyType> source = requested.isEmpty()
                 ? DEFAULT_GENERATION_TYPES
