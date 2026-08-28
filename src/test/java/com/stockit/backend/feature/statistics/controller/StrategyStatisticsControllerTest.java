@@ -71,11 +71,18 @@ class StrategyStatisticsControllerTest {
                         BigDecimal.valueOf(50),
                         BigDecimal.valueOf(90),
                         BigDecimal.valueOf(300),
+                        BigDecimal.valueOf(250),
                         BigDecimal.valueOf(50),
                         BigDecimal.valueOf(16.6667),
+                        BigDecimal.valueOf(30),
+                        BigDecimal.valueOf(20),
                         BigDecimal.TEN,
+                        BigDecimal.valueOf(3000),
+                        BigDecimal.valueOf(1500),
                         BigDecimal.valueOf(1500)
                 ),
+                List.of(),
+                List.of(),
                 List.of(),
                 List.of()
         );

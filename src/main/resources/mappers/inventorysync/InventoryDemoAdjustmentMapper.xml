@@ -45,22 +45,30 @@
     <update id="updateSource">
         <choose>
             <when test="sourceType == 'OFFLINE'">
-                UPDATE inventory_source_offline SET available_stock_count = available_stock_count - #{decreaseQty},
+                UPDATE inventory_source_offline
+                   SET reserved_stock_count = LEAST(reserved_stock_count, available_stock_count - #{decreaseQty}),
+                    available_stock_count = available_stock_count - #{decreaseQty},
                     row_version = row_version + 1, record_hash = #{sourceHashAfter}, updated_at = SYSTIMESTAMP
                  WHERE source_record_key = #{sourceRecordKey} AND available_stock_count &gt;= #{decreaseQty}
             </when>
             <when test="sourceType == 'ECOMMERCE'">
-                UPDATE inventory_source_ecommerce SET sellable_quantity = sellable_quantity - #{decreaseQty},
+                UPDATE inventory_source_ecommerce
+                   SET ordered_quantity = LEAST(ordered_quantity, sellable_quantity - #{decreaseQty}),
+                    sellable_quantity = sellable_quantity - #{decreaseQty},
                     row_version = row_version + 1, record_hash = #{sourceHashAfter}, updated_at = SYSTIMESTAMP
                  WHERE source_record_key = #{sourceRecordKey} AND sellable_quantity &gt;= #{decreaseQty}
             </when>
             <when test="sourceType == 'GREETING'">
-                UPDATE inventory_source_greeting SET saleable_meal_count = saleable_meal_count - #{decreaseQty},
+                UPDATE inventory_source_greeting
+                   SET committed_meal_count = LEAST(committed_meal_count, saleable_meal_count - #{decreaseQty}),
+                    saleable_meal_count = saleable_meal_count - #{decreaseQty},
                     row_version = row_version + 1, record_hash = #{sourceHashAfter}, updated_at = SYSTIMESTAMP
                  WHERE source_record_key = #{sourceRecordKey} AND saleable_meal_count &gt;= #{decreaseQty}
             </when>
             <otherwise>
-                UPDATE inventory_source_warehouse SET physical_available_qty = physical_available_qty - #{decreaseQty},
+                UPDATE inventory_source_warehouse
+                   SET physical_reserved_qty = LEAST(physical_reserved_qty, physical_available_qty - #{decreaseQty}),
+                    physical_available_qty = physical_available_qty - #{decreaseQty},
                     row_version = row_version + 1, record_hash = #{sourceHashAfter}, updated_at = SYSTIMESTAMP
                  WHERE source_record_key = #{sourceRecordKey} AND physical_available_qty &gt;= #{decreaseQty}
             </otherwise>
@@ -92,30 +100,30 @@
          FOR UPDATE WAIT 5
     </select>
 
-    <select id="countEligibleSyncedRows" resultType="int">
+    <select id="countAdjustableSyncedRows" resultType="int">
         <choose>
             <when test="sourceType == 'OFFLINE'">
                 SELECT COUNT(*) FROM inventory_source_offline
                  WHERE active_yn = 'Y' AND is_deleted = 0
-                   AND available_stock_count &gt;= #{decreaseQty}
+                   AND available_stock_count &gt; 0
                    AND record_hash = synced_record_hash
             </when>
             <when test="sourceType == 'ECOMMERCE'">
                 SELECT COUNT(*) FROM inventory_source_ecommerce
                  WHERE active_yn = 'Y' AND is_deleted = 0
-                   AND sellable_quantity &gt;= #{decreaseQty}
+                   AND sellable_quantity &gt; 0
                    AND record_hash = synced_record_hash
             </when>
             <when test="sourceType == 'GREETING'">
                 SELECT COUNT(*) FROM inventory_source_greeting
                  WHERE active_yn = 'Y' AND is_deleted = 0
-                   AND saleable_meal_count &gt;= #{decreaseQty}
+                   AND saleable_meal_count &gt; 0
                    AND record_hash = synced_record_hash
             </when>
             <otherwise>
                 SELECT COUNT(*) FROM inventory_source_warehouse
                  WHERE active_yn = 'Y' AND is_deleted = 0
-                   AND physical_available_qty &gt;= #{decreaseQty}
+                   AND physical_available_qty &gt; 0
                    AND record_hash = synced_record_hash
             </otherwise>
         </choose>
@@ -129,23 +137,29 @@
                     source_row_version_before, source_row_version_after, source_hash_before, source_hash_after,
                     adjustment_status, requested_by, requested_at, applied_at, payload_json
                 )
-                SELECT #{requestId}, #{requestHash}, #{sourceType}, src.source_record_key, #{decreaseQty},
+                SELECT #{requestId}, #{requestHash}, #{sourceType}, src.source_record_key,
+                       LEAST(src.available_stock_count, #{decreaseQty}),
                        src.row_version, src.row_version + 1, src.record_hash,
                        LOWER(RAWTOHEX(STANDARD_HASH(
                            src.source_record_key || '|' ||
-                           TO_CHAR(src.available_stock_count - #{decreaseQty}, 'TM9', 'NLS_NUMERIC_CHARACTERS = ''.,''') || '|' ||
+                           TO_CHAR(src.available_stock_count - LEAST(src.available_stock_count, #{decreaseQty}), 'TM9', 'NLS_NUMERIC_CHARACTERS = ''.,''') || '|' ||
                            TO_CHAR(src.row_version + 1), 'SHA256'
                        ))),
                        'APPLIED', #{requestedBy}, SYSTIMESTAMP, SYSTIMESTAMP,
                        JSON_OBJECT(
                            'sourceType' VALUE #{sourceType},
                            'sourceRecordKey' VALUE src.source_record_key,
-                           'decreaseQty' VALUE #{decreaseQty}
+                           'decreaseQty' VALUE LEAST(src.available_stock_count, #{decreaseQty}),
+                           'reservedQtyBefore' VALUE src.reserved_stock_count,
+                           'reservedQtyAfter' VALUE LEAST(
+                               src.reserved_stock_count,
+                               src.available_stock_count - LEAST(src.available_stock_count, #{decreaseQty})
+                           )
                            RETURNING CLOB
                        )
                   FROM inventory_source_offline src
                  WHERE src.active_yn = 'Y' AND src.is_deleted = 0
-                   AND src.available_stock_count &gt;= #{decreaseQty}
+                   AND src.available_stock_count &gt; 0
                    AND src.record_hash = src.synced_record_hash
             </when>
             <when test="sourceType == 'ECOMMERCE'">
@@ -154,23 +168,29 @@
                     source_row_version_before, source_row_version_after, source_hash_before, source_hash_after,
                     adjustment_status, requested_by, requested_at, applied_at, payload_json
                 )
-                SELECT #{requestId}, #{requestHash}, #{sourceType}, src.source_record_key, #{decreaseQty},
+                SELECT #{requestId}, #{requestHash}, #{sourceType}, src.source_record_key,
+                       LEAST(src.sellable_quantity, #{decreaseQty}),
                        src.row_version, src.row_version + 1, src.record_hash,
                        LOWER(RAWTOHEX(STANDARD_HASH(
                            src.source_record_key || '|' ||
-                           TO_CHAR(src.sellable_quantity - #{decreaseQty}, 'TM9', 'NLS_NUMERIC_CHARACTERS = ''.,''') || '|' ||
+                           TO_CHAR(src.sellable_quantity - LEAST(src.sellable_quantity, #{decreaseQty}), 'TM9', 'NLS_NUMERIC_CHARACTERS = ''.,''') || '|' ||
                            TO_CHAR(src.row_version + 1), 'SHA256'
                        ))),
                        'APPLIED', #{requestedBy}, SYSTIMESTAMP, SYSTIMESTAMP,
                        JSON_OBJECT(
                            'sourceType' VALUE #{sourceType},
                            'sourceRecordKey' VALUE src.source_record_key,
-                           'decreaseQty' VALUE #{decreaseQty}
+                           'decreaseQty' VALUE LEAST(src.sellable_quantity, #{decreaseQty}),
+                           'reservedQtyBefore' VALUE src.ordered_quantity,
+                           'reservedQtyAfter' VALUE LEAST(
+                               src.ordered_quantity,
+                               src.sellable_quantity - LEAST(src.sellable_quantity, #{decreaseQty})
+                           )
                            RETURNING CLOB
                        )
                   FROM inventory_source_ecommerce src
                  WHERE src.active_yn = 'Y' AND src.is_deleted = 0
-                   AND src.sellable_quantity &gt;= #{decreaseQty}
+                   AND src.sellable_quantity &gt; 0
                    AND src.record_hash = src.synced_record_hash
             </when>
             <when test="sourceType == 'GREETING'">
@@ -179,23 +199,29 @@
                     source_row_version_before, source_row_version_after, source_hash_before, source_hash_after,
                     adjustment_status, requested_by, requested_at, applied_at, payload_json
                 )
-                SELECT #{requestId}, #{requestHash}, #{sourceType}, src.source_record_key, #{decreaseQty},
+                SELECT #{requestId}, #{requestHash}, #{sourceType}, src.source_record_key,
+                       LEAST(src.saleable_meal_count, #{decreaseQty}),
                        src.row_version, src.row_version + 1, src.record_hash,
                        LOWER(RAWTOHEX(STANDARD_HASH(
                            src.source_record_key || '|' ||
-                           TO_CHAR(src.saleable_meal_count - #{decreaseQty}, 'TM9', 'NLS_NUMERIC_CHARACTERS = ''.,''') || '|' ||
+                           TO_CHAR(src.saleable_meal_count - LEAST(src.saleable_meal_count, #{decreaseQty}), 'TM9', 'NLS_NUMERIC_CHARACTERS = ''.,''') || '|' ||
                            TO_CHAR(src.row_version + 1), 'SHA256'
                        ))),
                        'APPLIED', #{requestedBy}, SYSTIMESTAMP, SYSTIMESTAMP,
                        JSON_OBJECT(
                            'sourceType' VALUE #{sourceType},
                            'sourceRecordKey' VALUE src.source_record_key,
-                           'decreaseQty' VALUE #{decreaseQty}
+                           'decreaseQty' VALUE LEAST(src.saleable_meal_count, #{decreaseQty}),
+                           'reservedQtyBefore' VALUE src.committed_meal_count,
+                           'reservedQtyAfter' VALUE LEAST(
+                               src.committed_meal_count,
+                               src.saleable_meal_count - LEAST(src.saleable_meal_count, #{decreaseQty})
+                           )
                            RETURNING CLOB
                        )
                   FROM inventory_source_greeting src
                  WHERE src.active_yn = 'Y' AND src.is_deleted = 0
-                   AND src.saleable_meal_count &gt;= #{decreaseQty}
+                   AND src.saleable_meal_count &gt; 0
                    AND src.record_hash = src.synced_record_hash
             </when>
             <otherwise>
@@ -204,23 +230,29 @@
                     source_row_version_before, source_row_version_after, source_hash_before, source_hash_after,
                     adjustment_status, requested_by, requested_at, applied_at, payload_json
                 )
-                SELECT #{requestId}, #{requestHash}, #{sourceType}, src.source_record_key, #{decreaseQty},
+                SELECT #{requestId}, #{requestHash}, #{sourceType}, src.source_record_key,
+                       LEAST(src.physical_available_qty, #{decreaseQty}),
                        src.row_version, src.row_version + 1, src.record_hash,
                        LOWER(RAWTOHEX(STANDARD_HASH(
                            src.source_record_key || '|' ||
-                           TO_CHAR(src.physical_available_qty - #{decreaseQty}, 'TM9', 'NLS_NUMERIC_CHARACTERS = ''.,''') || '|' ||
+                           TO_CHAR(src.physical_available_qty - LEAST(src.physical_available_qty, #{decreaseQty}), 'TM9', 'NLS_NUMERIC_CHARACTERS = ''.,''') || '|' ||
                            TO_CHAR(src.row_version + 1), 'SHA256'
                        ))),
                        'APPLIED', #{requestedBy}, SYSTIMESTAMP, SYSTIMESTAMP,
                        JSON_OBJECT(
                            'sourceType' VALUE #{sourceType},
                            'sourceRecordKey' VALUE src.source_record_key,
-                           'decreaseQty' VALUE #{decreaseQty}
+                           'decreaseQty' VALUE LEAST(src.physical_available_qty, #{decreaseQty}),
+                           'reservedQtyBefore' VALUE src.physical_reserved_qty,
+                           'reservedQtyAfter' VALUE LEAST(
+                               src.physical_reserved_qty,
+                               src.physical_available_qty - LEAST(src.physical_available_qty, #{decreaseQty})
+                           )
                            RETURNING CLOB
                        )
                   FROM inventory_source_warehouse src
                  WHERE src.active_yn = 'Y' AND src.is_deleted = 0
-                   AND src.physical_available_qty &gt;= #{decreaseQty}
+                   AND src.physical_available_qty &gt; 0
                    AND src.record_hash = src.synced_record_hash
             </otherwise>
         </choose>
@@ -230,58 +262,74 @@
         <choose>
             <when test="sourceType == 'OFFLINE'">
                 UPDATE inventory_source_offline src
-                   SET src.available_stock_count = src.available_stock_count - #{decreaseQty},
+                   SET src.reserved_stock_count = LEAST(
+                           src.reserved_stock_count,
+                           src.available_stock_count - LEAST(src.available_stock_count, #{decreaseQty})
+                       ),
+                       src.available_stock_count = src.available_stock_count - LEAST(src.available_stock_count, #{decreaseQty}),
                        src.row_version = src.row_version + 1,
                        src.record_hash = LOWER(RAWTOHEX(STANDARD_HASH(
                            src.source_record_key || '|' ||
-                           TO_CHAR(src.available_stock_count - #{decreaseQty}, 'TM9', 'NLS_NUMERIC_CHARACTERS = ''.,''') || '|' ||
+                           TO_CHAR(src.available_stock_count - LEAST(src.available_stock_count, #{decreaseQty}), 'TM9', 'NLS_NUMERIC_CHARACTERS = ''.,''') || '|' ||
                            TO_CHAR(src.row_version + 1), 'SHA256'
                        ))),
                        src.updated_at = SYSTIMESTAMP
                  WHERE src.active_yn = 'Y' AND src.is_deleted = 0
-                   AND src.available_stock_count &gt;= #{decreaseQty}
+                   AND src.available_stock_count &gt; 0
                    AND src.record_hash = src.synced_record_hash
             </when>
             <when test="sourceType == 'ECOMMERCE'">
                 UPDATE inventory_source_ecommerce src
-                   SET src.sellable_quantity = src.sellable_quantity - #{decreaseQty},
+                   SET src.ordered_quantity = LEAST(
+                           src.ordered_quantity,
+                           src.sellable_quantity - LEAST(src.sellable_quantity, #{decreaseQty})
+                       ),
+                       src.sellable_quantity = src.sellable_quantity - LEAST(src.sellable_quantity, #{decreaseQty}),
                        src.row_version = src.row_version + 1,
                        src.record_hash = LOWER(RAWTOHEX(STANDARD_HASH(
                            src.source_record_key || '|' ||
-                           TO_CHAR(src.sellable_quantity - #{decreaseQty}, 'TM9', 'NLS_NUMERIC_CHARACTERS = ''.,''') || '|' ||
+                           TO_CHAR(src.sellable_quantity - LEAST(src.sellable_quantity, #{decreaseQty}), 'TM9', 'NLS_NUMERIC_CHARACTERS = ''.,''') || '|' ||
                            TO_CHAR(src.row_version + 1), 'SHA256'
                        ))),
                        src.updated_at = SYSTIMESTAMP
                  WHERE src.active_yn = 'Y' AND src.is_deleted = 0
-                   AND src.sellable_quantity &gt;= #{decreaseQty}
+                   AND src.sellable_quantity &gt; 0
                    AND src.record_hash = src.synced_record_hash
             </when>
             <when test="sourceType == 'GREETING'">
                 UPDATE inventory_source_greeting src
-                   SET src.saleable_meal_count = src.saleable_meal_count - #{decreaseQty},
+                   SET src.committed_meal_count = LEAST(
+                           src.committed_meal_count,
+                           src.saleable_meal_count - LEAST(src.saleable_meal_count, #{decreaseQty})
+                       ),
+                       src.saleable_meal_count = src.saleable_meal_count - LEAST(src.saleable_meal_count, #{decreaseQty}),
                        src.row_version = src.row_version + 1,
                        src.record_hash = LOWER(RAWTOHEX(STANDARD_HASH(
                            src.source_record_key || '|' ||
-                           TO_CHAR(src.saleable_meal_count - #{decreaseQty}, 'TM9', 'NLS_NUMERIC_CHARACTERS = ''.,''') || '|' ||
+                           TO_CHAR(src.saleable_meal_count - LEAST(src.saleable_meal_count, #{decreaseQty}), 'TM9', 'NLS_NUMERIC_CHARACTERS = ''.,''') || '|' ||
                            TO_CHAR(src.row_version + 1), 'SHA256'
                        ))),
                        src.updated_at = SYSTIMESTAMP
                  WHERE src.active_yn = 'Y' AND src.is_deleted = 0
-                   AND src.saleable_meal_count &gt;= #{decreaseQty}
+                   AND src.saleable_meal_count &gt; 0
                    AND src.record_hash = src.synced_record_hash
             </when>
             <otherwise>
                 UPDATE inventory_source_warehouse src
-                   SET src.physical_available_qty = src.physical_available_qty - #{decreaseQty},
+                   SET src.physical_reserved_qty = LEAST(
+                           src.physical_reserved_qty,
+                           src.physical_available_qty - LEAST(src.physical_available_qty, #{decreaseQty})
+                       ),
+                       src.physical_available_qty = src.physical_available_qty - LEAST(src.physical_available_qty, #{decreaseQty}),
                        src.row_version = src.row_version + 1,
                        src.record_hash = LOWER(RAWTOHEX(STANDARD_HASH(
                            src.source_record_key || '|' ||
-                           TO_CHAR(src.physical_available_qty - #{decreaseQty}, 'TM9', 'NLS_NUMERIC_CHARACTERS = ''.,''') || '|' ||
+                           TO_CHAR(src.physical_available_qty - LEAST(src.physical_available_qty, #{decreaseQty}), 'TM9', 'NLS_NUMERIC_CHARACTERS = ''.,''') || '|' ||
                            TO_CHAR(src.row_version + 1), 'SHA256'
                        ))),
                        src.updated_at = SYSTIMESTAMP
                  WHERE src.active_yn = 'Y' AND src.is_deleted = 0
-                   AND src.physical_available_qty &gt;= #{decreaseQty}
+                   AND src.physical_available_qty &gt; 0
                    AND src.record_hash = src.synced_record_hash
             </otherwise>
         </choose>

@@ -11,9 +11,14 @@ public record StrategyStatisticsSummaryResponse(
         BigDecimal goalAchievedStrategyRate,
         BigDecimal averageAchievementRate,
         BigDecimal baselineRiskStockQty,
+        BigDecimal endRiskStockQty,
         BigDecimal riskStockReductionQty,
         BigDecimal riskStockReductionRate,
+        BigDecimal baselineExpectedDisposalQty,
+        BigDecimal endExpectedDisposalQty,
         BigDecimal avoidedDisposalQty,
+        BigDecimal baselineEstimatedLossAmount,
+        BigDecimal endEstimatedLossAmount,
         BigDecimal estimatedLossSavingsAmount
 ) {
 }

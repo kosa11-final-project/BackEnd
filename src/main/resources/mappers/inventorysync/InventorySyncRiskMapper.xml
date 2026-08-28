@@ -43,7 +43,8 @@
              target.reason_message = source.reason_message,
              target.risk_score = source.risk_score,
              target.inventory_sync_run_id = source.inventory_sync_run_id,
-             target.updated_at = SYSTIMESTAMP,
+             target.updated_at = COALESCE((SELECT started_at FROM inventory_sync_run
+                                            WHERE inventory_sync_run_id = source.inventory_sync_run_id), SYSTIMESTAMP),
              target.updated_by = source.actor_id
         WHEN NOT MATCHED THEN INSERT (
              inventory_balance_id, forecast_id, risk_grade, shortage_yn,
@@ -53,7 +54,11 @@
         ) VALUES (
              source.inventory_balance_id, source.forecast_id, source.risk_grade, source.shortage_yn,
              source.stock_days, source.expiry_days_left, source.holding_days, source.rule_version, source.reason_message,
-             source.risk_score, source.inventory_sync_run_id, SYSTIMESTAMP, SYSTIMESTAMP,
+             source.risk_score, source.inventory_sync_run_id,
+             COALESCE((SELECT started_at FROM inventory_sync_run
+                        WHERE inventory_sync_run_id = source.inventory_sync_run_id), SYSTIMESTAMP),
+             COALESCE((SELECT started_at FROM inventory_sync_run
+                        WHERE inventory_sync_run_id = source.inventory_sync_run_id), SYSTIMESTAMP),
              source.actor_id, source.actor_id, 0
         )
     </update>

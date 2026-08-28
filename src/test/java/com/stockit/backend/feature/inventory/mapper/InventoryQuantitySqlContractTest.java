@@ -30,9 +30,13 @@ class InventoryQuantitySqlContractTest {
                 .doesNotContain("SALES_DAILY")
                 .doesNotContain("sales_daily");
         assertThat(forecastSql).contains("SUM(ib.on_hand_qty)");
-        assertThat(riskSql)
+        String quantitySql = riskSql.substring(
+                riskSql.indexOf("<select id=\"selectInventoryQuantities\""),
+                riskSql.indexOf("<select id=\"selectSafetyStock\""));
+        assertThat(quantitySql)
                 .contains("SUM(ib.on_hand_qty) AS on_hand_qty")
                 .doesNotContain("SUM(ib.reserved_qty)");
+        assertThat(riskSql).contains("SUM(ib.reserved_qty) AS reservedQty");
         assertThat(forecastSql)
                 .contains("#{salesPointCode} != 'UNASSIGNED' AND sp.sales_point_code = #{salesPointCode}")
                 .contains("#{salesPointCode} = 'UNASSIGNED'");
@@ -70,8 +74,9 @@ class InventoryQuantitySqlContractTest {
                 .contains("END AS sales_point_state,\n                   ib.allocated_sales_point_id,\n                   ib.warehouse_id")
                 .contains("detail_disposal_scope AS")
                 .contains("detail_disposal AS")
-                .contains("ds.allocated_sales_point_id IS NULL")
-                .contains("lf.sales_point_id = ds.allocated_sales_point_id")
+                .contains("dd.sales_point_id = -1")
+                .contains("lf.sales_point_id = dd.sales_point_id")
+                .contains("NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id) IS NULL")
                 .contains("NVL(disposal.expected_disposal_qty, 0) AS expected_disposal_qty");
     }
 
@@ -83,8 +88,8 @@ class InventoryQuantitySqlContractTest {
                 inventorySql.indexOf("disposal_scope AS")
         );
         String detailDisposalSql = inventorySql.substring(
-                inventorySql.indexOf("detail_disposal_scope AS"),
-                inventorySql.indexOf("detail_disposal AS")
+                inventorySql.indexOf("detail_disposal_lots AS"),
+                inventorySql.indexOf("detail_disposal_deadlines AS")
         );
 
         assertThat(listDisposalSql)
@@ -97,6 +102,33 @@ class InventoryQuantitySqlContractTest {
                 .contains("sale_end_date &lt;= TRUNC(CAST(#{asOfDate} AS DATE)) + 30")
                 .contains("lot_status IS NULL OR lot_status &lt;&gt; 'DEPLETED'")
                 .doesNotContain("lot_status NOT IN ('EXPIRED', 'SALE_STOPPED', 'DEPLETED')");
+    }
+
+    @Test
+    void expectedDisposalUsesForecastInterpolatedToEachActualSaleEndDate() throws IOException {
+        String inventorySql = read("inventory/InventoryMapper.xml");
+
+        assertThat(inventorySql)
+                .contains("cumulative_expiring_qty")
+                .contains("sale_end_days &lt;= 7")
+                .contains("sale_end_days &lt;= 14")
+                .contains("(lf.predicted_qty_d14 - lf.predicted_qty_d7)")
+                .contains("(lf.predicted_qty_d30 - lf.predicted_qty_d14)")
+                .contains("MAX(GREATEST(0, cumulative_expiring_qty - predicted_qty_at_sale_end))")
+                .doesNotContain("ds.expiring_qty_d7 - lf.predicted_qty_d7");
+    }
+
+    @Test
+    void expectedDisposalUsesTheSameEffectiveSalesPointScopeAsInventoryRows() throws IOException {
+        String inventorySql = read("inventory/InventoryMapper.xml");
+
+        assertThat(inventorySql)
+                .contains("NVL(ib.stock_sales_point_id, NVL(ib.allocated_sales_point_id, -1)) AS sales_point_id")
+                .contains("cbb.sales_point_id")
+                .contains("bb.sales_point_id")
+                .contains("lf.sales_point_id = dd.sales_point_id")
+                .contains("NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id) IS NULL")
+                .doesNotContain("lf.sales_point_id = dd.allocated_sales_point_id");
     }
 
     @Test
@@ -130,7 +162,7 @@ class InventoryQuantitySqlContractTest {
 
         assertThat(inventorySql)
                 .contains("unassigned_balance_base")
-                .contains("AND ib.allocated_sales_point_id IS NULL")
+                .contains("AND NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id) IS NULL")
                 .contains("LEFT JOIN risk_latest ur ON ur.sku_id = ua.sku_id AND ur.sales_point_id = -1")
                 .contains("AND r.sales_point_id = -1")
                 .contains("unassigned_current_qty")
@@ -176,6 +208,31 @@ class InventoryQuantitySqlContractTest {
     }
 
     @Test
+    void highestSkuRiskUsesTheSameCriticalWarningNormalGoodValuesAsTheDatabase() throws IOException {
+        String inventorySql = read("inventory/InventoryMapper.xml");
+
+        assertThat(occurrences(inventorySql,
+                "WHEN SUM(CASE WHEN r.risk_grade = 'CRITICAL' THEN 1 ELSE 0 END) &gt; 0 THEN 'CRITICAL'"))
+                .isEqualTo(3);
+        assertThat(occurrences(inventorySql,
+                "WHEN SUM(CASE WHEN r.risk_grade = 'WARNING' THEN 1 ELSE 0 END) &gt; 0 THEN 'WARNING'"))
+                .isEqualTo(3);
+        assertThat(occurrences(inventorySql,
+                "WHEN SUM(CASE WHEN r.risk_grade = 'NORMAL' THEN 1 ELSE 0 END) &gt; 0 THEN 'NORMAL'"))
+                .isEqualTo(3);
+        assertThat(occurrences(inventorySql,
+                "WHEN SUM(CASE WHEN r.risk_grade = 'GOOD' THEN 1 ELSE 0 END) &gt; 0 THEN 'GOOD'"))
+                .isEqualTo(3);
+        assertThat(occurrences(inventorySql,
+                "WHEN COUNT(*) &lt;&gt; COUNT(r.risk_grade) THEN NULL"))
+                .isEqualTo(3);
+        assertThat(inventorySql)
+                .doesNotContain("WHEN 'GOOD' THEN 'SAFE'")
+                .doesNotContain("WHEN 'WARNING' THEN 'CAUTION'")
+                .doesNotContain("WHEN 'CRITICAL' THEN 'DANGER'");
+    }
+
+    @Test
     void candidateFilterValuesUseTheValidatedAndOrOperator() throws IOException {
         String inventorySql = read("inventory/InventoryMapper.xml");
 
@@ -202,18 +259,17 @@ class InventoryQuantitySqlContractTest {
         assertThat(riskSql)
                 .contains("#{salesPointCode} != 'UNASSIGNED' AND sp.sales_point_code = #{salesPointCode}")
                 .contains("#{salesPointCode} = 'UNASSIGNED'")
-                .contains("ip.allocated_sales_point_id IS NULL")
-                .doesNotContain("ip.stock_sales_point_id IS NULL");
+                .contains("NVL(ip.stock_sales_point_id, ip.allocated_sales_point_id) IS NULL");
     }
 
     @Test
-    void syncRiskSnapshotKeepsAllocatedNullAsUnassignedScope() throws IOException {
+    void syncRiskSnapshotUsesTheSameEffectiveSalesPointScopeAsInventoryQueries() throws IOException {
         String syncRiskSql = read("inventorysync/InventorySyncRiskSnapshotMapper.xml");
 
         assertThat(syncRiskSql)
-                .contains("COALESCE(TO_CHAR(ib.allocated_sales_point_id), 'UNASSIGNED')")
+                .contains("COALESCE(TO_CHAR(NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id)), 'UNASSIGNED')")
                 .contains("l.lot_status")
-                .doesNotContain("COALESCE(TO_CHAR(COALESCE(ib.allocated_sales_point_id, ib.stock_sales_point_id))");
+                .contains("NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id) AS sales_point_id");
     }
 
     @Test
@@ -223,9 +279,9 @@ class InventoryQuantitySqlContractTest {
         assertThat(syncRiskSql)
                 .contains("selectScopesRequiringRuleVersion")
                 .contains("LEFT JOIN risk_assessment ra")
-                .contains("GROUP BY ib.sku_id, ib.allocated_sales_point_id")
+                .contains("GROUP BY ib.sku_id, NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id)")
                 .contains("HAVING MAX(CASE WHEN ra.rule_version = #{ruleVersion} THEN 1 ELSE 0 END) = 0")
-                .contains("COALESCE(TO_CHAR(ib.allocated_sales_point_id), 'UNASSIGNED') AS scope_key");
+                .contains("COALESCE(TO_CHAR(NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id)), 'UNASSIGNED') AS scope_key");
     }
 
     private static String read(String relativePath) throws IOException {

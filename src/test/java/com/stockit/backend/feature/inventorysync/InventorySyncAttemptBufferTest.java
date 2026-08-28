@@ -47,8 +47,26 @@ class InventorySyncAttemptBufferTest {
                 .isEqualTo(LocalDate.of(2026, 2, 1));
     }
 
+    @Test
+    void ignoresMissingOrDifferentSourceLotStatusesBecauseCanonicalStatusIsDerivedDuringSync() {
+        InventorySyncAttemptBuffer buffer = new InventorySyncAttemptBuffer("RUN-4", 0, 1);
+
+        buffer.add(record("OFFLINE", 1L, "상품", LocalDate.of(2026, 1, 1), "AVAILABLE"));
+        buffer.add(record("ECOMMERCE", 2L, "상품", LocalDate.of(2026, 1, 1), null));
+
+        assertThat(buffer.lotRecords()).hasSize(1);
+        assertThat(buffer.records())
+                .extracting(CanonicalInventoryRecord::lotStatus)
+                .containsOnlyNulls();
+    }
+
     private CanonicalInventoryRecord record(String sourceType, long balanceId, String productName,
                                               LocalDate manufacturedDate) {
+        return record(sourceType, balanceId, productName, manufacturedDate, "AVAILABLE");
+    }
+
+    private CanonicalInventoryRecord record(String sourceType, long balanceId, String productName,
+                                              LocalDate manufacturedDate, String lotStatus) {
         return new CanonicalInventoryRecord(
                 sourceType, sourceType + ":ROW-" + balanceId,
                 1L, 1L, 1L, null, 1L, 1L, balanceId,
@@ -56,7 +74,7 @@ class InventorySyncAttemptBufferTest {
                 productName, "브랜드", "ACTIVE", "WAREHOUSE".equals(sourceType) ? null : "Y",
                 "SKU", new BigDecimal("100"), "G", BigDecimal.ONE, "EA", "FROZEN",
                 null, null, null, null, null, null, null, null,
-                manufacturedDate, LocalDate.of(2026, 2, 2), LocalDate.of(2027, 1, 1), null, "AVAILABLE",
+                manufacturedDate, LocalDate.of(2026, 2, 2), LocalDate.of(2027, 1, 1), null, lotStatus,
                 null, null, BigDecimal.TEN, BigDecimal.ONE,
                 String.format("%064d", balanceId), 1, 1
         );

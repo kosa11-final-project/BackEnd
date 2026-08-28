@@ -7,7 +7,7 @@ public record RiskReasonDto(
         @Schema(description = "사유 코드", example = "EXPIRY_CRITICAL")
         String code,
 
-        @Schema(description = "사유 설명 메시지", example = "소비기한 30일 이하 임박 (22일 남음)")
+        @Schema(description = "사유 설명 메시지", example = "소비기한까지 22일 남아 기한 내 소진 관리가 필요한 상황입니다.")
         String message,
 
         @Schema(description = "심각도 (CRITICAL, WARNING, NORMAL, GOOD)", example = "CRITICAL")

@@ -80,7 +80,7 @@ public class InventoryDemoAdjustmentService {
                 mapper.updatePendingCount(item.sourceType(), wasSynced);
                 mapper.insertAudit(request.clientRequestId(), hash, item.sourceType(), item.sourceRecordKey(), item.decreaseQty(),
                         source.getRowVersion(), source.getRowVersion() + 1, source.getRecordHash(), hashAfter, requestedBy,
-                        payload(item));
+                        payload(item, source.getReservedQty(), source.getReservedQty().min(remaining)));
                 results.add(new InventoryDemoAdjustmentResponse.ItemResult(item.sourceType(), item.sourceRecordKey(), item.decreaseQty(), remaining));
             } catch (DataAccessException exception) {
                 if (InventorySyncLockSupport.isLockWaitFailure(exception)) {
@@ -143,13 +143,13 @@ public class InventoryDemoAdjustmentService {
                 }
 
                 long expectedNewAdjustments = state.currentRecordCount() - state.pendingRecordCount();
-                int eligibleCount = mapper.countEligibleSyncedRows(sourceType, decreaseQty);
+                int eligibleCount = mapper.countAdjustableSyncedRows(sourceType);
                 if (expectedNewAdjustments < 0 || eligibleCount != expectedNewAdjustments) {
                     throw new AppException(
                             ErrorCode.INVALID_PARAMETER,
-                            "모든 원천 행을 동일하게 차감할 수 없습니다: " + sourceType
+                            "모든 원천 행을 요청 수량 이내로 차감할 수 없습니다: " + sourceType
                                     + " (신규 차감 예상=" + expectedNewAdjustments
-                                    + ", 차감 가능=" + eligibleCount + ")"
+                                    + ", 재고가 1개 이상인 차감 가능 행=" + eligibleCount + ")"
                     );
                 }
 
@@ -200,8 +200,18 @@ public class InventoryDemoAdjustmentService {
         }
     }
 
-    private String payload(InventoryDemoAdjustmentRequest.Item item) {
-        try { return objectMapper.writeValueAsString(java.util.Map.of("sourceType", item.sourceType(), "sourceRecordKey", item.sourceRecordKey(), "decreaseQty", item.decreaseQty())); }
+    private String payload(InventoryDemoAdjustmentRequest.Item item,
+                           BigDecimal reservedQtyBefore,
+                           BigDecimal reservedQtyAfter) {
+        try {
+            return objectMapper.writeValueAsString(java.util.Map.of(
+                    "sourceType", item.sourceType(),
+                    "sourceRecordKey", item.sourceRecordKey(),
+                    "decreaseQty", item.decreaseQty(),
+                    "reservedQtyBefore", reservedQtyBefore,
+                    "reservedQtyAfter", reservedQtyAfter
+            ));
+        }
         catch (Exception exception) { throw new IllegalStateException("audit payload serialization failed", exception); }
     }
 

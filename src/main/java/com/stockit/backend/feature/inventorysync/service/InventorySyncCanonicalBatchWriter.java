@@ -1,6 +1,7 @@
 package com.stockit.backend.feature.inventorysync.service;
 
 import java.time.LocalDate;
+import java.time.Instant;
 import java.time.ZoneId;
 import java.util.Collection;
 import java.util.LinkedHashSet;
@@ -10,6 +11,8 @@ import java.util.Set;
 import java.util.function.ToIntFunction;
 import java.util.stream.Collectors;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -25,6 +28,7 @@ import com.stockit.backend.feature.inventorysync.risk.InventorySyncRiskWriter;
 
 @Component
 public class InventorySyncCanonicalBatchWriter implements InventorySyncPublisher.CanonicalBatchWriter {
+    private static final Logger log = LoggerFactory.getLogger(InventorySyncCanonicalBatchWriter.class);
     private final InventorySyncCanonicalMapper mapper;
     private final InventorySyncRunMapper runMapper;
     private final InventorySyncSourceWriteMapper sourceWriteMapper;
@@ -128,12 +132,26 @@ public class InventorySyncCanonicalBatchWriter implements InventorySyncPublisher
     @Override
     public int finish(String runId, Map<String, Long> sourceVersions, Set<String> riskScopes, Long actorId,
                       int changedCount) {
+        requireActor(actorId);
+        long riskPhaseStarted = System.nanoTime();
+        Long numericRunId = Long.valueOf(runId);
+        var initialRun = runMapper.selectByIdForUpdate(numericRunId);
+        if (initialRun == null || !"RUNNING".equals(initialRun.getRunStatus())) {
+            throw new IllegalStateException("STALE_FENCING");
+        }
+        // 자정을 넘겨도 run 전체가 시작시각 하나를 공유하도록 고정합니다.
+        Instant assessmentInstant = initialRun.getStartedAt();
+        LocalDate asOfDate = assessmentInstant == null
+                ? LocalDate.now(ZoneId.of("Asia/Seoul"))
+                : assessmentInstant.atZone(ZoneId.of("Asia/Seoul")).toLocalDate();
         Set<String> sourceTypes = sourceVersions.keySet();
-        sourceWriteMapper.refreshState(sourceTypes, Long.valueOf(runId));
-        sourceVersions.forEach((sourceType, version) -> runSourceMapper.completeSource(Long.valueOf(runId), sourceType, version, "SUCCESS"));
-        var run = runMapper.selectByIdForUpdate(Long.valueOf(runId));
+        sourceWriteMapper.refreshState(sourceTypes, numericRunId);
+        sourceVersions.forEach((sourceType, version) -> runSourceMapper.completeSource(numericRunId, sourceType, version, "SUCCESS"));
+        Set<String> dailyRefreshScopes = riskSnapshotLoader.findScopesRequiringDailyRefresh(asOfDate);
+        int refreshedLotCount = mapper.refreshLotStatuses(asOfDate, actorId);
+        var run = runMapper.selectByIdForUpdate(numericRunId);
         if (run == null || !"RUNNING".equals(run.getRunStatus())
-                || runMapper.updatePhase(Long.valueOf(runId), run.getMainAttemptNo(), run.getFencingToken(),
+                || runMapper.updatePhase(numericRunId, run.getMainAttemptNo(), run.getFencingToken(),
                         "ASSESSING_RISK", run.getReadCount(), run.getMappedCount()) != 1) {
             throw new IllegalStateException("STALE_FENCING");
         }
@@ -141,20 +159,44 @@ public class InventorySyncCanonicalBatchWriter implements InventorySyncPublisher
         if (riskScopes != null) {
             scopesToEvaluate.addAll(riskScopes);
         }
+        scopesToEvaluate.addAll(dailyRefreshScopes);
         Set<String> outdatedRuleScopes = riskSnapshotLoader.findScopesRequiringRuleVersion(
                 RiskRuleEngine.RULE_VERSION
         );
-        int riskOnlyChangedCount = (int) outdatedRuleScopes.stream()
-                .filter(scope -> !scopesToEvaluate.contains(scope))
-                .count();
         scopesToEvaluate.addAll(outdatedRuleScopes);
-        riskWriter.evaluateAndPersist(Long.valueOf(runId), actorId, scopesToEvaluate, riskSnapshotLoader);
-        if (snapshotCoordinator != null && changedCount + riskOnlyChangedCount > 0) {
-            snapshotCoordinator.scheduleAfterCommit(
-                    Long.valueOf(runId),
-                    LocalDate.now(ZoneId.of("Asia/Seoul"))
+        Set<String> sourceChangedScopes = riskScopes == null ? Set.of() : riskScopes;
+        int riskOnlyChangedCount = (int) scopesToEvaluate.stream()
+                .filter(scope -> !sourceChangedScopes.contains(scope))
+                .count();
+        int duplicateCandidateCount = Math.max(0,
+                (riskScopes == null ? 0 : riskScopes.size())
+                        + dailyRefreshScopes.size() + outdatedRuleScopes.size() - scopesToEvaluate.size());
+        log.info("inventory risk candidates selected: runId={}, ruleVersion={}, sourceScopeCount={}, "
+                        + "dailyRefreshScopeCount={}, outdatedRuleScopeCount={}, candidateScopeCount={}, "
+                        + "duplicateCandidateCount={}, asOfDate={}",
+                runId, RiskRuleEngine.RULE_VERSION, sourceChangedScopes.size(), dailyRefreshScopes.size(),
+                outdatedRuleScopes.size(), scopesToEvaluate.size(), duplicateCandidateCount, asOfDate);
+        if (run.getStartedAt() != null) {
+            riskWriter.evaluateAndPersist(
+                    numericRunId, actorId, scopesToEvaluate, asOfDate,
+                    assessmentInstant, riskSnapshotLoader
+            );
+        } else {
+            // 기존 테스트/호출부가 시작시각을 제공하지 않는 경우에도 하위 호환을 유지합니다.
+            riskWriter.evaluateAndPersist(
+                    numericRunId, actorId, scopesToEvaluate, asOfDate, riskSnapshotLoader
             );
         }
-        return riskOnlyChangedCount;
+        if (snapshotCoordinator != null && changedCount + refreshedLotCount + riskOnlyChangedCount > 0) {
+            snapshotCoordinator.scheduleAfterCommit(
+                    Long.valueOf(runId),
+                    asOfDate
+            );
+        }
+        log.info("inventory risk phase completed: runId={}, ruleVersion={}, canonicalChangedCount={}, "
+                        + "lotStatusChangedCount={}, riskOnlyChangedCount={}, totalMs={}",
+                runId, RiskRuleEngine.RULE_VERSION, changedCount, refreshedLotCount, riskOnlyChangedCount,
+                (System.nanoTime() - riskPhaseStarted) / 1_000_000L);
+        return refreshedLotCount + riskOnlyChangedCount;
     }
 }

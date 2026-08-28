@@ -55,24 +55,8 @@
           <trim prefix="(" suffix=")" suffixOverrides="AND|OR">
             <if test="q != null and q != ''">
               (
-                LOWER(p.product_code) LIKE '%' || LOWER(#{q}) || '%'
-                OR LOWER(p.product_name) LIKE '%' || LOWER(#{q}) || '%'
+                LOWER(p.product_name) LIKE '%' || LOWER(#{q}) || '%'
                 OR LOWER(s.sku_code) LIKE '%' || LOWER(#{q}) || '%'
-                OR LOWER(s.sku_name) LIKE '%' || LOWER(#{q}) || '%'
-                OR EXISTS (
-                    SELECT 1
-                    FROM inventory_balance q_ib
-                    INNER JOIN sales_point q_sp
-                            ON q_sp.sales_point_id = NVL(q_ib.stock_sales_point_id, q_ib.allocated_sales_point_id)
-                           AND q_sp.is_deleted = 0
-                           AND q_sp.active_yn = 'Y'
-                    WHERE q_ib.is_deleted = 0
-                      AND q_ib.sku_id = ib.sku_id
-                      AND (
-                        LOWER(q_sp.sales_point_code) LIKE '%' || LOWER(#{q}) || '%'
-                        OR LOWER(q_sp.sales_point_name) LIKE '%' || LOWER(#{q}) || '%'
-                      )
-                )
               )
               <include refid="candidateFilterOperator"/>
             </if>
@@ -303,6 +287,7 @@
                            AND filtered_w.is_deleted = 0
                            AND filtered_w.active_yn = 'Y'
                     WHERE filtered_ib.is_deleted = 0
+                      AND NVL(filtered_ib.stock_sales_point_id, filtered_ib.allocated_sales_point_id) IS NULL
                       AND filtered_ib.sku_id = ib.sku_id
                       AND filtered_w.warehouse_code IN
                       <foreach collection="warehouseCodes" item="warehouseCode" open="(" separator="," close=")">
@@ -320,6 +305,7 @@
                            AND filtered_w.is_deleted = 0
                            AND filtered_w.active_yn = 'Y'
                     WHERE filtered_ib.is_deleted = 0
+                      AND NVL(filtered_ib.stock_sales_point_id, filtered_ib.allocated_sales_point_id) IS NULL
                       AND filtered_ib.sku_id = ib.sku_id
                       <choose>
                         <when test="warehouseCodes.size() == 1">
@@ -379,12 +365,7 @@
         risk_latest AS (
             SELECT sku_id,
                    sales_point_id,
-                   CASE risk_grade
-                       WHEN 'GOOD' THEN 'SAFE'
-                       WHEN 'WARNING' THEN 'CAUTION'
-                       WHEN 'CRITICAL' THEN 'DANGER'
-                       ELSE risk_grade
-                   END AS risk_grade,
+                   risk_grade,
                    CASE WHEN risk_grade IS NULL THEN 'UNASSESSED' ELSE 'ASSESSED' END AS assessment_status,
                    shortage_yn,
                    reason_message AS risk_reason
@@ -405,10 +386,10 @@
             SELECT scope.sku_id,
                    CASE
                      WHEN COUNT(*) &lt;&gt; COUNT(r.risk_grade) THEN NULL
-                     WHEN SUM(CASE WHEN r.risk_grade = 'DANGER' THEN 1 ELSE 0 END) &gt; 0 THEN 'DANGER'
-                     WHEN SUM(CASE WHEN r.risk_grade = 'CAUTION' THEN 1 ELSE 0 END) &gt; 0 THEN 'CAUTION'
+                     WHEN SUM(CASE WHEN r.risk_grade = 'CRITICAL' THEN 1 ELSE 0 END) &gt; 0 THEN 'CRITICAL'
+                     WHEN SUM(CASE WHEN r.risk_grade = 'WARNING' THEN 1 ELSE 0 END) &gt; 0 THEN 'WARNING'
                      WHEN SUM(CASE WHEN r.risk_grade = 'NORMAL' THEN 1 ELSE 0 END) &gt; 0 THEN 'NORMAL'
-                     WHEN SUM(CASE WHEN r.risk_grade = 'SAFE' THEN 1 ELSE 0 END) &gt; 0 THEN 'SAFE'
+                     WHEN SUM(CASE WHEN r.risk_grade = 'GOOD' THEN 1 ELSE 0 END) &gt; 0 THEN 'GOOD'
                      ELSE NULL
                    END AS risk_grade,
                    CASE WHEN COUNT(*) = COUNT(r.risk_grade) THEN 'ASSESSED' ELSE 'UNASSESSED' END AS assessment_status,
@@ -493,9 +474,24 @@
             FROM ranked_disposal_forecast
             WHERE rn = 1
         ),
+        latest_valid_disposal_forecast AS (
+            SELECT forecast_id,
+                   sku_id,
+                   sales_point_id,
+                   predicted_qty_d7,
+                   predicted_qty_d14,
+                   predicted_qty_d30
+            FROM latest_disposal_forecast
+            WHERE predicted_qty_d7 IS NOT NULL
+              AND predicted_qty_d14 IS NOT NULL
+              AND predicted_qty_d30 IS NOT NULL
+              AND predicted_qty_d7 &gt;= 0
+              AND predicted_qty_d14 &gt;= predicted_qty_d7
+              AND predicted_qty_d30 &gt;= predicted_qty_d14
+        ),
         disposal_lot_dates AS (
             SELECT cbb.sku_id,
-                   cbb.allocated_sales_point_id,
+                   cbb.sales_point_id,
                    cbb.on_hand_qty,
                    cbb.lot_status,
                    CASE
@@ -508,50 +504,63 @@
         ),
         disposal_lots AS (
             SELECT sku_id,
-                   allocated_sales_point_id,
+                   sales_point_id,
                    on_hand_qty,
-                   sale_end_date
+                   sale_end_date,
+                   TRUNC(sale_end_date) - TRUNC(CAST(#{asOfDate} AS DATE)) AS sale_end_days
             FROM disposal_lot_dates
             WHERE on_hand_qty > 0
               AND (lot_status IS NULL OR lot_status &lt;&gt; 'DEPLETED')
               AND sale_end_date > TRUNC(CAST(#{asOfDate} AS DATE))
               AND sale_end_date &lt;= TRUNC(CAST(#{asOfDate} AS DATE)) + 30
         ),
+        disposal_deadlines AS (
+            SELECT sku_id,
+                   sales_point_id,
+                   sale_end_date,
+                   sale_end_days,
+                   SUM(SUM(on_hand_qty)) OVER (
+                       PARTITION BY sku_id, sales_point_id
+                       ORDER BY sale_end_date
+                       ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+                   ) AS cumulative_expiring_qty
+            FROM disposal_lots
+            GROUP BY sku_id, sales_point_id, sale_end_date, sale_end_days
+        ),
+        disposal_forecast_at_deadline AS (
+            SELECT dd.sku_id,
+                   dd.sales_point_id,
+                   dd.sale_end_date,
+                   dd.cumulative_expiring_qty,
+                   CASE
+                       WHEN dd.sales_point_id = -1 OR lf.forecast_id IS NULL THEN 0
+                       WHEN dd.sale_end_days &lt;= 7
+                           THEN lf.predicted_qty_d7 * dd.sale_end_days / 7
+                       WHEN dd.sale_end_days &lt;= 14
+                           THEN lf.predicted_qty_d7
+                                + (lf.predicted_qty_d14 - lf.predicted_qty_d7)
+                                  * (dd.sale_end_days - 7) / 7
+                       ELSE lf.predicted_qty_d14
+                            + (lf.predicted_qty_d30 - lf.predicted_qty_d14)
+                              * (dd.sale_end_days - 14) / 16
+                   END AS predicted_qty_at_sale_end
+            FROM disposal_deadlines dd
+            LEFT JOIN latest_valid_disposal_forecast lf
+                  ON lf.sku_id = dd.sku_id
+                  AND lf.sales_point_id = dd.sales_point_id
+        ),
         disposal_scope AS (
             SELECT sku_id,
-                   allocated_sales_point_id,
-                   SUM(CASE WHEN sale_end_date &lt;= TRUNC(CAST(#{asOfDate} AS DATE)) + 7 THEN on_hand_qty ELSE 0 END) AS expiring_qty_d7,
-                   SUM(CASE WHEN sale_end_date &lt;= TRUNC(CAST(#{asOfDate} AS DATE)) + 14 THEN on_hand_qty ELSE 0 END) AS expiring_qty_d14,
-                   SUM(on_hand_qty) AS expiring_qty_d30
-            FROM disposal_lots
-            GROUP BY sku_id, allocated_sales_point_id
+                   sales_point_id,
+                   MAX(GREATEST(0, cumulative_expiring_qty - predicted_qty_at_sale_end)) AS expected_disposal_qty
+            FROM disposal_forecast_at_deadline
+            GROUP BY sku_id, sales_point_id
         ),
         disposal_by_sku AS (
-            SELECT ds.sku_id,
-                   SUM(CASE
-                           WHEN ds.allocated_sales_point_id IS NULL
-                                OR lf.forecast_id IS NULL
-                                OR lf.predicted_qty_d7 IS NULL
-                                OR lf.predicted_qty_d14 IS NULL
-                                OR lf.predicted_qty_d30 IS NULL
-                                OR lf.predicted_qty_d7 &lt; 0
-                                OR lf.predicted_qty_d14 &lt; 0
-                                OR lf.predicted_qty_d30 &lt; 0
-                                OR lf.predicted_qty_d7 &gt; lf.predicted_qty_d14
-                                OR lf.predicted_qty_d14 &gt; lf.predicted_qty_d30
-                           THEN ds.expiring_qty_d30
-                           ELSE GREATEST(
-                               0,
-                               ds.expiring_qty_d7 - lf.predicted_qty_d7,
-                               ds.expiring_qty_d14 - lf.predicted_qty_d14,
-                               ds.expiring_qty_d30 - lf.predicted_qty_d30
-                           )
-                       END) AS expected_disposal_qty
-            FROM disposal_scope ds
-            LEFT JOIN latest_disposal_forecast lf
-                   ON lf.sku_id = ds.sku_id
-                  AND lf.sales_point_id = ds.allocated_sales_point_id
-            GROUP BY ds.sku_id
+            SELECT sku_id,
+                   SUM(expected_disposal_qty) AS expected_disposal_qty
+            FROM disposal_scope
+            GROUP BY sku_id
         ),
         candidate_sku_agg AS (
             SELECT cbb.sku_id,
@@ -619,10 +628,10 @@
                 <when test="sortColumn == 'risk_grade'">
                     ORDER BY CASE WHEN q.risk_grade IS NULL THEN 1 ELSE 0 END,
                              CASE q.risk_grade
-                                 WHEN 'DANGER' THEN 4
-                                 WHEN 'CAUTION' THEN 3
+                                 WHEN 'CRITICAL' THEN 4
+                                 WHEN 'WARNING' THEN 3
                                  WHEN 'NORMAL' THEN 2
-                                 WHEN 'SAFE' THEN 1
+                                 WHEN 'GOOD' THEN 1
                                  ELSE 0
                              END ${sortDirection},
                              q.sku_code ASC
@@ -688,7 +697,7 @@
             INNER JOIN paged_candidates pc ON pc.sku_id = ib.sku_id
             LEFT JOIN lot l ON l.lot_id = ib.lot_id AND l.is_deleted = 0
             WHERE ib.is_deleted = 0
-              AND ib.allocated_sales_point_id IS NULL
+              AND NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id) IS NULL
         ),
         row_agg AS (
             SELECT sku_id,
@@ -850,6 +859,7 @@
                        'availableQuantity' VALUE sf.available_qty,
                        'reservedQuantity' VALUE sf.reserved_qty,
                        'riskGrade' VALUE sf.risk_grade,
+                       'assessmentStatus' VALUE sf.assessment_status,
                        'shortageYn' VALUE sf.shortage_yn,
                        'salesPointState' VALUE sf.sales_point_state,
                        'warehouseName' VALUE CAST(NULL AS VARCHAR2(200)),
@@ -951,10 +961,10 @@
             <when test="sortColumn == 'risk_grade'">
                 ORDER BY CASE WHEN pc.risk_grade IS NULL THEN 1 ELSE 0 END,
                          CASE pc.risk_grade
-                             WHEN 'DANGER' THEN 4
-                             WHEN 'CAUTION' THEN 3
+                             WHEN 'CRITICAL' THEN 4
+                             WHEN 'WARNING' THEN 3
                              WHEN 'NORMAL' THEN 2
-                             WHEN 'SAFE' THEN 1
+                             WHEN 'GOOD' THEN 1
                              ELSE 0
                          END ${sortDirection},
                          pc.sku_code ASC
@@ -986,12 +996,7 @@
         risk_latest AS (
             SELECT sku_id,
                    sales_point_id,
-                   CASE risk_grade
-                       WHEN 'GOOD' THEN 'SAFE'
-                       WHEN 'WARNING' THEN 'CAUTION'
-                       WHEN 'CRITICAL' THEN 'DANGER'
-                       ELSE risk_grade
-                   END AS risk_grade,
+                   risk_grade,
                    CASE WHEN risk_grade IS NULL THEN 'UNASSESSED' ELSE 'ASSESSED' END AS assessment_status,
                    shortage_yn
             FROM risk_rows
@@ -1011,10 +1016,10 @@
             SELECT scope.sku_id,
                    CASE
                      WHEN COUNT(*) &lt;&gt; COUNT(r.risk_grade) THEN NULL
-                     WHEN SUM(CASE WHEN r.risk_grade = 'DANGER' THEN 1 ELSE 0 END) &gt; 0 THEN 'DANGER'
-                     WHEN SUM(CASE WHEN r.risk_grade = 'CAUTION' THEN 1 ELSE 0 END) &gt; 0 THEN 'CAUTION'
+                     WHEN SUM(CASE WHEN r.risk_grade = 'CRITICAL' THEN 1 ELSE 0 END) &gt; 0 THEN 'CRITICAL'
+                     WHEN SUM(CASE WHEN r.risk_grade = 'WARNING' THEN 1 ELSE 0 END) &gt; 0 THEN 'WARNING'
                      WHEN SUM(CASE WHEN r.risk_grade = 'NORMAL' THEN 1 ELSE 0 END) &gt; 0 THEN 'NORMAL'
-                     WHEN SUM(CASE WHEN r.risk_grade = 'SAFE' THEN 1 ELSE 0 END) &gt; 0 THEN 'SAFE'
+                     WHEN SUM(CASE WHEN r.risk_grade = 'GOOD' THEN 1 ELSE 0 END) &gt; 0 THEN 'GOOD'
                      ELSE NULL
                    END AS risk_grade,
                    CASE WHEN COUNT(*) = COUNT(r.risk_grade) THEN 'ASSESSED' ELSE 'UNASSESSED' END AS assessment_status,
@@ -1067,12 +1072,7 @@
         risk_latest AS (
             SELECT sku_id,
                    sales_point_id,
-                   CASE risk_grade
-                       WHEN 'GOOD' THEN 'SAFE'
-                       WHEN 'WARNING' THEN 'CAUTION'
-                       WHEN 'CRITICAL' THEN 'DANGER'
-                       ELSE risk_grade
-                   END AS risk_grade,
+                   risk_grade,
                    CASE WHEN risk_grade IS NULL THEN 'UNASSESSED' ELSE 'ASSESSED' END AS assessment_status,
                    shortage_yn
             FROM risk_rows
@@ -1098,10 +1098,10 @@
             SELECT scope.sku_id,
                    CASE
                      WHEN COUNT(*) &lt;&gt; COUNT(r.risk_grade) THEN NULL
-                     WHEN SUM(CASE WHEN r.risk_grade = 'DANGER' THEN 1 ELSE 0 END) &gt; 0 THEN 'DANGER'
-                     WHEN SUM(CASE WHEN r.risk_grade = 'CAUTION' THEN 1 ELSE 0 END) &gt; 0 THEN 'CAUTION'
+                     WHEN SUM(CASE WHEN r.risk_grade = 'CRITICAL' THEN 1 ELSE 0 END) &gt; 0 THEN 'CRITICAL'
+                     WHEN SUM(CASE WHEN r.risk_grade = 'WARNING' THEN 1 ELSE 0 END) &gt; 0 THEN 'WARNING'
                      WHEN SUM(CASE WHEN r.risk_grade = 'NORMAL' THEN 1 ELSE 0 END) &gt; 0 THEN 'NORMAL'
-                   WHEN SUM(CASE WHEN r.risk_grade = 'SAFE' THEN 1 ELSE 0 END) &gt; 0 THEN 'SAFE'
+                   WHEN SUM(CASE WHEN r.risk_grade = 'GOOD' THEN 1 ELSE 0 END) &gt; 0 THEN 'GOOD'
                    ELSE NULL
                    END AS risk_grade,
                    CASE WHEN COUNT(*) = COUNT(r.risk_grade) THEN 'ASSESSED' ELSE 'UNASSESSED' END AS assessment_status,
@@ -1197,9 +1197,9 @@
                    SUM(sf.available_qty) AS available_qty,
                    SUM(sf.reserved_qty) AS reserved_qty,
                    CASE WHEN MAX(sf.shortage_count) = 1 THEN 1 ELSE 0 END AS under_safety_count,
-                   CASE WHEN sr.risk_grade = 'DANGER' THEN 1 ELSE 0 END AS danger_risk_count,
-                   CASE WHEN sr.risk_grade = 'CAUTION' THEN 1 ELSE 0 END AS caution_risk_count,
-                   CASE WHEN sr.risk_grade = 'SAFE' THEN 1 ELSE 0 END AS safe_risk_count,
+                   CASE WHEN sr.risk_grade = 'CRITICAL' THEN 1 ELSE 0 END AS danger_risk_count,
+                   CASE WHEN sr.risk_grade = 'WARNING' THEN 1 ELSE 0 END AS caution_risk_count,
+                   CASE WHEN sr.risk_grade = 'GOOD' THEN 1 ELSE 0 END AS safe_risk_count,
                    MAX(sf.updated_at) AS updated_at
             FROM seller_facts sf
             LEFT JOIN sku_risk_agg sr ON sr.sku_id = sf.sku_id
@@ -1267,12 +1267,12 @@
         SELECT w.warehouse_code AS code,
                w.warehouse_name AS name,
                w.region_code AS region_code,
-               CASE WHEN COUNT(ib.inventory_balance_id) &gt; 0 THEN 'ACTIVE' ELSE 'REGISTERED_EMPTY' END AS availability,
+               'ACTIVE' AS availability,
                COUNT(DISTINCT ib.sku_id) AS current_sku_count,
                COUNT(ib.inventory_balance_id) AS current_balance_row_count,
                NVL(SUM(ib.on_hand_qty), 0) AS current_on_hand_qty
         FROM warehouse w
-        LEFT JOIN (
+        INNER JOIN (
             SELECT ib.warehouse_id,
                    ib.sku_id,
                    ib.inventory_balance_id,
@@ -1283,6 +1283,7 @@
                    AND active_s.is_deleted = 0
                    AND active_s.active_yn = 'Y'
             WHERE ib.is_deleted = 0
+              AND NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id) IS NULL
         ) ib ON ib.warehouse_id = w.warehouse_id
         WHERE w.is_deleted = 0
           AND w.active_yn = 'Y'
@@ -1375,7 +1376,7 @@
               AND (
                   (#{salesPointCode} != 'UNASSIGNED' AND sp.sales_point_code = #{salesPointCode})
                   OR (#{salesPointCode} = 'UNASSIGNED'
-                      AND ib.allocated_sales_point_id IS NULL)
+                      AND NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id) IS NULL)
               )
         ),
         detail_disposal_forecast_ranked AS (
@@ -1412,9 +1413,24 @@
             FROM detail_disposal_forecast_ranked
             WHERE rn = 1
         ),
+        detail_latest_valid_disposal_forecast AS (
+            SELECT forecast_id,
+                   sku_id,
+                   sales_point_id,
+                   predicted_qty_d7,
+                   predicted_qty_d14,
+                   predicted_qty_d30
+            FROM detail_latest_disposal_forecast
+            WHERE predicted_qty_d7 IS NOT NULL
+              AND predicted_qty_d14 IS NOT NULL
+              AND predicted_qty_d30 IS NOT NULL
+              AND predicted_qty_d7 &gt;= 0
+              AND predicted_qty_d14 &gt;= predicted_qty_d7
+              AND predicted_qty_d30 &gt;= predicted_qty_d14
+        ),
         detail_disposal_lot_dates AS (
             SELECT bb.sku_id,
-                   bb.allocated_sales_point_id,
+                   bb.sales_point_id,
                    bb.on_hand_qty,
                    bb.lot_status,
                    CASE
@@ -1425,45 +1441,65 @@
                    END AS sale_end_date
             FROM balance_base bb
         ),
-        detail_disposal_scope AS (
+        detail_disposal_lots AS (
             SELECT sku_id,
-                   allocated_sales_point_id,
-                   SUM(CASE WHEN sale_end_date &lt;= TRUNC(CAST(#{asOfDate} AS DATE)) + 7 THEN on_hand_qty ELSE 0 END) AS expiring_qty_d7,
-                   SUM(CASE WHEN sale_end_date &lt;= TRUNC(CAST(#{asOfDate} AS DATE)) + 14 THEN on_hand_qty ELSE 0 END) AS expiring_qty_d14,
-                   SUM(on_hand_qty) AS expiring_qty_d30
+                   sales_point_id,
+                   on_hand_qty,
+                   sale_end_date,
+                   TRUNC(sale_end_date) - TRUNC(CAST(#{asOfDate} AS DATE)) AS sale_end_days
             FROM detail_disposal_lot_dates
             WHERE on_hand_qty &gt; 0
               AND (lot_status IS NULL OR lot_status &lt;&gt; 'DEPLETED')
               AND sale_end_date &gt; TRUNC(CAST(#{asOfDate} AS DATE))
               AND sale_end_date &lt;= TRUNC(CAST(#{asOfDate} AS DATE)) + 30
-            GROUP BY sku_id, allocated_sales_point_id
+        ),
+        detail_disposal_deadlines AS (
+            SELECT sku_id,
+                   sales_point_id,
+                   sale_end_date,
+                   sale_end_days,
+                   SUM(SUM(on_hand_qty)) OVER (
+                       PARTITION BY sku_id, sales_point_id
+                       ORDER BY sale_end_date
+                       ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+                   ) AS cumulative_expiring_qty
+            FROM detail_disposal_lots
+            GROUP BY sku_id, sales_point_id, sale_end_date, sale_end_days
+        ),
+        detail_disposal_forecast_at_deadline AS (
+            SELECT dd.sku_id,
+                   dd.sales_point_id,
+                   dd.sale_end_date,
+                   dd.cumulative_expiring_qty,
+                   CASE
+                       WHEN dd.sales_point_id = -1 OR lf.forecast_id IS NULL THEN 0
+                       WHEN dd.sale_end_days &lt;= 7
+                           THEN lf.predicted_qty_d7 * dd.sale_end_days / 7
+                       WHEN dd.sale_end_days &lt;= 14
+                           THEN lf.predicted_qty_d7
+                                + (lf.predicted_qty_d14 - lf.predicted_qty_d7)
+                                  * (dd.sale_end_days - 7) / 7
+                       ELSE lf.predicted_qty_d14
+                            + (lf.predicted_qty_d30 - lf.predicted_qty_d14)
+                              * (dd.sale_end_days - 14) / 16
+                   END AS predicted_qty_at_sale_end
+            FROM detail_disposal_deadlines dd
+            LEFT JOIN detail_latest_valid_disposal_forecast lf
+                  ON lf.sku_id = dd.sku_id
+                  AND lf.sales_point_id = dd.sales_point_id
+        ),
+        detail_disposal_scope AS (
+            SELECT sku_id,
+                   sales_point_id,
+                   MAX(GREATEST(0, cumulative_expiring_qty - predicted_qty_at_sale_end)) AS expected_disposal_qty
+            FROM detail_disposal_forecast_at_deadline
+            GROUP BY sku_id, sales_point_id
         ),
         detail_disposal AS (
-            SELECT ds.sku_id,
-                   SUM(CASE
-                           WHEN ds.allocated_sales_point_id IS NULL
-                                OR lf.forecast_id IS NULL
-                                OR lf.predicted_qty_d7 IS NULL
-                                OR lf.predicted_qty_d14 IS NULL
-                                OR lf.predicted_qty_d30 IS NULL
-                                OR lf.predicted_qty_d7 &lt; 0
-                                OR lf.predicted_qty_d14 &lt; 0
-                                OR lf.predicted_qty_d30 &lt; 0
-                                OR lf.predicted_qty_d7 &gt; lf.predicted_qty_d14
-                                OR lf.predicted_qty_d14 &gt; lf.predicted_qty_d30
-                           THEN ds.expiring_qty_d30
-                           ELSE GREATEST(
-                               0,
-                               ds.expiring_qty_d7 - lf.predicted_qty_d7,
-                               ds.expiring_qty_d14 - lf.predicted_qty_d14,
-                               ds.expiring_qty_d30 - lf.predicted_qty_d30
-                           )
-                       END) AS expected_disposal_qty
-            FROM detail_disposal_scope ds
-            LEFT JOIN detail_latest_disposal_forecast lf
-                   ON lf.sku_id = ds.sku_id
-                  AND lf.sales_point_id = ds.allocated_sales_point_id
-            GROUP BY ds.sku_id
+            SELECT sku_id,
+                   SUM(expected_disposal_qty) AS expected_disposal_qty
+            FROM detail_disposal_scope
+            GROUP BY sku_id
         ),
         unassigned_balance_base AS (
             SELECT ib.sku_id,
@@ -1482,7 +1518,7 @@
               AND s.is_deleted = 0
               AND s.active_yn = 'Y'
               AND s.sku_code = #{skuCode}
-              AND ib.allocated_sales_point_id IS NULL
+              AND NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id) IS NULL
         ),
         unassigned_agg AS (
             SELECT sku_id,
@@ -1632,12 +1668,7 @@
         risk_agg AS (
             SELECT sku_id,
                    sales_point_id,
-                   CASE risk_grade
-                       WHEN 'GOOD' THEN 'SAFE'
-                       WHEN 'WARNING' THEN 'CAUTION'
-                       WHEN 'CRITICAL' THEN 'DANGER'
-                       ELSE risk_grade
-                   END AS risk_grade,
+                   risk_grade,
                    CASE WHEN risk_grade IS NULL THEN 'UNASSESSED' ELSE 'ASSESSED' END AS assessment_status,
                    shortage_yn,
                    reason_message AS risk_reason
@@ -1701,6 +1732,7 @@
                    'availableQuantity' VALUE ra.available_qty,
                    'reservedQuantity' VALUE ra.reserved_qty,
                    'riskGrade' VALUE risk.risk_grade,
+                   'assessmentStatus' VALUE risk.assessment_status,
                    'shortageYn' VALUE risk.shortage_yn,
                    'salesPointState' VALUE ra.sales_point_state,
                    'warehouseName' VALUE CAST(NULL AS VARCHAR2(200)),
@@ -1756,7 +1788,8 @@
               AND (sp.sales_point_id IS NULL OR (sp.is_deleted = 0 AND sp.active_yn = 'Y'))
               AND (
                   (#{salesPointCode} != 'UNASSIGNED' AND sp.sales_point_code = #{salesPointCode})
-                  OR (#{salesPointCode} = 'UNASSIGNED' AND ib.allocated_sales_point_id IS NULL)
+                  OR (#{salesPointCode} = 'UNASSIGNED'
+                      AND NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id) IS NULL)
               )
               AND ROWNUM = 1
         )
@@ -1806,7 +1839,7 @@
               AND (
                   (#{salesPointCode} != 'UNASSIGNED' AND sp.sales_point_code = #{salesPointCode})
                   OR (#{salesPointCode} = 'UNASSIGNED'
-                      AND ib.allocated_sales_point_id IS NULL)
+                      AND NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id) IS NULL)
               )
             GROUP BY l.lot_id, l.lot_no, l.lot_status, l.manufactured_date,
                      l.received_date, l.expiry_date, l.sale_stop_date
