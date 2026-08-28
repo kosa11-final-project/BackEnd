@@ -11,10 +11,10 @@ public class GeminiRecommendationProperties {
     private String baseUrl = "https://generativelanguage.googleapis.com";
     private String path = "/v1beta/interactions";
     private String apiKey = "";
-    private String model = "gemini-3.7-flash";
+    private String model = "gemini-3.5-flash";
     private Duration connectTimeout = Duration.ofSeconds(3);
     private Duration readTimeout = Duration.ofSeconds(120);
-    private int maxOutputTokens = 2048;
+    private int maxOutputTokens = 4096;
     private int seed = 72;
 
     public String getBaseUrl() { return baseUrl; }

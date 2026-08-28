@@ -102,7 +102,7 @@ class StrategyCandidateGenerationServiceImplTest {
     }
 
     @Test
-    void generatesOnlyReallocationByDefaultForPublicUnassignedInventory() {
+    void generatesAllocationAndTransferByDefaultForPublicUnassignedInventory() {
         stubAllSupportedTypes();
         StrategyCandidateGenerationServiceImpl service = serviceWithAllCalculators();
         StrategyCalculationContext context = context(List.of(), null);
@@ -110,19 +110,20 @@ class StrategyCandidateGenerationServiceImplTest {
                 List.of(), List.of()
         );
         when(reallocationCalculator.generate(context, 1)).thenReturn(empty);
+        when(transferCalculator.generate(context, 2)).thenReturn(empty);
 
         CandidateGenerationResult result = service.generate(context);
 
         assertThat(result.exclusions()).isEmpty();
         verify(reallocationCalculator).generate(context, 1);
-        verify(transferCalculator, never()).generate(context, 2);
+        verify(transferCalculator).generate(context, 2);
         verify(discountCalculator, never()).generate(context, 3);
         verify(expansionCalculator, never()).generate(context, 4);
         verify(concentrationCalculator, never()).generate(context, 5);
     }
 
     @Test
-    void excludesExplicitNonAllocationTypeForPublicUnassignedInventory() {
+    void allowsExplicitTransferForPublicUnassignedInventory() {
         when(reallocationCalculator.supportedType()).thenReturn(StrategyType.REALLOCATION);
         when(transferCalculator.supportedType()).thenReturn(StrategyType.RT_TRANSFER);
         StrategyCandidateGenerationServiceImpl service =
@@ -134,18 +135,46 @@ class StrategyCandidateGenerationServiceImplTest {
                 List.of(StrategyType.RT_TRANSFER),
                 null
         );
+        CandidateGenerationResult empty = new CandidateGenerationResult(
+                List.of(), List.of()
+        );
+        when(transferCalculator.generate(context, 1)).thenReturn(empty);
 
         CandidateGenerationResult result = service.generate(context);
 
         assertThat(result.candidates()).isEmpty();
+        assertThat(result.exclusions()).isEmpty();
+        verify(transferCalculator).generate(context, 1);
+        verify(reallocationCalculator, never()).generate(context, 1);
+    }
+
+    @Test
+    void excludesExplicitSellingTypeForPublicUnassignedInventory() {
+        when(reallocationCalculator.supportedType()).thenReturn(StrategyType.REALLOCATION);
+        when(transferCalculator.supportedType()).thenReturn(StrategyType.RT_TRANSFER);
+        when(discountCalculator.supportedType()).thenReturn(StrategyType.PRICE_DISCOUNT);
+        StrategyCandidateGenerationServiceImpl service =
+                new StrategyCandidateGenerationServiceImpl(List.of(
+                        reallocationCalculator,
+                        transferCalculator,
+                        discountCalculator
+                ), new StrategyPeriodEligibilityPolicy());
+        StrategyCalculationContext context = context(
+                List.of(StrategyType.PRICE_DISCOUNT),
+                null
+        );
+
+        CandidateGenerationResult result = service.generate(context);
+
         assertThat(result.exclusions()).singleElement().satisfies(exclusion -> {
-            assertThat(exclusion.strategyType()).isEqualTo(StrategyType.RT_TRANSFER);
+            assertThat(exclusion.strategyType()).isEqualTo(StrategyType.PRICE_DISCOUNT);
             assertThat(exclusion.reason()).isEqualTo(
                     CandidateExclusionReason.PUBLIC_UNASSIGNED_STRATEGY_NOT_SUPPORTED
             );
         });
-        verify(transferCalculator, never()).generate(context, 1);
+        verify(discountCalculator, never()).generate(context, 1);
         verify(reallocationCalculator, never()).generate(context, 1);
+        verify(transferCalculator, never()).generate(context, 1);
     }
 
     @Test

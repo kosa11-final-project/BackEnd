@@ -328,6 +328,72 @@ class InventoryMovementCandidateFactoryTest {
     }
 
     @Test
+    void usesGrossTargetDemandForPublicUnassignedAllocation() {
+        StrategyCalculationContext.InventoryLot publicInventory = lot(
+                1L, 1001L, 501L, null, "100", null
+        );
+        StrategyCalculationContext.InventoryLot targetExisting = lot(
+                2L, 2001L, 501L, 20L, "100", null
+        );
+        StrategyCalculationContext original = context(
+                List.of(publicInventory),
+                List.of(publicInventory, targetExisting),
+                List.of(),
+                List.of(route(20L, 501L, 1)),
+                forecasts("5"),
+                StrategyType.REALLOCATION
+        );
+        StrategyCalculationContext context = withSourceSalesPoint(original, null);
+
+        CandidateGenerationResult result = factory.generate(
+                context,
+                StrategyType.REALLOCATION,
+                1
+        );
+
+        assertThat(result.candidates()).hasSize(10);
+        StrategyCandidate maximum = result.candidates().get(9);
+        assertThat(maximum.actions()).singleElement().satisfies(action -> {
+            assertThat(action.source().warehouseId()).isEqualTo(501L);
+            assertThat(action.source().salesPointId()).isNull();
+            assertThat(action.target().warehouseId()).isEqualTo(501L);
+            assertThat(action.target().salesPointId()).isEqualTo(20L);
+            assertThat(action.actionQuantity()).isEqualByComparingTo("50");
+        });
+    }
+
+    @Test
+    void generatesPhysicalTransferForPublicUnassignedInventory() {
+        StrategyCalculationContext.InventoryLot publicInventory = lot(
+                1L, 1001L, 501L, null, "100", null
+        );
+        StrategyCalculationContext original = context(
+                List.of(publicInventory),
+                List.of(),
+                List.of(route(20L, 502L, 1)),
+                forecasts("5"),
+                StrategyType.RT_TRANSFER
+        );
+        StrategyCalculationContext context = withSourceSalesPoint(original, null);
+
+        CandidateGenerationResult result = factory.generate(
+                context,
+                StrategyType.RT_TRANSFER,
+                1
+        );
+
+        assertThat(result.candidates()).isNotEmpty();
+        assertThat(result.candidates()).allSatisfy(candidate ->
+                assertThat(candidate.actions()).allSatisfy(action -> {
+                    assertThat(action.source().warehouseId()).isEqualTo(501L);
+                    assertThat(action.source().salesPointId()).isNull();
+                }));
+        assertThat(result.candidates()).anySatisfy(candidate ->
+                assertThat(candidate.actions()).allSatisfy(action ->
+                        assertThat(action.target().warehouseId()).isEqualTo(502L)));
+    }
+
+    @Test
     void appliesUserFixedSingleDayToDemandAndKeepsStandaloneEndDateOpen() {
         LocalDate fixedDate = START.plusDays(4);
         StrategyCalculationContext context = context(
@@ -537,6 +603,29 @@ class InventoryMovementCandidateFactoryTest {
                 original.salesPoints(),
                 original.forecastMetadata(),
                 routes,
+                original.transferCostPolicies()
+        );
+    }
+
+    private static StrategyCalculationContext withSourceSalesPoint(
+            StrategyCalculationContext original,
+            Long sourceSalesPointId
+    ) {
+        return new StrategyCalculationContext(
+                original.strategyCaseId(),
+                sourceSalesPointId,
+                original.calculatedAt(),
+                original.forecastStartDate(),
+                original.forecastEndDate(),
+                original.sku(),
+                original.unitCost(),
+                original.requestConstraints(),
+                original.evaluationInventory(),
+                original.referenceInventory(),
+                original.inventoryPolicies(),
+                original.salesPoints(),
+                original.forecastMetadata(),
+                original.transferRoutes(),
                 original.transferCostPolicies()
         );
     }

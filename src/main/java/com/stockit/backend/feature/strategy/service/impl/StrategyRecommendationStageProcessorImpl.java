@@ -80,16 +80,38 @@ public class StrategyRecommendationStageProcessorImpl
     @Override
     public void process(Long strategyCaseId) {
         StrategyCaseVO strategyCase = loadCase(strategyCaseId);
-        if (isCompleteOrTerminal(strategyCase)) return;
+        if (isCompleteOrTerminal(strategyCase)) {
+            log.debug(
+                    "Strategy recommendation stage skipped because case is already "
+                            + "complete or terminal. strategyCaseId={}, caseStatus={}, "
+                            + "generationStage={}",
+                    strategyCaseId, strategyCase.getCaseStatus(),
+                    strategyCase.getGenerationStage()
+            );
+            return;
+        }
         requireStrategyGenerating(strategyCase);
+        log.debug(
+                "Strategy recommendation stage started. strategyCaseId={}",
+                strategyCaseId
+        );
 
         Optional<StrategyGenerationResult> cached = findCached(strategyCaseId);
         if (cached.isPresent()) {
+            log.info(
+                    "Strategy result cache found; skipping candidate evaluation and LLM. "
+                            + "strategyCaseId={}, optionCount={}",
+                    strategyCaseId, cached.get().options().size()
+            );
             completeFromCache(strategyCaseId, cached.get());
             return;
         }
 
         StrategyResultLock lock = acquire(strategyCaseId);
+        log.debug(
+                "Strategy result generation lock acquired. strategyCaseId={}",
+                strategyCaseId
+        );
         try {
             processWithLock(strategyCaseId);
         } finally {
@@ -107,17 +129,57 @@ public class StrategyRecommendationStageProcessorImpl
             return;
         }
         try {
+            long evaluationStartedNanos = System.nanoTime();
+            log.debug(
+                    "Strategy candidate evaluation started. strategyCaseId={}",
+                    strategyCaseId
+            );
             StrategyCandidateEvaluationResult evaluation = evaluationService.evaluate(
                     strategyCaseId, SimulationDetailLevel.SUMMARY_ONLY
             );
+            log.info(
+                    "Strategy candidate evaluation completed. strategyCaseId={}, "
+                            + "evaluatedCandidateCount={}, generationExclusionCount={}, "
+                            + "simulationFailureCount={}, elapsedMs={}",
+                    strategyCaseId, evaluation.evaluatedCandidates().size(),
+                    evaluation.generationExclusions().size(),
+                    evaluation.simulationFailures().size(),
+                    elapsedMillis(evaluationStartedNanos)
+            );
+            long recommendationStartedNanos = System.nanoTime();
+            log.debug(
+                    "Strategy recommendation selection started. strategyCaseId={}",
+                    strategyCaseId
+            );
             StrategyRecommendationResult recommendation = recommendationService.recommend(
                     strategyCaseId, evaluation
+            );
+            log.info(
+                    "Strategy recommendation selection completed. strategyCaseId={}, "
+                            + "optionCount={}, noRecommendationCode={}, providerModel={}, "
+                            + "elapsedMs={}",
+                    strategyCaseId, recommendation.options().size(),
+                    recommendation.noRecommendation() == null
+                            ? null : recommendation.noRecommendation().code(),
+                    recommendation.providerMetadata() == null
+                            ? null : recommendation.providerMetadata().model(),
+                    elapsedMillis(recommendationStartedNanos)
             );
             StrategyGenerationResult result = resultFactory.create(
                     strategyCaseId, recommendation
             );
             saveSimulationContext(recommendation.calculationContext());
+            log.debug(
+                    "Strategy simulation context saved. strategyCaseId={}",
+                    strategyCaseId
+            );
             StrategyResultCacheEntry entry = save(result);
+            log.debug(
+                    "Strategy result cached. strategyCaseId={}, cacheKey={}, "
+                            + "expiresAt={}, optionCount={}",
+                    strategyCaseId, entry.cacheKey(), entry.expiresAt(),
+                    result.options().size()
+            );
             complete(strategyCaseId, entry, result);
         } catch (PermanentStrategyGenerationException
                  | RetryableStrategyGenerationException exception) {
@@ -140,6 +202,11 @@ public class StrategyRecommendationStageProcessorImpl
     }
 
     private void completeFromCache(Long strategyCaseId, StrategyGenerationResult result) {
+        log.debug(
+                "Completing strategy generation from cached result. strategyCaseId={}, "
+                        + "optionCount={}",
+                strategyCaseId, result.options().size()
+        );
         complete(strategyCaseId, new StrategyResultCacheEntry(
                 com.stockit.backend.feature.strategy.result.RedisStrategyResultStore.key(
                         strategyCaseId
@@ -159,7 +226,15 @@ public class StrategyRecommendationStageProcessorImpl
                     entry.cacheKey(),
                     entry.expiresAt(),
                     outcomeOf(result)
-            )) return;
+            )) {
+                log.info(
+                        "Strategy generation completed. strategyCaseId={}, "
+                                + "generationStage=COMPARISON_READY, outcome={}, "
+                                + "optionCount={}",
+                        strategyCaseId, outcomeOf(result), result.options().size()
+                );
+                return;
+            }
             StrategyCaseVO latest = loadCase(strategyCaseId);
             if (isCompleteOrTerminal(latest)) return;
             throw new RetryableStrategyGenerationException(
@@ -283,5 +358,9 @@ public class StrategyRecommendationStageProcessorImpl
     private static boolean isCompleteOrTerminal(StrategyCaseVO value) {
         return value.getCaseStatus() != StrategyCaseStatus.GENERATING
                 || value.getGenerationStage() == StrategyGenerationStage.COMPARISON_READY;
+    }
+
+    private static long elapsedMillis(long startedNanos) {
+        return (System.nanoTime() - startedNanos) / 1_000_000L;
     }
 }

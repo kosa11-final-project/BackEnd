@@ -15,6 +15,9 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -24,6 +27,7 @@ import com.stockit.backend.feature.strategy.messaging.RetryableStrategyGeneratio
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 
+@ExtendWith(OutputCaptureExtension.class)
 class GeminiRecommendationProviderTest {
 
     private final AtomicReference<Integer> status = new AtomicReference<>(200);
@@ -47,6 +51,15 @@ class GeminiRecommendationProviderTest {
     }
 
     @Test
+    void defaultsToGemini35Flash() {
+        GeminiRecommendationProperties properties =
+                new GeminiRecommendationProperties();
+
+        assertThat(properties.getModel()).isEqualTo("gemini-3.5-flash");
+        assertThat(properties.getMaxOutputTokens()).isEqualTo(4096);
+    }
+
+    @Test
     void sendsStructuredSchemaAndParsesInteractionOutput() throws Exception {
         responseBody.set(successJson());
 
@@ -59,7 +72,9 @@ class GeminiRecommendationProviderTest {
         });
         assertThat(apiKey).hasValue("test-key");
         JsonNode body = objectMapper.readTree(requestBody.get());
-        assertThat(body.path("model").asText()).isEqualTo("gemini-3.7-flash");
+        assertThat(body.path("model").asText()).isEqualTo("gemini-3.5-flash");
+        assertThat(body.path("generation_config").path("max_output_tokens").asInt())
+                .isEqualTo(4096);
         assertThat(body.path("store").asBoolean()).isFalse();
         assertThat(body.path("input").asText())
                 .contains("\"schemaVersion\":\"ai-strategy-recommendation-v4\"")
@@ -72,6 +87,20 @@ class GeminiRecommendationProviderTest {
                 .path("properties").path("recommendations").path("items")
                 .path("properties").path("candidateId").path("enum");
         assertThat(enumValues.get(0).asText()).isEqualTo("CAND-1");
+        JsonNode responseProperties = body.path("response_format").path("schema")
+                .path("properties").path("recommendations").path("items")
+                .path("properties");
+        assertThat(responseProperties.path("optionName").path("maxLength").asInt())
+                .isEqualTo(100);
+        assertThat(responseProperties.path("recommendationReason")
+                .path("maxLength").asInt()).isEqualTo(300);
+        assertThat(responseProperties.path("advantage").path("maxLength").asInt())
+                .isEqualTo(300);
+        assertThat(responseProperties.path("caution").path("maxLength").asInt())
+                .isEqualTo(300);
+        assertThat(body.path("input").asText())
+                .contains("한국어 1~2문장")
+                .contains("동일한 수치와 설명을 여러 필드에서 반복하지 마세요");
     }
 
     @Test
@@ -117,10 +146,17 @@ class GeminiRecommendationProviderTest {
     }
 
     @Test
-    void rejectsIncompleteSuccessfulInteractionAsPermanent() {
+    void logsSafeDiagnosticsForIncompleteInteraction(CapturedOutput output) {
         responseBody.set("""
-                {"id":"interaction-1","model":"gemini-3.7-flash",
-                "status":"in_progress","steps":[]}
+                {"id":"interaction-1","model":"gemini-3.5-flash",
+                "status":"incomplete",
+                "steps":[{"type":"model_output","content":[
+                  {"type":"text","text":"partial output"}
+                ]}],
+                "usage":{"total_input_tokens":1100,"total_output_tokens":2048,
+                  "total_thought_tokens":320,"total_tokens":3468},
+                "errors":[{"code":"MAX_TOKENS",
+                  "message":"output exceeded test-key token limit"}]}
                 """);
 
         assertThatThrownBy(() -> provider("test-key").recommend(request()))
@@ -129,12 +165,70 @@ class GeminiRecommendationProviderTest {
                         exception -> assertThat(exception.getFailureCode())
                                 .isEqualTo("LLM_INTERACTION_INCOMPLETE")
                 );
+        assertThat(output)
+                .contains("strategyCaseId=1")
+                .contains("responseModel=gemini-3.5-flash")
+                .contains("status=incomplete")
+                .contains("outputTokens=2048")
+                .contains("thoughtTokens=320")
+                .contains("totalTokens=3468")
+                .contains("modelOutputPresent=true")
+                .contains("modelOutputLength=14")
+                .contains("errorCodes=[MAX_TOKENS]")
+                .contains("[REDACTED]")
+                .doesNotContain("output exceeded test-key");
+    }
+
+    @Test
+    void classifiesBudgetExceededForDeterministicFallback() {
+        responseBody.set("""
+                {"id":"interaction-1","model":"gemini-3.5-flash",
+                "status":"budget_exceeded","steps":[],
+                "usage":{"total_input_tokens":1100,"total_output_tokens":0}}
+                """);
+
+        assertThatThrownBy(() -> provider("test-key").recommend(request()))
+                .isInstanceOfSatisfying(
+                        PermanentStrategyGenerationException.class,
+                        exception -> assertThat(exception.getFailureCode())
+                                .isEqualTo("LLM_INTERACTION_BUDGET_EXCEEDED")
+                );
+    }
+
+    @Test
+    void classifiesPendingInteractionAsRetryable() {
+        responseBody.set("""
+                {"id":"interaction-1","model":"gemini-3.5-flash",
+                "status":"in_progress","steps":[]}
+                """);
+
+        assertThatThrownBy(() -> provider("test-key").recommend(request()))
+                .isInstanceOfSatisfying(
+                        RetryableStrategyGenerationException.class,
+                        exception -> assertThat(exception.getFailureCode())
+                                .isEqualTo("LLM_INTERACTION_PENDING")
+                );
+    }
+
+    @Test
+    void classifiesRequiresActionAsPermanentConfigurationMismatch() {
+        responseBody.set("""
+                {"id":"interaction-1","model":"gemini-3.5-flash",
+                "status":"requires_action","steps":[]}
+                """);
+
+        assertThatThrownBy(() -> provider("test-key").recommend(request()))
+                .isInstanceOfSatisfying(
+                        PermanentStrategyGenerationException.class,
+                        exception -> assertThat(exception.getFailureCode())
+                                .isEqualTo("LLM_INTERACTION_REQUIRES_ACTION")
+                );
     }
 
     @Test
     void rejectsSuccessfulInteractionWithoutModelOutputAsPermanent() {
         responseBody.set("""
-                {"id":"interaction-1","model":"gemini-3.7-flash",
+                {"id":"interaction-1","model":"gemini-3.5-flash",
                 "status":"completed","steps":[]}
                 """);
 
@@ -160,7 +254,7 @@ class GeminiRecommendationProviderTest {
         GeminiRecommendationProperties properties = new GeminiRecommendationProperties();
         properties.setBaseUrl("http://localhost:" + server.getAddress().getPort());
         properties.setApiKey(key);
-        properties.setModel("gemini-3.7-flash");
+        properties.setModel("gemini-3.5-flash");
         properties.setConnectTimeout(Duration.ofSeconds(1));
         properties.setReadTimeout(Duration.ofSeconds(1));
         return new GeminiRecommendationProvider(
@@ -222,7 +316,7 @@ class GeminiRecommendationProviderTest {
         return """
                 {
                   "id":"interaction-1",
-                  "model":"gemini-3.7-flash",
+                  "model":"gemini-3.5-flash",
                   "status":"completed",
                   "steps":[{
                     "type":"model_output",
