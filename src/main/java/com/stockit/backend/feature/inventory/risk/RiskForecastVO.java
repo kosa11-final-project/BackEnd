@@ -10,6 +10,8 @@ public class RiskForecastVO {
     private BigDecimal predictedQtyD7;
     private BigDecimal predictedQtyD14;
     private BigDecimal predictedQtyD30;
+    private BigDecimal predictedQtyD60;
+    private BigDecimal predictedQtyD90;
 
     public LocalDate getBaseDate() {
         return baseDate;
@@ -41,5 +43,21 @@ public class RiskForecastVO {
 
     public void setPredictedQtyD30(BigDecimal predictedQtyD30) {
         this.predictedQtyD30 = predictedQtyD30;
+    }
+
+    public BigDecimal getPredictedQtyD60() {
+        return predictedQtyD60;
+    }
+
+    public void setPredictedQtyD60(BigDecimal predictedQtyD60) {
+        this.predictedQtyD60 = predictedQtyD60;
+    }
+
+    public BigDecimal getPredictedQtyD90() {
+        return predictedQtyD90;
+    }
+
+    public void setPredictedQtyD90(BigDecimal predictedQtyD90) {
+        this.predictedQtyD90 = predictedQtyD90;
     }
 }

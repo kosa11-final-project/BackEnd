@@ -21,7 +21,7 @@ public record UnassignedInventoryResponse(
         String inventoryFactState,
         @Schema(description = "미할당 재고 안전재고 미달 여부 (Y, N)", example = "Y")
         String shortageYn,
-        @Schema(description = "미할당 재고 위험등급", example = "CAUTION")
+        @Schema(description = "미할당 재고 위험등급 (CRITICAL, WARNING, NORMAL, GOOD)", example = "WARNING")
         String riskGrade,
         @Schema(description = "미할당 재고 위험판정 상태", example = "ASSESSED")
         String assessmentStatus,

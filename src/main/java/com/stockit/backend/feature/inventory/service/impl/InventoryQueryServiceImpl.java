@@ -31,14 +31,14 @@ import com.stockit.backend.feature.inventory.vo.SkuChannelPriceVO;
 public class InventoryQueryServiceImpl implements InventoryQueryService {
 
     private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Seoul");
-    private static final List<String> RISK_GRADES = List.of("SAFE", "NORMAL", "CAUTION", "DANGER");
+    private static final List<String> RISK_GRADES = List.of("GOOD", "NORMAL", "WARNING", "CRITICAL");
     private static final List<String> ASSESSMENT_STATUSES = List.of("ASSESSED", "UNASSESSED");
 
     private static final Map<String, String> RISK_GRADE_NAMES = Map.of(
-            "SAFE", "양호",
+            "GOOD", "양호",
             "NORMAL", "보통",
-            "CAUTION", "주의",
-            "DANGER", "위험"
+            "WARNING", "주의",
+            "CRITICAL", "위험"
     );
     private static final Map<String, String> ASSESSMENT_STATUS_NAMES = Map.of(
             "ASSESSED", "판정 완료",

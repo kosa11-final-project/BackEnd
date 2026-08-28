@@ -168,7 +168,7 @@ class StrategyGenerationResultSerializationTest {
                 )),
                 null,
                 new StrategyGenerationResult.ProviderMetadata(
-                        null, "gemini-3.7-flash", 100, 50
+                        null, "gemini-3.5-flash", 100, 50
                 )
         );
     }

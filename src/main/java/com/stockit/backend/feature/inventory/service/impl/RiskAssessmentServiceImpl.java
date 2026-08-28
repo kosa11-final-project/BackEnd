@@ -21,6 +21,7 @@ import com.stockit.backend.feature.inventory.risk.RiskAssessmentInput.LotRiskIte
 import com.stockit.backend.feature.inventory.risk.RiskAssessmentResult;
 import com.stockit.backend.feature.inventory.risk.RiskRuleEngine;
 import com.stockit.backend.feature.inventory.risk.InventoryQuantityVO;
+import com.stockit.backend.feature.inventory.risk.PersistedRiskAssessmentVO;
 import com.stockit.backend.feature.inventory.risk.RiskForecastVO;
 import com.stockit.backend.feature.inventory.service.RiskAssessmentService;
 
@@ -58,14 +59,13 @@ public class RiskAssessmentServiceImpl implements RiskAssessmentService {
         String normalizedSalesPointCode = requiredCode(salesPointCode, "salesPointCode");
 
         RiskEvaluation evaluation = evaluateInternal(normalizedSkuCode, normalizedSalesPointCode);
-        return toDetailResponse(evaluation.result(), evaluation.predictedQtyD30());
+        return toDetailResponse(evaluation);
     }
 
     private RiskEvaluation evaluateInternal(String skuCode, String salesPointCode) {
         LocalDate today = LocalDate.now(clock);
         RiskForecastVO forecast = riskAssessmentMapper.selectLatestForecast(skuCode, salesPointCode, today);
         LocalDate forecastBaseDate = forecast == null ? null : forecast.getBaseDate();
-        LocalDate observationDate = forecastBaseDate == null ? today : forecastBaseDate;
 
         InventoryQuantityVO quantities = riskAssessmentMapper.selectInventoryQuantities(skuCode, salesPointCode);
         BigDecimal safetyStockQty = riskAssessmentMapper.selectSafetyStock(
@@ -76,27 +76,40 @@ public class RiskAssessmentServiceImpl implements RiskAssessmentService {
         BigDecimal predictedQtyD7 = forecast == null ? null : forecast.getPredictedQtyD7();
         BigDecimal predictedQtyD14 = forecast == null ? null : forecast.getPredictedQtyD14();
         BigDecimal predictedQtyD30 = forecast == null ? null : forecast.getPredictedQtyD30();
+        BigDecimal predictedQtyD60 = forecast == null ? null : forecast.getPredictedQtyD60();
+        BigDecimal predictedQtyD90 = forecast == null ? null : forecast.getPredictedQtyD90();
         List<LotRiskItem> lotRiskItems = riskAssessmentMapper.selectLotRiskItems(
                 skuCode,
                 salesPointCode
         );
+        PersistedRiskAssessmentVO persistedAssessment = riskAssessmentMapper.selectLatestPersistedAssessment(
+                skuCode,
+                salesPointCode
+        );
         BigDecimal onHandQty = quantities == null ? null : quantities.getOnHandQty();
+        BigDecimal reservedQty = lotRiskItems == null ? BigDecimal.ZERO : lotRiskItems.stream()
+                .map(LotRiskItem::reservedQty)
+                .filter(value -> value != null)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
         RiskAssessmentInput input = new RiskAssessmentInput(
                 skuCode,
                 salesPointCode,
                 onHandQty,
+                reservedQty,
                 predictedQtyD7,
                 predictedQtyD14,
                 predictedQtyD30,
+                predictedQtyD60,
+                predictedQtyD90,
                 safetyStockQty,
-                observationDate,
+                today,
                 lotRiskItems,
-                predictedQtyD7 != null && predictedQtyD14 != null && predictedQtyD30 != null,
-                forecastBaseDate != null && forecastBaseDate.isBefore(today.minusDays(14)),
+                forecast != null,
+                forecastBaseDate != null && forecastBaseDate.isBefore(today.minusDays(1)),
                 today
         );
 
-        return new RiskEvaluation(riskRuleEngine.evaluate(input), predictedQtyD30);
+        return new RiskEvaluation(riskRuleEngine.evaluate(input), predictedQtyD30, persistedAssessment);
     }
 
     private static String requiredCode(String value, String field) {
@@ -106,26 +119,51 @@ public class RiskAssessmentServiceImpl implements RiskAssessmentService {
         return value.trim();
     }
 
-    private RiskAssessmentDetailResponse toDetailResponse(
-            RiskAssessmentResult result,
-            BigDecimal predictedQtyD30
-    ) {
-        List<RiskReasonDto> reasonDtos = result.reasons() == null
-                ? List.of()
-                : result.reasons().stream()
-                        .map(r -> new RiskReasonDto(r.code(), r.message(), r.severity(), r.evidence()))
-                        .toList();
-        BigDecimal stockCoverageDays = calculateStockCoverageDays(result.availableQty(), predictedQtyD30);
+    private RiskAssessmentDetailResponse toDetailResponse(RiskEvaluation evaluation) {
+        RiskAssessmentResult result = evaluation.result();
+        BigDecimal predictedQtyD30 = evaluation.predictedQtyD30();
+        PersistedRiskAssessmentVO persisted = evaluation.persistedAssessment();
+
+        // 화면의 목록·상세 상태가 갈라지지 않도록 동기화 때 저장한 판정을 등급·사유의 기준으로 사용합니다.
+        // 현재 수량과 예상 폐기 지표는 별도 컬럼으로 저장하지 않고 조회 시 계산한 결과를 계속 제공합니다.
+        // 필수 horizon이 누락되거나 단조성이 깨진 예측은 엔진이 INVALID로
+        // 분류하므로, 그 경우 조회용 현재 지표에도 유효하지 않은 수요를
+        // 섞지 않습니다.
+        BigDecimal stockCoverageDays = RiskRuleEngine.FORECAST_VALID.equals(result.forecastUsability())
+                ? calculateStockCoverageDays(result.availableQty(), predictedQtyD30)
+                : null;
         String shortageYn = deriveSafetyStockShortageYn(result);
-        LocalDate referenceDate = result.assessedAt().atZone(BUSINESS_ZONE).toLocalDate();
+        String assessmentStatus = persisted == null ? "UNASSESSED" : "ASSESSED";
+        String dbRiskGrade = persisted == null ? null : persisted.getDbRiskGrade();
+        String apiRiskGrade = dbRiskGrade;
+        String reasonMessage = persisted == null ? null : persisted.getReasonMessage();
+        String ruleVersion = persisted == null ? null : persisted.getRuleVersion();
+        var assessedAt = persisted == null || persisted.getAssessedAt() == null
+                ? null
+                : persisted.getAssessedAt().toInstant();
+        LocalDate referenceDate = assessedAt == null
+                ? result.assessedAt().atZone(BUSINESS_ZONE).toLocalDate()
+                : assessedAt.atZone(BUSINESS_ZONE).toLocalDate();
+        // 호환용 reasons 배열도 저장된 canonical 사유 한 건만 전달합니다. 조회 시 계산된 INFO
+        // 안내를 섞으면 동기화 스냅샷과 화면 문장이 달라질 수 있습니다.
+        List<RiskReasonDto> reasonDtos = persisted == null || reasonMessage == null || reasonMessage.isBlank()
+                ? List.of()
+                : List.of(new RiskReasonDto(
+                        "CANONICAL_REASON",
+                        reasonMessage,
+                        persisted.getDbRiskGrade(),
+                        null
+                ));
+        Integer nearestExpiryDays = result.nearestExpiryDays();
+        Integer maxHoldingDays = result.maxHoldingDays();
 
         return new RiskAssessmentDetailResponse(
-                result.assessmentStatus(),
-                result.apiRiskGrade(),
-                result.dbRiskGrade(),
-                result.primaryReason(),
-                result.ruleVersion(),
-                result.assessedAt(),
+                assessmentStatus,
+                apiRiskGrade,
+                dbRiskGrade,
+                reasonMessage,
+                ruleVersion,
+                assessedAt,
                 referenceDate,
                 result.availableQty(),
                 result.shortageQty30(),
@@ -135,8 +173,8 @@ public class RiskAssessmentServiceImpl implements RiskAssessmentService {
                 result.expectedDisposalQty30(),
                 result.expectedDisposalRate30(),
                 result.nearestSaleEndDays(),
-                result.nearestExpiryDays(),
-                result.maxHoldingDays(),
+                nearestExpiryDays,
+                maxHoldingDays,
                 reasonDtos,
                 stockCoverageDays,
                 shortageYn
@@ -158,7 +196,8 @@ public class RiskAssessmentServiceImpl implements RiskAssessmentService {
 
     private record RiskEvaluation(
             RiskAssessmentResult result,
-            BigDecimal predictedQtyD30
+            BigDecimal predictedQtyD30,
+            PersistedRiskAssessmentVO persistedAssessment
     ) {
     }
 }
