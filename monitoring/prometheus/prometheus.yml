@@ -11,11 +11,20 @@ scrape_configs:
       - targets:
           - localhost:9090
 
-  # Spring Boot is run on the host while Prometheus runs in Docker.
   - job_name: stockit-backend
+    scheme: https
     metrics_path: /actuator/prometheus
+    tls_config:
+      server_name: api.stockfit.win
     static_configs:
       - targets:
-          - host.docker.internal:8080
+          - 10.0.10.150:443
         labels:
-          environment: local
+          environment: production
+
+  - job_name: stockit-node
+    static_configs:
+      - targets:
+          - 10.0.10.150:9100
+        labels:
+          environment: production
