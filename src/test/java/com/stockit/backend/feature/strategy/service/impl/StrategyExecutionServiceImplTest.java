@@ -33,6 +33,7 @@ import com.stockit.backend.feature.strategy.vo.StrategyExecutionDailySalesVO;
 import com.stockit.backend.feature.strategy.vo.StrategyExecutionInventoryVO;
 import com.stockit.backend.feature.strategy.vo.StrategyExecutionPerformanceVO;
 import com.stockit.backend.feature.strategy.vo.StrategyExecutionQuery;
+import com.stockit.backend.feature.strategy.vo.StrategyExecutionSummaryVO;
 
 @ExtendWith(MockitoExtension.class)
 class StrategyExecutionServiceImplTest {
@@ -58,7 +59,7 @@ class StrategyExecutionServiceImplTest {
         StrategyExecutionQuery query = new StrategyExecutionQuery(0, 2, null, null, null, "DESC");
         StrategyExecutionBaseVO first = base(101L, 1001L);
         StrategyExecutionBaseVO second = base(102L, 1002L);
-        when(mapper.countFinalStrategyExecutions(query)).thenReturn(3L);
+        when(mapper.selectFinalStrategyExecutionSummary(query)).thenReturn(summary(2, 1, 1, 3));
         when(mapper.selectFinalStrategyExecutions(query)).thenReturn(List.of(first, second));
         when(mapper.selectSupportedActions(List.of(1001L, 1002L)))
                 .thenReturn(List.of(action(11L, 1001L), action(12L, 1001L), action(21L, 1002L)));
@@ -73,9 +74,13 @@ class StrategyExecutionServiceImplTest {
         assertThat(result.content().get(0).salesDaily()).isEmpty();
         assertThat(result.totalElements()).isEqualTo(3);
         assertThat(result.totalPages()).isEqualTo(2);
+        assertThat(result.summary().executionStrategyCount()).isEqualTo(2);
+        assertThat(result.summary().inProgressStrategyCount()).isEqualTo(1);
+        assertThat(result.summary().attentionStrategyCount()).isEqualTo(1);
+        assertThat(result.summary().totalStrategyCount()).isEqualTo(result.totalElements());
         assertThat(result.first()).isTrue();
         assertThat(result.last()).isFalse();
-        verify(mapper).countFinalStrategyExecutions(query);
+        verify(mapper).selectFinalStrategyExecutionSummary(query);
         verify(mapper).selectFinalStrategyExecutions(query);
         verify(mapper).selectSupportedActions(List.of(1001L, 1002L));
         verify(mapper, never()).selectInventoryResults(anyLong());
@@ -86,7 +91,7 @@ class StrategyExecutionServiceImplTest {
     @Test
     void returnsEmptyPageMetadataWithoutRunningListOrActionQueries() {
         StrategyExecutionQuery query = new StrategyExecutionQuery(0, 10, "없음", null, null, "DESC");
-        when(mapper.countFinalStrategyExecutions(query)).thenReturn(0L);
+        when(mapper.selectFinalStrategyExecutionSummary(query)).thenReturn(summary(0, 0, 0, 0));
 
         StrategyExecutionPageResponse result = service.findAll(query);
 
@@ -97,6 +102,20 @@ class StrategyExecutionServiceImplTest {
         assertThat(result.last()).isTrue();
         verify(mapper, never()).selectFinalStrategyExecutions(query);
         verify(mapper, never()).selectSupportedActions(org.mockito.ArgumentMatchers.anyList());
+    }
+
+    private static StrategyExecutionSummaryVO summary(
+            long executionCount,
+            long inProgressCount,
+            long attentionCount,
+            long totalCount
+    ) {
+        StrategyExecutionSummaryVO summary = new StrategyExecutionSummaryVO();
+        summary.setExecutionStrategyCount(executionCount);
+        summary.setInProgressStrategyCount(inProgressCount);
+        summary.setAttentionStrategyCount(attentionCount);
+        summary.setTotalStrategyCount(totalCount);
+        return summary;
     }
 
     @Test

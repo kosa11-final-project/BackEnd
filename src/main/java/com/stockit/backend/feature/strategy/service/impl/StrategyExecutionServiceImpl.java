@@ -18,8 +18,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.stockit.backend.common.exception.AppException;
 import com.stockit.backend.common.exception.ErrorCode;
-import com.stockit.backend.feature.strategy.dto.response.StrategyExecutionResponse;
 import com.stockit.backend.feature.strategy.dto.response.StrategyExecutionPageResponse;
+import com.stockit.backend.feature.strategy.dto.response.StrategyExecutionResponse;
+import com.stockit.backend.feature.strategy.dto.response.StrategyExecutionSummaryResponse;
 import com.stockit.backend.feature.strategy.mapper.StrategyExecutionMapper;
 import com.stockit.backend.feature.strategy.service.StrategyExecutionService;
 import com.stockit.backend.feature.strategy.vo.StrategyExecutionActionVO;
@@ -28,6 +29,7 @@ import com.stockit.backend.feature.strategy.vo.StrategyExecutionDailySalesVO;
 import com.stockit.backend.feature.strategy.vo.StrategyExecutionInventoryVO;
 import com.stockit.backend.feature.strategy.vo.StrategyExecutionPerformanceVO;
 import com.stockit.backend.feature.strategy.vo.StrategyExecutionQuery;
+import com.stockit.backend.feature.strategy.vo.StrategyExecutionSummaryVO;
 
 @Service
 @Transactional(readOnly = true)
@@ -59,7 +61,11 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
     public StrategyExecutionPageResponse findAll(StrategyExecutionQuery query) {
         LocalDate asOfDate = LocalDate.now(clock.withZone(BUSINESS_ZONE));
         Objects.requireNonNull(query, "query must not be null");
-        long totalElements = strategyExecutionMapper.countFinalStrategyExecutions(query);
+        StrategyExecutionSummaryVO summary = Objects.requireNonNull(
+                strategyExecutionMapper.selectFinalStrategyExecutionSummary(query),
+                "strategy execution summary must not be null"
+        );
+        long totalElements = summary.getTotalStrategyCount();
         List<StrategyExecutionBaseVO> bases = totalElements == 0
                 ? List.of()
                 : safe(strategyExecutionMapper.selectFinalStrategyExecutions(query));
@@ -97,7 +103,13 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
                 totalElements,
                 totalPages,
                 query.page() == 0,
-                totalPages == 0 || query.page() >= totalPages - 1
+                totalPages == 0 || query.page() >= totalPages - 1,
+                new StrategyExecutionSummaryResponse(
+                        summary.getExecutionStrategyCount(),
+                        summary.getInProgressStrategyCount(),
+                        summary.getAttentionStrategyCount(),
+                        summary.getTotalStrategyCount()
+                )
         );
     }
 

@@ -96,7 +96,13 @@ INSERT INTO final_strategy_selection VALUES (
     5003, 103, 1003, TIMESTAMP '2026-04-30 10:00:00', NULL, NULL, NULL, 0
 );
 INSERT INTO strategy_execution_result VALUES (
+    9000, 5001, 'PARTIAL', DATE '2026-05-01', DATE '2026-05-10', 12, NULL, NULL, 0
+);
+INSERT INTO strategy_execution_result VALUES (
     9001, 5001, 'COMPLETED', DATE '2026-05-01', DATE '2026-05-10', 12, 12, 100, 0
+);
+INSERT INTO strategy_execution_result VALUES (
+    9002, 5002, 'PARTIAL', DATE '2026-05-01', DATE '2026-05-10', 10, NULL, NULL, 0
 );
 INSERT INTO sales_point VALUES (10, 'GREETING', '그리팅몰', 0);
 INSERT INTO warehouse VALUES (501, 'SEONGNAM', '성남센터', 0);
