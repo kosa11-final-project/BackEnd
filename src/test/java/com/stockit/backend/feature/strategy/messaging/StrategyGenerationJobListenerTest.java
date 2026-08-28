@@ -70,7 +70,7 @@ class StrategyGenerationJobListenerTest {
 
         listener.consume(rawMessage(message, 0), channel);
 
-        verify(jobHandler).handle(message);
+        verify(jobHandler).handle(message, new StrategyGenerationAttempt(1, 3));
         verify(channel).basicAck(DELIVERY_TAG, false);
         verify(retryPublisher, never()).publishForRetry(any(), any(Integer.class));
     }
@@ -79,7 +79,9 @@ class StrategyGenerationJobListenerTest {
     void publishesTransientFailureToRetryBeforeAcknowledgingOriginal() throws Exception {
         StrategyGenerationJobMessage message = message();
         doThrow(new IllegalStateException("temporary database failure"))
-                .when(jobHandler).handle(message);
+                .when(jobHandler).handle(
+                        eq(message), any(StrategyGenerationAttempt.class)
+                );
 
         listener.consume(rawMessage(message, 0), channel);
 
@@ -92,10 +94,13 @@ class StrategyGenerationJobListenerTest {
     void recordsFailureAndRejectsAfterThirdAttempt() throws Exception {
         StrategyGenerationJobMessage message = message();
         doThrow(new IllegalStateException("temporary database failure"))
-                .when(jobHandler).handle(message);
+                .when(jobHandler).handle(
+                        eq(message), any(StrategyGenerationAttempt.class)
+                );
 
         listener.consume(rawMessage(message, 2), channel);
 
+        verify(jobHandler).handle(message, new StrategyGenerationAttempt(3, 3));
         verify(failureService).markFailed(
                 12345L,
                 null,
@@ -113,7 +118,9 @@ class StrategyGenerationJobListenerTest {
                 "FORECAST_UNEXPECTED_ERROR",
                 StrategyGenerationStage.FORECASTING,
                 "Unexpected error occurred while processing demand forecast"
-        )).when(jobHandler).handle(message);
+        )).when(jobHandler).handle(
+                eq(message), any(StrategyGenerationAttempt.class)
+        );
 
         listener.consume(rawMessage(message, 2), channel);
 
@@ -137,7 +144,9 @@ class StrategyGenerationJobListenerTest {
                 "FORECAST_UNAVAILABLE",
                 StrategyGenerationStage.FORECASTING,
                 "forecast unavailable"
-        )).when(jobHandler).handle(message);
+        )).when(jobHandler).handle(
+                eq(message), any(StrategyGenerationAttempt.class)
+        );
         org.mockito.Mockito.when(failureService.markFailed(
                 12345L,
                 StrategyGenerationStage.FORECASTING,
@@ -162,7 +171,9 @@ class StrategyGenerationJobListenerTest {
                 "MQ_PAYLOAD_INVALID",
                 StrategyGenerationStage.FORECASTING,
                 "stored payload is invalid"
-        )).when(jobHandler).handle(message);
+        )).when(jobHandler).handle(
+                eq(message), any(StrategyGenerationAttempt.class)
+        );
 
         listener.consume(rawMessage(message, 0), channel);
 
@@ -180,7 +191,9 @@ class StrategyGenerationJobListenerTest {
     void delaysBusyCaseWithoutIncreasingApiRetryCount() throws Exception {
         StrategyGenerationJobMessage message = message();
         doThrow(new StrategyGenerationBusyException("owned by another worker"))
-                .when(jobHandler).handle(message);
+                .when(jobHandler).handle(
+                        eq(message), any(StrategyGenerationAttempt.class)
+                );
 
         listener.consume(rawMessage(message, 2), channel);
 
@@ -193,7 +206,9 @@ class StrategyGenerationJobListenerTest {
     void requeuesOriginalWhenRetryPublicationCannotBeConfirmed() throws Exception {
         StrategyGenerationJobMessage message = message();
         doThrow(new IllegalStateException("temporary failure"))
-                .when(jobHandler).handle(message);
+                .when(jobHandler).handle(
+                        eq(message), any(StrategyGenerationAttempt.class)
+                );
         doThrow(new StrategyGenerationPublishException("confirm timeout"))
                 .when(retryPublisher).publishForRetry(message, 1);
 
@@ -225,7 +240,9 @@ class StrategyGenerationJobListenerTest {
 
         listener.consume(jsonNull, channel);
 
-        verify(jobHandler, never()).handle(any());
+        verify(jobHandler, never()).handle(
+                any(), any(StrategyGenerationAttempt.class)
+        );
         verify(retryPublisher, never()).publishForRetry(any(), any(Integer.class));
         verify(failureService, never()).markFailed(any(), any(), any(), any());
         verify(channel).basicReject(DELIVERY_TAG, false);

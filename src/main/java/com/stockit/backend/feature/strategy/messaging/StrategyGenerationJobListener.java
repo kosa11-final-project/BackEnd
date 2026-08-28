@@ -81,7 +81,13 @@ public class StrategyGenerationJobListener {
                     jobMessage.requestedAt()
             );
 
-            jobHandler.handle(jobMessage);
+            jobHandler.handle(
+                    jobMessage,
+                    new StrategyGenerationAttempt(
+                            retryCount + 1,
+                            properties.getMaxAttempts()
+                    )
+            );
             // DB와 외부 저장소 처리가 모두 끝난 뒤에만 원본 메시지 제거
             channel.basicAck(deliveryTag, false);
             log.info(

@@ -20,6 +20,7 @@ import com.stockit.backend.feature.strategy.messaging.RetryableStrategyGeneratio
 import com.stockit.backend.feature.strategy.messaging.StrategyGenerationBusyException;
 import com.stockit.backend.feature.strategy.recommendation.StrategyRecommendationResult;
 import com.stockit.backend.feature.strategy.recommendation.StrategyRecommendationService;
+import com.stockit.backend.feature.strategy.recommendation.RecommendationExecutionPolicy;
 import com.stockit.backend.feature.strategy.result.InvalidStrategyResultException;
 import com.stockit.backend.feature.strategy.result.StrategyGenerationResult;
 import com.stockit.backend.feature.strategy.result.StrategyGenerationResultFactory;
@@ -78,7 +79,17 @@ public class StrategyRecommendationStageProcessorImpl
     }
 
     @Override
-    public void process(Long strategyCaseId) {
+    public void process(
+            Long strategyCaseId,
+            RecommendationExecutionPolicy executionPolicy
+    ) {
+        if (executionPolicy == null) {
+            throw new PermanentStrategyGenerationException(
+                    "STRATEGY_EXECUTION_POLICY_INVALID",
+                    STAGE,
+                    "Strategy recommendation execution policy is missing"
+            );
+        }
         StrategyCaseVO strategyCase = loadCase(strategyCaseId);
         if (isCompleteOrTerminal(strategyCase)) {
             log.debug(
@@ -113,13 +124,16 @@ public class StrategyRecommendationStageProcessorImpl
                 strategyCaseId
         );
         try {
-            processWithLock(strategyCaseId);
+            processWithLock(strategyCaseId, executionPolicy);
         } finally {
             releaseQuietly(lock, strategyCaseId);
         }
     }
 
-    private void processWithLock(Long strategyCaseId) {
+    private void processWithLock(
+            Long strategyCaseId,
+            RecommendationExecutionPolicy executionPolicy
+    ) {
         StrategyCaseVO latest = loadCase(strategyCaseId);
         if (isCompleteOrTerminal(latest)) return;
         requireStrategyGenerating(latest);
@@ -152,7 +166,7 @@ public class StrategyRecommendationStageProcessorImpl
                     strategyCaseId
             );
             StrategyRecommendationResult recommendation = recommendationService.recommend(
-                    strategyCaseId, evaluation
+                    strategyCaseId, evaluation, executionPolicy
             );
             log.info(
                     "Strategy recommendation selection completed. strategyCaseId={}, "

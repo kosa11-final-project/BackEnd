@@ -83,7 +83,12 @@ class StrategyRecommendationStageProcessorImplTest {
         when(lockManager.tryAcquire(1L)).thenReturn(Optional.of(lock));
         when(evaluationService.evaluate(1L, SimulationDetailLevel.SUMMARY_ONLY))
                 .thenReturn(evaluation);
-        when(recommendationService.recommend(1L, evaluation)).thenReturn(recommendation);
+        when(recommendationService.recommend(
+                1L,
+                evaluation,
+                com.stockit.backend.feature.strategy.recommendation
+                        .RecommendationExecutionPolicy.retryTransientLlmFailure()
+        )).thenReturn(recommendation);
         when(recommendation.calculationContext()).thenReturn(calculationContext);
         when(resultFactory.create(1L, recommendation)).thenReturn(result);
         when(result.options()).thenReturn(List.of(mock(StrategyGenerationResult.Option.class)));
