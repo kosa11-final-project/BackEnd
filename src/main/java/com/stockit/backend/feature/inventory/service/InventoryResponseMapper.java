@@ -270,7 +270,7 @@ public class InventoryResponseMapper {
                 firstNonNull(item.getUnassignedInventoryFactState(), center == null ? null : center.salesPointState()),
                 firstNonNull(item.getUnassignedShortageYn(), center == null ? null : center.shortageYn()),
                 firstNonNull(item.getUnassignedRiskGrade(), center == null ? null : center.riskGrade()),
-                item.getUnassignedAssessmentStatus(),
+                firstNonNull(item.getUnassignedAssessmentStatus(), center == null ? null : center.assessmentStatus()),
                 item.getUnassignedRiskReason(),
                 unassignedLocations,
                 item.getUnassignedLocationCount() == null ? unassignedLocations.size() : item.getUnassignedLocationCount()
@@ -287,6 +287,7 @@ public class InventoryResponseMapper {
                 point.availableQuantity(),
                 point.reservedQuantity(),
                 point.riskGrade(),
+                point.assessmentStatus(),
                 point.shortageYn(),
                 null,
                 point.sellingPrice(),

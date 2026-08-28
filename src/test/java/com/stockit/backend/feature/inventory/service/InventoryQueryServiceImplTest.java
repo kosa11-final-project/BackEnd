@@ -54,7 +54,7 @@ class InventoryQueryServiceImplTest {
         item.setSalesPointsJson("[{\"salesPointId\":77,\"salesPointCode\":\"GREETING\",\"salesPointName\":\"그리팅\",\"channelType\":\"GREETING\"}]");
         item.setSupplierName("테스트 공급사");
         item.setAssessmentStatus("ASSESSED");
-        item.setRiskGrade("CAUTION");
+        item.setRiskGrade("WARNING");
         item.setRiskReason("[ASSESSED/v1.1.0/SHORTAGE_D30] D+30 부족 예상 | 산식: 가용재고=100");
         given(inventoryMapper.selectInventoryDetail(eq("SKU-1"), eq("GREETING"), any(LocalDate.class)))
                 .willReturn(item);
@@ -100,7 +100,7 @@ class InventoryQueryServiceImplTest {
         item.setUnassignedReservedQty(new BigDecimal("2"));
         item.setUnassignedInventoryFactState("AVAILABLE");
         item.setUnassignedShortageYn("Y");
-        item.setUnassignedRiskGrade("CAUTION");
+        item.setUnassignedRiskGrade("WARNING");
         item.setUnassignedAssessmentStatus("ASSESSED");
         item.setUnassignedRiskReason("미할당 공용재고 예측 데이터 없음");
         item.setUnassignedLocationsJson("[{\"warehouseCode\":\"DC-A\",\"warehouseName\":\"센터 A\",\"quantity\":12}]");
@@ -117,7 +117,7 @@ class InventoryQueryServiceImplTest {
         });
         assertThat(response.unassignedInventory().currentQuantity()).isEqualByComparingTo("12");
         assertThat(response.unassignedInventory().shortageYn()).isEqualTo("Y");
-        assertThat(response.unassignedInventory().riskGrade()).isEqualTo("CAUTION");
+        assertThat(response.unassignedInventory().riskGrade()).isEqualTo("WARNING");
         assertThat(response.unassignedInventory().assessmentStatus()).isEqualTo("ASSESSED");
         assertThat(response.unassignedInventory().riskReason()).contains("예측 데이터 없음");
         assertThat(response.unassignedInventory().locations()).extracting(location -> location.warehouseCode())
@@ -129,7 +129,7 @@ class InventoryQueryServiceImplTest {
         InventoryItemVO item = createItemVO("SKU-1", "GREETING");
         item.setTotalCount(5L);
         item.setExpectedDisposalQty(new BigDecimal("7"));
-        item.setSalesPointsJson("[{\"salesPointCode\":\"GREETING\",\"salesPointName\":\"그리팅\",\"channelType\":\"GREETING\",\"currentQuantity\":50,\"availableQuantity\":40,\"reservedQuantity\":10,\"riskGrade\":\"SAFE\",\"warehouseName\":\"경인 1센터\"}]");
+        item.setSalesPointsJson("[{\"salesPointCode\":\"GREETING\",\"salesPointName\":\"그리팅\",\"channelType\":\"GREETING\",\"currentQuantity\":50,\"availableQuantity\":40,\"reservedQuantity\":10,\"riskGrade\":\"GOOD\",\"warehouseName\":\"경인 1센터\"}]");
         var query = new InventoryQueryRequest();
         query.setPage(2);
         query.setSize(2);
@@ -148,6 +148,27 @@ class InventoryQueryServiceImplTest {
         assertThat(response.totalCount()).isEqualTo(5);
         assertThat(response.totalPages()).isEqualTo(3);
         verify(inventoryMapper, never()).countInventory(any());
+    }
+
+    @Test
+    void findPreservesEachSalesPointAssessmentStatusFromThePersistedRiskSnapshot() {
+        InventoryItemVO item = createItemVO("SKU-1", "GREETING");
+        item.setTotalCount(1L);
+        item.setSalesPointsJson("[{\"salesPointCode\":\"GREETING\",\"salesPointName\":\"그리팅\","
+                + "\"channelType\":\"GREETING\",\"currentQuantity\":50,\"availableQuantity\":40,"
+                + "\"reservedQuantity\":10,\"riskGrade\":\"NORMAL\",\"assessmentStatus\":\"ASSESSED\"}]");
+        given(inventoryMapper.selectInventoryList(any())).willReturn(List.of(item));
+
+        InventoryListResponse response = inventoryQueryService.find(
+                new InventoryQueryRequest().toQuery(LocalDate.of(2026, 8, 28))
+        );
+
+        assertThat(response.items()).singleElement().satisfies(mapped ->
+                assertThat(mapped.salesPoints()).singleElement().satisfies(point -> {
+                    assertThat(point.riskGrade()).isEqualTo("NORMAL");
+                    assertThat(new ObjectMapper().valueToTree(point).path("assessmentStatus").asText())
+                            .isEqualTo("ASSESSED");
+                }));
     }
 
     @Test

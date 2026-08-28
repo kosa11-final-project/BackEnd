@@ -365,12 +365,7 @@
         risk_latest AS (
             SELECT sku_id,
                    sales_point_id,
-                   CASE risk_grade
-                       WHEN 'GOOD' THEN 'SAFE'
-                       WHEN 'WARNING' THEN 'CAUTION'
-                       WHEN 'CRITICAL' THEN 'DANGER'
-                       ELSE risk_grade
-                   END AS risk_grade,
+                   risk_grade,
                    CASE WHEN risk_grade IS NULL THEN 'UNASSESSED' ELSE 'ASSESSED' END AS assessment_status,
                    shortage_yn,
                    reason_message AS risk_reason
@@ -391,10 +386,10 @@
             SELECT scope.sku_id,
                    CASE
                      WHEN COUNT(*) &lt;&gt; COUNT(r.risk_grade) THEN NULL
-                     WHEN SUM(CASE WHEN r.risk_grade = 'DANGER' THEN 1 ELSE 0 END) &gt; 0 THEN 'DANGER'
-                     WHEN SUM(CASE WHEN r.risk_grade = 'CAUTION' THEN 1 ELSE 0 END) &gt; 0 THEN 'CAUTION'
+                     WHEN SUM(CASE WHEN r.risk_grade = 'CRITICAL' THEN 1 ELSE 0 END) &gt; 0 THEN 'CRITICAL'
+                     WHEN SUM(CASE WHEN r.risk_grade = 'WARNING' THEN 1 ELSE 0 END) &gt; 0 THEN 'WARNING'
                      WHEN SUM(CASE WHEN r.risk_grade = 'NORMAL' THEN 1 ELSE 0 END) &gt; 0 THEN 'NORMAL'
-                     WHEN SUM(CASE WHEN r.risk_grade = 'SAFE' THEN 1 ELSE 0 END) &gt; 0 THEN 'SAFE'
+                     WHEN SUM(CASE WHEN r.risk_grade = 'GOOD' THEN 1 ELSE 0 END) &gt; 0 THEN 'GOOD'
                      ELSE NULL
                    END AS risk_grade,
                    CASE WHEN COUNT(*) = COUNT(r.risk_grade) THEN 'ASSESSED' ELSE 'UNASSESSED' END AS assessment_status,
@@ -633,10 +628,10 @@
                 <when test="sortColumn == 'risk_grade'">
                     ORDER BY CASE WHEN q.risk_grade IS NULL THEN 1 ELSE 0 END,
                              CASE q.risk_grade
-                                 WHEN 'DANGER' THEN 4
-                                 WHEN 'CAUTION' THEN 3
+                                 WHEN 'CRITICAL' THEN 4
+                                 WHEN 'WARNING' THEN 3
                                  WHEN 'NORMAL' THEN 2
-                                 WHEN 'SAFE' THEN 1
+                                 WHEN 'GOOD' THEN 1
                                  ELSE 0
                              END ${sortDirection},
                              q.sku_code ASC
@@ -864,6 +859,7 @@
                        'availableQuantity' VALUE sf.available_qty,
                        'reservedQuantity' VALUE sf.reserved_qty,
                        'riskGrade' VALUE sf.risk_grade,
+                       'assessmentStatus' VALUE sf.assessment_status,
                        'shortageYn' VALUE sf.shortage_yn,
                        'salesPointState' VALUE sf.sales_point_state,
                        'warehouseName' VALUE CAST(NULL AS VARCHAR2(200)),
@@ -965,10 +961,10 @@
             <when test="sortColumn == 'risk_grade'">
                 ORDER BY CASE WHEN pc.risk_grade IS NULL THEN 1 ELSE 0 END,
                          CASE pc.risk_grade
-                             WHEN 'DANGER' THEN 4
-                             WHEN 'CAUTION' THEN 3
+                             WHEN 'CRITICAL' THEN 4
+                             WHEN 'WARNING' THEN 3
                              WHEN 'NORMAL' THEN 2
-                             WHEN 'SAFE' THEN 1
+                             WHEN 'GOOD' THEN 1
                              ELSE 0
                          END ${sortDirection},
                          pc.sku_code ASC
@@ -1000,12 +996,7 @@
         risk_latest AS (
             SELECT sku_id,
                    sales_point_id,
-                   CASE risk_grade
-                       WHEN 'GOOD' THEN 'SAFE'
-                       WHEN 'WARNING' THEN 'CAUTION'
-                       WHEN 'CRITICAL' THEN 'DANGER'
-                       ELSE risk_grade
-                   END AS risk_grade,
+                   risk_grade,
                    CASE WHEN risk_grade IS NULL THEN 'UNASSESSED' ELSE 'ASSESSED' END AS assessment_status,
                    shortage_yn
             FROM risk_rows
@@ -1025,10 +1016,10 @@
             SELECT scope.sku_id,
                    CASE
                      WHEN COUNT(*) &lt;&gt; COUNT(r.risk_grade) THEN NULL
-                     WHEN SUM(CASE WHEN r.risk_grade = 'DANGER' THEN 1 ELSE 0 END) &gt; 0 THEN 'DANGER'
-                     WHEN SUM(CASE WHEN r.risk_grade = 'CAUTION' THEN 1 ELSE 0 END) &gt; 0 THEN 'CAUTION'
+                     WHEN SUM(CASE WHEN r.risk_grade = 'CRITICAL' THEN 1 ELSE 0 END) &gt; 0 THEN 'CRITICAL'
+                     WHEN SUM(CASE WHEN r.risk_grade = 'WARNING' THEN 1 ELSE 0 END) &gt; 0 THEN 'WARNING'
                      WHEN SUM(CASE WHEN r.risk_grade = 'NORMAL' THEN 1 ELSE 0 END) &gt; 0 THEN 'NORMAL'
-                     WHEN SUM(CASE WHEN r.risk_grade = 'SAFE' THEN 1 ELSE 0 END) &gt; 0 THEN 'SAFE'
+                     WHEN SUM(CASE WHEN r.risk_grade = 'GOOD' THEN 1 ELSE 0 END) &gt; 0 THEN 'GOOD'
                      ELSE NULL
                    END AS risk_grade,
                    CASE WHEN COUNT(*) = COUNT(r.risk_grade) THEN 'ASSESSED' ELSE 'UNASSESSED' END AS assessment_status,
@@ -1081,12 +1072,7 @@
         risk_latest AS (
             SELECT sku_id,
                    sales_point_id,
-                   CASE risk_grade
-                       WHEN 'GOOD' THEN 'SAFE'
-                       WHEN 'WARNING' THEN 'CAUTION'
-                       WHEN 'CRITICAL' THEN 'DANGER'
-                       ELSE risk_grade
-                   END AS risk_grade,
+                   risk_grade,
                    CASE WHEN risk_grade IS NULL THEN 'UNASSESSED' ELSE 'ASSESSED' END AS assessment_status,
                    shortage_yn
             FROM risk_rows
@@ -1112,10 +1098,10 @@
             SELECT scope.sku_id,
                    CASE
                      WHEN COUNT(*) &lt;&gt; COUNT(r.risk_grade) THEN NULL
-                     WHEN SUM(CASE WHEN r.risk_grade = 'DANGER' THEN 1 ELSE 0 END) &gt; 0 THEN 'DANGER'
-                     WHEN SUM(CASE WHEN r.risk_grade = 'CAUTION' THEN 1 ELSE 0 END) &gt; 0 THEN 'CAUTION'
+                     WHEN SUM(CASE WHEN r.risk_grade = 'CRITICAL' THEN 1 ELSE 0 END) &gt; 0 THEN 'CRITICAL'
+                     WHEN SUM(CASE WHEN r.risk_grade = 'WARNING' THEN 1 ELSE 0 END) &gt; 0 THEN 'WARNING'
                      WHEN SUM(CASE WHEN r.risk_grade = 'NORMAL' THEN 1 ELSE 0 END) &gt; 0 THEN 'NORMAL'
-                   WHEN SUM(CASE WHEN r.risk_grade = 'SAFE' THEN 1 ELSE 0 END) &gt; 0 THEN 'SAFE'
+                   WHEN SUM(CASE WHEN r.risk_grade = 'GOOD' THEN 1 ELSE 0 END) &gt; 0 THEN 'GOOD'
                    ELSE NULL
                    END AS risk_grade,
                    CASE WHEN COUNT(*) = COUNT(r.risk_grade) THEN 'ASSESSED' ELSE 'UNASSESSED' END AS assessment_status,
@@ -1211,9 +1197,9 @@
                    SUM(sf.available_qty) AS available_qty,
                    SUM(sf.reserved_qty) AS reserved_qty,
                    CASE WHEN MAX(sf.shortage_count) = 1 THEN 1 ELSE 0 END AS under_safety_count,
-                   CASE WHEN sr.risk_grade = 'DANGER' THEN 1 ELSE 0 END AS danger_risk_count,
-                   CASE WHEN sr.risk_grade = 'CAUTION' THEN 1 ELSE 0 END AS caution_risk_count,
-                   CASE WHEN sr.risk_grade = 'SAFE' THEN 1 ELSE 0 END AS safe_risk_count,
+                   CASE WHEN sr.risk_grade = 'CRITICAL' THEN 1 ELSE 0 END AS danger_risk_count,
+                   CASE WHEN sr.risk_grade = 'WARNING' THEN 1 ELSE 0 END AS caution_risk_count,
+                   CASE WHEN sr.risk_grade = 'GOOD' THEN 1 ELSE 0 END AS safe_risk_count,
                    MAX(sf.updated_at) AS updated_at
             FROM seller_facts sf
             LEFT JOIN sku_risk_agg sr ON sr.sku_id = sf.sku_id
@@ -1682,12 +1668,7 @@
         risk_agg AS (
             SELECT sku_id,
                    sales_point_id,
-                   CASE risk_grade
-                       WHEN 'GOOD' THEN 'SAFE'
-                       WHEN 'WARNING' THEN 'CAUTION'
-                       WHEN 'CRITICAL' THEN 'DANGER'
-                       ELSE risk_grade
-                   END AS risk_grade,
+                   risk_grade,
                    CASE WHEN risk_grade IS NULL THEN 'UNASSESSED' ELSE 'ASSESSED' END AS assessment_status,
                    shortage_yn,
                    reason_message AS risk_reason
@@ -1751,6 +1732,7 @@
                    'availableQuantity' VALUE ra.available_qty,
                    'reservedQuantity' VALUE ra.reserved_qty,
                    'riskGrade' VALUE risk.risk_grade,
+                   'assessmentStatus' VALUE risk.assessment_status,
                    'shortageYn' VALUE risk.shortage_yn,
                    'salesPointState' VALUE ra.sales_point_state,
                    'warehouseName' VALUE CAST(NULL AS VARCHAR2(200)),

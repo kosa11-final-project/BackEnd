@@ -45,7 +45,7 @@ class InventoryRiskControllerTest {
 
         RiskAssessmentDetailResponse response = new RiskAssessmentDetailResponse(
                 "ASSESSED",
-                "DANGER",
+                "CRITICAL",
                 "CRITICAL",
                 "소비기한 30일 이하 임박 (22일 남음)",
                 "v1.0.0",
@@ -74,7 +74,7 @@ class InventoryRiskControllerTest {
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.assessmentStatus").value("ASSESSED"))
-                .andExpect(jsonPath("$.data.riskGrade").value("DANGER"))
+                .andExpect(jsonPath("$.data.riskGrade").value("CRITICAL"))
                 .andExpect(jsonPath("$.data.dbRiskGrade").value("CRITICAL"))
                 .andExpect(jsonPath("$.data.nearestExpiryDays").value(22))
                 .andExpect(jsonPath("$.data.stockCoverageDays").value(20))
