@@ -396,7 +396,29 @@ class StrategyGenerationJobHandlerImplTest {
 
         verify(payloadSerializer, never()).deserialize(any());
         verify(checkpointStore, never()).find(any(), any(), any());
-        verify(recommendationStageProcessor).process(12345L);
+        verify(recommendationStageProcessor).process(
+                12345L,
+                com.stockit.backend.feature.strategy.recommendation
+                        .RecommendationExecutionPolicy.fallbackTransientLlmFailure()
+        );
+    }
+
+    @Test
+    void preservesLlmRetryBeforeFinalMessageAttempt() {
+        when(strategyCaseMapper.selectStrategyCaseById(12345L))
+                .thenReturn(generatingCase(StrategyGenerationStage.STRATEGY_GENERATING));
+
+        handler.handle(
+                message(),
+                new com.stockit.backend.feature.strategy.messaging
+                        .StrategyGenerationAttempt(1, 3)
+        );
+
+        verify(recommendationStageProcessor).process(
+                12345L,
+                com.stockit.backend.feature.strategy.recommendation
+                        .RecommendationExecutionPolicy.retryTransientLlmFailure()
+        );
     }
 
     @Test

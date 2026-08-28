@@ -145,8 +145,15 @@ public class InventoryMovementCandidateFactory {
                     "Source sales point cannot also be the movement target");
         }
         SalesPoint target = context.salesPoints().get(targetId);
-        if (target == null
-                || (requireCompleteTargetPrice && !target.hasCompletePrice())) {
+        if (target == null) {
+            return excluded(
+                    strategyType,
+                    targetId,
+                    CandidateExclusionReason.TARGET_SALES_POINT_NOT_FOUND,
+                    "Target sales point is missing from calculation context"
+            );
+        }
+        if (requireCompleteTargetPrice && !target.hasCompletePrice()) {
             return excluded(
                     strategyType,
                     targetId,

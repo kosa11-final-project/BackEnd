@@ -1,0 +1,27 @@
+name: stockit-logging-agent
+
+services:
+  alloy:
+    image: grafana/alloy:v1.10.0
+    container_name: stockit-alloy
+    user: root
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    env_file:
+      - path: ${LOGGING_AGENT_ENV_FILE:-../env/logging-agent.env}
+        required: false
+    environment:
+      LOKI_PUSH_URL: ${LOKI_PUSH_URL:-http://10.0.28.166:3100/loki/api/v1/push}
+      ALLOY_ENVIRONMENT: ${ALLOY_ENVIRONMENT:-production}
+      ALLOY_HOST_LABEL: ${ALLOY_HOST_LABEL:-stockit-app-prod}
+    volumes:
+      - ../../monitoring/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - stockit-alloy-data:/var/lib/alloy/data
+    restart: unless-stopped
+
+volumes:
+  stockit-alloy-data:

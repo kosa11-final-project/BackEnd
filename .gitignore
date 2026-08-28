@@ -24,6 +24,9 @@ docs/*
 *.log
 hs_err_pid*
 
+__pycache__/
+*.py[cod]
+
 ### macOS / Windows ###
 .DS_Store
 Thumbs.db

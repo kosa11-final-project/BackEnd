@@ -27,6 +27,7 @@ import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculati
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCandidateEvaluationResult;
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCandidateSimulation;
 import com.stockit.backend.feature.strategy.messaging.PermanentStrategyGenerationException;
+import com.stockit.backend.feature.strategy.messaging.RetryableStrategyGenerationException;
 import com.stockit.backend.feature.strategy.domain.StrategyType;
 
 @ExtendWith({MockitoExtension.class, OutputCaptureExtension.class})
@@ -49,7 +50,8 @@ class StrategyRecommendationServiceTest {
                 requestFactory,
                 provider,
                 validator,
-                fallback
+                fallback,
+                new StrategyCandidateEvaluationClassifier()
         );
     }
 
@@ -123,8 +125,11 @@ class StrategyRecommendationServiceTest {
                 );
 
         assertThatThrownBy(() -> service.recommend(1L, evaluation))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("all generated candidates failed simulation");
+                .isInstanceOfSatisfying(
+                        PermanentStrategyGenerationException.class,
+                        exception -> assertThat(exception.getFailureCode())
+                                .isEqualTo("STRATEGY_CANDIDATE_SIMULATION_FAILED")
+                );
 
         verify(provider, never()).recommend(any());
     }
@@ -179,13 +184,13 @@ class StrategyRecommendationServiceTest {
     }
 
     @Test
-    void doesNotFallbackForAuthenticationFailure() {
+    void usesDeterministicFallbackForAuthenticationFailure() {
         StrategyCalculationContext context = mock(StrategyCalculationContext.class);
         when(context.requestConstraints()).thenReturn(
                 mock(StrategyCalculationContext.RequestConstraints.class)
         );
         BaselineSimulation baseline = mock(BaselineSimulation.class);
-        var evaluated = evaluatedWithoutStrategyType("CAND-1");
+        var evaluated = evaluated("CAND-1");
         StrategyCandidateEvaluationResult evaluation =
                 new StrategyCandidateEvaluationResult(
                         context, baseline, List.of(evaluated), List.of(), List.of()
@@ -193,6 +198,9 @@ class StrategyRecommendationServiceTest {
         RecommendationCandidateSelection selection =
                 new RecommendationCandidateSelection(List.of(evaluated));
         AiRecommendationRequest request = mock(AiRecommendationRequest.class);
+        AiRecommendationProviderResponse fallbackResponse =
+                mock(AiRecommendationProviderResponse.class);
+        StrategyRecommendationResult expected = mock(StrategyRecommendationResult.class);
 
         when(baselineImprovementFilter.filter(evaluation.evaluatedCandidates()))
                 .thenReturn(List.of(evaluated));
@@ -203,14 +211,144 @@ class StrategyRecommendationServiceTest {
                         "LLM_API_AUTH_FAILED", "authentication failed"
                 )
         );
+        when(fallback.create(selection, request)).thenReturn(fallbackResponse);
+        when(validator.validateAndMap(
+                any(), any(), any(), any(), any(), any()
+        )).thenReturn(expected);
+
+        assertThat(service.recommend(1L, evaluation)).isSameAs(expected);
+        verify(fallback).create(selection, request);
+    }
+
+    @Test
+    void rejectsEmptyEvaluationWhenRequiredInputIsUnavailable() {
+        StrategyCandidateEvaluationResult evaluation =
+                new StrategyCandidateEvaluationResult(
+                        mock(StrategyCalculationContext.class),
+                        mock(BaselineSimulation.class),
+                        List.of(),
+                        List.of(new CandidateExclusion(
+                                StrategyType.RT_TRANSFER,
+                                17L,
+                                CandidateExclusionReason.SKU_WEIGHT_NOT_FOUND,
+                                "SKU weight is required"
+                        )),
+                        List.of()
+                );
 
         assertThatThrownBy(() -> service.recommend(1L, evaluation))
                 .isInstanceOfSatisfying(
                         PermanentStrategyGenerationException.class,
                         exception -> assertThat(exception.getFailureCode())
-                                .isEqualTo("LLM_API_AUTH_FAILED")
+                                .isEqualTo("STRATEGY_INPUT_DATA_UNAVAILABLE")
                 );
+    }
+
+    @Test
+    void rejectsEmptyEvaluationWithoutAnyDiagnosticEvidence() {
+        StrategyCandidateEvaluationResult evaluation =
+                new StrategyCandidateEvaluationResult(
+                        mock(StrategyCalculationContext.class),
+                        mock(BaselineSimulation.class),
+                        List.of(), List.of(), List.of()
+                );
+
+        assertThatThrownBy(() -> service.recommend(1L, evaluation))
+                .isInstanceOfSatisfying(
+                        PermanentStrategyGenerationException.class,
+                        exception -> assertThat(exception.getFailureCode())
+                                .isEqualTo("STRATEGY_CANDIDATE_EVALUATION_INVALID")
+                );
+    }
+
+    @Test
+    void continuesRecommendationWhenUsableCandidateExistsWithInputExclusion() {
+        StrategyCalculationContext context = mock(StrategyCalculationContext.class);
+        when(context.requestConstraints()).thenReturn(
+                mock(StrategyCalculationContext.RequestConstraints.class)
+        );
+        BaselineSimulation baseline = mock(BaselineSimulation.class);
+        var evaluated = evaluated("CAND-1");
+        StrategyCandidateEvaluationResult evaluation =
+                new StrategyCandidateEvaluationResult(
+                        context,
+                        baseline,
+                        List.of(evaluated),
+                        List.of(new CandidateExclusion(
+                                StrategyType.RT_TRANSFER,
+                                17L,
+                                CandidateExclusionReason.SKU_WEIGHT_NOT_FOUND,
+                                "SKU weight is required"
+                        )),
+                        List.of()
+                );
+        RecommendationCandidateSelection selection =
+                new RecommendationCandidateSelection(List.of(evaluated));
+        AiRecommendationRequest request = mock(AiRecommendationRequest.class);
+        AiRecommendationProviderResponse providerResponse =
+                mock(AiRecommendationProviderResponse.class);
+        StrategyRecommendationResult expected = mock(StrategyRecommendationResult.class);
+        when(baselineImprovementFilter.filter(evaluation.evaluatedCandidates()))
+                .thenReturn(List.of(evaluated));
+        when(preselector.select(any())).thenReturn(selection);
+        when(requestFactory.create(any(), any(), any(), any())).thenReturn(request);
+        when(provider.recommend(request)).thenReturn(providerResponse);
+        when(validator.validateAndMap(
+                any(), any(), any(), any(), any(), any()
+        )).thenReturn(expected);
+
+        assertThat(service.recommend(1L, evaluation)).isSameAs(expected);
+        verify(provider).recommend(request);
+    }
+
+    @Test
+    void retriesTransientLlmFailureBeforeFinalAttempt() {
+        RecommendationFixture fixture = recommendationFixture();
+        when(provider.recommend(fixture.request())).thenThrow(
+                new RetryableStrategyGenerationException(
+                        "LLM_API_RATE_LIMITED",
+                        com.stockit.backend.feature.strategy.domain.StrategyGenerationStage
+                                .STRATEGY_GENERATING,
+                        "rate limited"
+                )
+        );
+
+        assertThatThrownBy(() -> service.recommend(
+                1L,
+                fixture.evaluation(),
+                RecommendationExecutionPolicy.retryTransientLlmFailure()
+        )).isInstanceOf(RetryableStrategyGenerationException.class);
         verify(fallback, never()).create(any(), any());
+    }
+
+    @Test
+    void usesDeterministicFallbackForTransientLlmFailureOnFinalAttempt() {
+        RecommendationFixture fixture = recommendationFixture();
+        AiRecommendationProviderResponse fallbackResponse =
+                mock(AiRecommendationProviderResponse.class);
+        StrategyRecommendationResult expected = mock(StrategyRecommendationResult.class);
+        when(provider.recommend(fixture.request())).thenThrow(
+                new RetryableStrategyGenerationException(
+                        "LLM_API_RATE_LIMITED",
+                        com.stockit.backend.feature.strategy.domain.StrategyGenerationStage
+                                .STRATEGY_GENERATING,
+                        "rate limited"
+                )
+        );
+        when(fallback.create(fixture.selection(), fixture.request()))
+                .thenReturn(fallbackResponse);
+        when(validator.validateAndMap(
+                any(), any(), any(), any(), any(), any()
+        )).thenReturn(expected);
+
+        StrategyRecommendationResult result = service.recommend(
+                1L,
+                fixture.evaluation(),
+                RecommendationExecutionPolicy.fallbackTransientLlmFailure()
+        );
+
+        assertThat(result).isSameAs(expected);
+        verify(fallback).create(fixture.selection(), fixture.request());
     }
 
     private void assertUsesDeterministicFallback(String failureCode) {
@@ -249,13 +387,40 @@ class StrategyRecommendationServiceTest {
         verify(fallback).create(selection, request);
     }
 
+    private RecommendationFixture recommendationFixture() {
+        StrategyCalculationContext context = mock(StrategyCalculationContext.class);
+        when(context.requestConstraints()).thenReturn(
+                mock(StrategyCalculationContext.RequestConstraints.class)
+        );
+        BaselineSimulation baseline = mock(BaselineSimulation.class);
+        var evaluated = evaluated("CAND-1");
+        StrategyCandidateEvaluationResult evaluation =
+                new StrategyCandidateEvaluationResult(
+                        context, baseline, List.of(evaluated), List.of(), List.of()
+                );
+        RecommendationCandidateSelection selection =
+                new RecommendationCandidateSelection(List.of(evaluated));
+        AiRecommendationRequest request = mock(AiRecommendationRequest.class);
+        when(baselineImprovementFilter.filter(evaluation.evaluatedCandidates()))
+                .thenReturn(List.of(evaluated));
+        when(preselector.select(any())).thenReturn(selection);
+        when(requestFactory.create(any(), any(), any(), any())).thenReturn(request);
+        return new RecommendationFixture(evaluation, selection, request);
+    }
+
+    private record RecommendationFixture(
+            StrategyCandidateEvaluationResult evaluation,
+            RecommendationCandidateSelection selection,
+            AiRecommendationRequest request
+    ) {}
+
     private static StrategyCandidateEvaluationResult.EvaluatedCandidate evaluated(
             String id
     ) {
         StrategyCandidate candidate = mock(StrategyCandidate.class);
         StrategyCandidateSimulation simulation = mock(StrategyCandidateSimulation.class);
         when(candidate.candidateId()).thenReturn(id);
-        when(candidate.strategyTypes()).thenReturn(
+        org.mockito.Mockito.lenient().when(candidate.strategyTypes()).thenReturn(
                 List.of(com.stockit.backend.feature.strategy.domain.StrategyType.PRICE_DISCOUNT)
         );
         when(simulation.candidateId()).thenReturn(id);
