@@ -201,6 +201,13 @@ public class GeminiRecommendationProvider implements AiRecommendationProvider {
             );
         }
         if (status.value() == 429) {
+            if (isQuotaExhausted(body)) {
+                throw permanent(
+                        "LLM_API_QUOTA_EXHAUSTED",
+                        "Gemini recommendation API quota is exhausted",
+                        null
+                );
+            }
             throw retryable(
                     "LLM_API_RATE_LIMITED",
                     failureMessage(
@@ -396,6 +403,23 @@ public class GeminiRecommendationProvider implements AiRecommendationProvider {
             return baseMessage + " - " + detail;
         } catch (IOException exception) {
             return baseMessage;
+        }
+    }
+
+    /** 분 단위 제한과 달리 짧은 재시도로 회복되지 않는 할당량·결제 한도를 구분한다. */
+    private boolean isQuotaExhausted(byte[] body) {
+        try {
+            JsonNode root = objectMapper.readTree(body);
+            if (root == null) return false;
+            String message = firstText(root.path("error"), "message");
+            if (message == null) return false;
+            String normalized = message.toLowerCase(java.util.Locale.ROOT);
+            return normalized.contains("quota")
+                    && (normalized.contains("exceed")
+                    || normalized.contains("billing")
+                    || normalized.contains("plan"));
+        } catch (IOException exception) {
+            return false;
         }
     }
 

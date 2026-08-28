@@ -112,6 +112,27 @@ class GeminiRecommendationProviderTest {
     }
 
     @Test
+    void classifiesExhaustedQuotaForImmediateFallback() {
+        status.set(429);
+        responseBody.set("{\"error\":{\"code\":429,"
+                + "\"status\":\"RESOURCE_EXHAUSTED\","
+                + "\"message\":\"You exceeded your current quota, "
+                + "please check your plan and billing details.\"}}");
+
+        assertThatThrownBy(() -> provider("test-key").recommend(request()))
+                .isInstanceOfSatisfying(
+                        PermanentStrategyGenerationException.class,
+                        exception -> {
+                            assertThat(exception.getFailureCode())
+                                    .isEqualTo("LLM_API_QUOTA_EXHAUSTED");
+                            assertThat(exception.getMessage())
+                                    .isEqualTo("Gemini recommendation API quota is exhausted")
+                                    .doesNotContain("billing");
+                        }
+                );
+    }
+
+    @Test
     void classifiesAuthenticationFailureAsPermanentAndPreservesSafeDetail() {
         status.set(403);
         responseBody.set("""

@@ -29,6 +29,8 @@ import com.stockit.backend.feature.strategy.messaging.PermanentStrategyGeneratio
 import com.stockit.backend.feature.strategy.messaging.RetryableStrategyGenerationException;
 import com.stockit.backend.feature.strategy.messaging.StrategyGenerationBusyException;
 import com.stockit.backend.feature.strategy.messaging.StrategyGenerationJobMessage;
+import com.stockit.backend.feature.strategy.messaging.StrategyGenerationAttempt;
+import com.stockit.backend.feature.strategy.recommendation.RecommendationExecutionPolicy;
 import com.stockit.backend.feature.strategy.service.StrategyCasePayloadException;
 import com.stockit.backend.feature.strategy.service.StrategyCaseRequestPayloadSerializer;
 import com.stockit.backend.feature.strategy.service.StrategyGenerationJobHandler;
@@ -93,8 +95,20 @@ public class StrategyGenerationJobHandlerImpl implements StrategyGenerationJobHa
      * 저장된 Case를 복원해 완료된 작업은 건너뛰고 현재 Worker가 소유한 예측만 실행
      */
     @Override
-    public void handle(StrategyGenerationJobMessage message) {
+    public void handle(
+            StrategyGenerationJobMessage message,
+            StrategyGenerationAttempt attempt
+    ) {
         validateMessage(message);
+        if (attempt == null) {
+            throw new PermanentStrategyGenerationException(
+                    INVALID_MESSAGE_CODE,
+                    "AI strategy generation attempt context is missing"
+            );
+        }
+        RecommendationExecutionPolicy recommendationPolicy = attempt.isFinalAttempt()
+                ? RecommendationExecutionPolicy.fallbackTransientLlmFailure()
+                : RecommendationExecutionPolicy.retryTransientLlmFailure();
         StrategyCaseVO strategyCase = loadCase(message.strategyCaseId());
         log.debug(
                 "AI strategy pipeline started. strategyCaseId={}, caseStatus={}, "
@@ -110,7 +124,9 @@ public class StrategyGenerationJobHandlerImpl implements StrategyGenerationJobHa
                             + "strategyCaseId={}",
                     message.strategyCaseId()
             );
-            recommendationStageProcessor.process(message.strategyCaseId());
+            recommendationStageProcessor.process(
+                    message.strategyCaseId(), recommendationPolicy
+            );
             return;
         }
         if (isForecastStepCompleteOrTerminal(strategyCase)) {
@@ -136,7 +152,9 @@ public class StrategyGenerationJobHandlerImpl implements StrategyGenerationJobHa
                     message.strategyCaseId(),
                     checkpoint.get().forecastResponse().forecastRunId()
             );
-            completeFromCheckpoint(strategyCase, context, checkpoint.get());
+            completeFromCheckpoint(
+                    strategyCase, context, checkpoint.get(), recommendationPolicy
+            );
             return;
         }
 
@@ -150,13 +168,16 @@ public class StrategyGenerationJobHandlerImpl implements StrategyGenerationJobHa
                 message.strategyCaseId()
         );
         try {
-            processWhileOwningLock(message.strategyCaseId());
+            processWhileOwningLock(message.strategyCaseId(), recommendationPolicy);
         } finally {
             releaseQuietly(lock, message.strategyCaseId());
         }
     }
 
-    private void processWhileOwningLock(Long strategyCaseId) {
+    private void processWhileOwningLock(
+            Long strategyCaseId,
+            RecommendationExecutionPolicy recommendationPolicy
+    ) {
         StrategyCaseVO latest = loadCase(strategyCaseId);
         if (isForecastStepCompleteOrTerminal(latest)) {
             return;
@@ -175,19 +196,22 @@ public class StrategyGenerationJobHandlerImpl implements StrategyGenerationJobHa
                     strategyCaseId,
                     checkpoint.get().forecastResponse().forecastRunId()
             );
-            completeFromCheckpoint(latest, context, checkpoint.get());
+            completeFromCheckpoint(
+                    latest, context, checkpoint.get(), recommendationPolicy
+            );
             return;
         }
 
         if (!ensureForecasting(latest)) {
             return;
         }
-        executeForecasting(strategyCaseId, context);
+        executeForecasting(strategyCaseId, context, recommendationPolicy);
     }
 
     private void executeForecasting(
             Long strategyCaseId,
-            StrategyForecastRequestContext context
+            StrategyForecastRequestContext context,
+            RecommendationExecutionPolicy recommendationPolicy
     ) {
         StrategyForecastRequest request = context.request();
         long startedNanos = System.nanoTime();
@@ -225,7 +249,7 @@ public class StrategyGenerationJobHandlerImpl implements StrategyGenerationJobHa
                             + "forecastRunId={}, modelVersionId={}",
                     strategyCaseId, response.forecastRunId(), modelVersionId
             );
-            completeForecasting(strategyCaseId);
+            completeForecasting(strategyCaseId, recommendationPolicy);
         } catch (PermanentStrategyGenerationException
                  | RetryableStrategyGenerationException
                  | StrategyGenerationBusyException exception) {
@@ -381,7 +405,8 @@ public class StrategyGenerationJobHandlerImpl implements StrategyGenerationJobHa
     private void completeFromCheckpoint(
             StrategyCaseVO strategyCase,
             StrategyForecastRequestContext context,
-            ForecastCheckpoint checkpoint
+            ForecastCheckpoint checkpoint,
+            RecommendationExecutionPolicy recommendationPolicy
     ) {
         try {
             responseValidator.validate(context, checkpoint.forecastResponse());
@@ -399,7 +424,9 @@ public class StrategyGenerationJobHandlerImpl implements StrategyGenerationJobHa
                     );
                 }
             }
-            completeForecasting(strategyCase.getStrategyCaseId());
+            completeForecasting(
+                    strategyCase.getStrategyCaseId(), recommendationPolicy
+            );
         } catch (PermanentStrategyGenerationException
                  | RetryableStrategyGenerationException
                  | StrategyGenerationBusyException exception) {
@@ -413,7 +440,10 @@ public class StrategyGenerationJobHandlerImpl implements StrategyGenerationJobHa
         }
     }
 
-    private void completeForecasting(Long strategyCaseId) {
+    private void completeForecasting(
+            Long strategyCaseId,
+            RecommendationExecutionPolicy recommendationPolicy
+    ) {
         boolean completed;
         try {
             completed = stageService.completeForecasting(strategyCaseId);
@@ -431,7 +461,7 @@ public class StrategyGenerationJobHandlerImpl implements StrategyGenerationJobHa
                             + "strategyCaseId={}",
                     strategyCaseId
             );
-            recommendationStageProcessor.process(strategyCaseId);
+            recommendationStageProcessor.process(strategyCaseId, recommendationPolicy);
             return;
         }
         StrategyCaseVO latest = loadCase(strategyCaseId);
@@ -439,7 +469,7 @@ public class StrategyGenerationJobHandlerImpl implements StrategyGenerationJobHa
             if (latest.getCaseStatus() == StrategyCaseStatus.GENERATING
                     && latest.getGenerationStage()
                     == StrategyGenerationStage.STRATEGY_GENERATING) {
-                recommendationStageProcessor.process(strategyCaseId);
+                recommendationStageProcessor.process(strategyCaseId, recommendationPolicy);
             }
             return;
         }
