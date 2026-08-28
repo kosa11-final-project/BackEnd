@@ -3,10 +3,12 @@ package com.stockit.backend.feature.inventorysync;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anySet;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verify;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Set;
@@ -40,7 +42,7 @@ class InventorySyncRiskScopeSnapshotLoaderTest {
     @Test
     void aggregatesAllLotsInSkuSalesPointScopeAndSelectsStableAnchor() {
         InventorySyncRiskSnapshotMapper mapper = org.mockito.Mockito.mock(InventorySyncRiskSnapshotMapper.class);
-        when(mapper.selectAffectedScopeSnapshot(anySet(), any(LocalDate.class))).thenReturn(List.of(
+        when(mapper.selectAffectedScopeSnapshot(anySet(), any(LocalDate.class), any(Instant.class))).thenReturn(List.of(
                 row(20L, "SKU-1", "DEPT-1", "LOT-2", new BigDecimal("7")),
                 row(10L, "SKU-1", "DEPT-1", "LOT-1", new BigDecimal("3"))
         ));
@@ -59,15 +61,31 @@ class InventorySyncRiskScopeSnapshotLoaderTest {
     void usesTheSyncPinnedDateForSnapshotSelectionAndAssessment() {
         InventorySyncRiskSnapshotMapper mapper = org.mockito.Mockito.mock(InventorySyncRiskSnapshotMapper.class);
         LocalDate asOfDate = LocalDate.of(2026, 8, 27);
+        Instant assessmentInstant = Instant.parse("2026-08-26T15:30:00Z");
         var row = row(10L, "SKU-1", "DEPT-1", "LOT-1", BigDecimal.TEN);
         row.setForecastBaseDate(asOfDate.minusDays(1));
-        when(mapper.selectAffectedScopeSnapshot(Set.of("1:10"), asOfDate)).thenReturn(List.of(row));
+        when(mapper.selectAffectedScopeSnapshot(eq(Set.of("1:10")), eq(asOfDate), eq(assessmentInstant))).thenReturn(List.of(row));
 
-        var snapshots = new InventorySyncRiskScopeSnapshotLoader(mapper).load(Set.of("1:10"), asOfDate);
+        var snapshots = new InventorySyncRiskScopeSnapshotLoader(mapper).load(Set.of("1:10"), asOfDate, assessmentInstant);
 
         assertThat(snapshots).singleElement().satisfies(snapshot ->
                 assertThat(snapshot.input().assessmentDate()).isEqualTo(asOfDate));
-        verify(mapper).selectAffectedScopeSnapshot(Set.of("1:10"), asOfDate);
+        verify(mapper).selectAffectedScopeSnapshot(eq(Set.of("1:10")), eq(asOfDate), eq(assessmentInstant));
+    }
+
+    @Test
+    void keepsForecastRowAvailableWhenAnExtendedHorizonIsMissing() {
+        InventorySyncRiskSnapshotMapper mapper = org.mockito.Mockito.mock(InventorySyncRiskSnapshotMapper.class);
+        var row = row(10L, "SKU-1", "DEPT-1", "LOT-1", BigDecimal.TEN);
+        row.setForecastId(99L);
+        row.setPredictedQtyD60(null);
+        row.setPredictedQtyD90(new BigDecimal("50"));
+        when(mapper.selectAffectedScopeSnapshot(anySet(), any(LocalDate.class), any(Instant.class))).thenReturn(List.of(row));
+
+        var snapshot = new InventorySyncRiskScopeSnapshotLoader(mapper).load(Set.of("1:10")).get(0);
+
+        assertThat(snapshot.input().forecastAvailable()).isTrue();
+        assertThat(snapshot.input().predictedQtyD60()).isNull();
     }
 
     @Test
@@ -76,7 +94,7 @@ class InventorySyncRiskScopeSnapshotLoaderTest {
         var common = row(30L, "SKU-1", "UNASSIGNED", "LOT-COMMON", new BigDecimal("12"));
         common.setSkuId(1L);
         common.setSalesPointId(null);
-        when(mapper.selectAffectedScopeSnapshot(anySet(), any(LocalDate.class))).thenReturn(List.of(common));
+        when(mapper.selectAffectedScopeSnapshot(anySet(), any(LocalDate.class), any(Instant.class))).thenReturn(List.of(common));
 
         var snapshots = new InventorySyncRiskScopeSnapshotLoader(mapper).load(Set.of("1:UNASSIGNED"));
 

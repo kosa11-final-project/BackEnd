@@ -41,6 +41,7 @@ class InventorySyncSourcePageMapperContractTest {
                 .contains("src.selling_price, src.actual_price, src.product_cost")
                 .contains("src.manufactured_date, src.received_date, src.expiry_date, src.sale_stop_date")
                 .contains("src.safety_stock_qty, src.target_stock_qty")
+                .contains("LEAST(src.reserved_qty, src.on_hand_qty) AS reserved_qty")
                 .contains("AND m.mapping_status = 'MAPPED' AND m.is_deleted = 0")
                 .contains("AND (src.synced_record_hash IS NULL OR src.record_hash != src.synced_record_hash)")
                 .contains("FETCH NEXT #{limit} ROWS ONLY");
