@@ -90,7 +90,7 @@ class InventoryQueryRequestTest {
     @Test
     void rejectsLegacyRiskAliasesAndPageSizesAboveApiMaximum() {
         InventoryQueryRequest request = new InventoryQueryRequest();
-        request.setRiskGrade(List.of("GOOD"));
+        request.setRiskGrade(List.of("SAFE"));
 
         assertThatThrownBy(() -> request.toQuery(LocalDate.of(2026, 8, 14)))
                 .isInstanceOf(AppException.class);

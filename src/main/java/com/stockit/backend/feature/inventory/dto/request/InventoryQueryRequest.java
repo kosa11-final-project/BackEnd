@@ -24,7 +24,7 @@ public class InventoryQueryRequest {
 
     private static final List<String> CHANNEL_TYPES = List.of("GREETING", "ECOMMERCE", "HYUNDAI_DEPT", "HMART");
     private static final List<String> STORAGE_TYPES = List.of("FROZEN", "COLD", "ROOM_TEMP");
-    private static final List<String> RISK_GRADES = List.of("SAFE", "NORMAL", "CAUTION", "DANGER");
+    private static final List<String> RISK_GRADES = List.of("GOOD", "NORMAL", "WARNING", "CRITICAL");
     private static final List<String> ASSESSMENT_STATUSES = List.of("ASSESSED", "UNASSESSED");
     private static final List<String> FILTER_OPERATORS = List.of("AND", "OR");
 
@@ -46,7 +46,7 @@ public class InventoryQueryRequest {
     private List<String> categoryIds = new ArrayList<>();
     @Schema(description = "보관 유형", allowableValues = {"FROZEN", "COLD", "ROOM_TEMP"})
     private List<String> storageType = new ArrayList<>();
-    @Schema(description = "위험 등급", allowableValues = {"SAFE", "NORMAL", "CAUTION", "DANGER"})
+    @Schema(description = "위험 등급", allowableValues = {"GOOD", "NORMAL", "WARNING", "CRITICAL"})
     private List<String> riskGrade = new ArrayList<>();
     @Schema(description = "위험 판정 상태", allowableValues = {"ASSESSED", "UNASSESSED"})
     private List<String> assessmentStatus = new ArrayList<>();

@@ -22,6 +22,7 @@ import org.springframework.dao.CannotAcquireLockException;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.stockit.backend.feature.inventorysync.demo.InventoryDemoAdjustmentMapper;
+import com.stockit.backend.feature.inventorysync.demo.InventoryDemoBulkAdjustmentRequest;
 import com.stockit.backend.feature.inventorysync.demo.InventoryDemoAdjustmentRequest;
 import com.stockit.backend.feature.inventorysync.demo.InventoryDemoAdjustmentService;
 import com.stockit.backend.common.exception.AppException;
@@ -85,6 +86,30 @@ class InventoryDemoAdjustmentServiceTest {
 
         assertEquals("INVENTORY_SYNC-001", exception.getErrorCode().getCode());
         verify(mapper, never()).lockSourceRow(anyString(), anyString());
+    }
+
+    @Test
+    void bulkAdjustmentChangesEveryPositiveSyncedSourceRow() {
+        when(mapper.selectByRequestId("demo-bulk-all")).thenReturn(null);
+        for (String sourceType : InventorySyncSourceOrder.TYPES) {
+            when(mapper.lockBulkSourceState(sourceType))
+                    .thenReturn(new InventoryDemoAdjustmentMapper.BulkSourceStateRow(2, 0));
+            when(mapper.countAdjustableSyncedRows(sourceType)).thenReturn(2);
+            when(mapper.insertBulkAudit(
+                    eq("demo-bulk-all"), anyString(), eq(sourceType), any(BigDecimal.class), eq(7L)
+            )).thenReturn(2);
+            when(mapper.updateAllSyncedSources(eq(sourceType), any(BigDecimal.class))).thenReturn(2);
+            when(mapper.updatePendingCountBulk(sourceType, 2)).thenReturn(1);
+        }
+
+        var response = service.applyAll(
+                new InventoryDemoBulkAdjustmentRequest("demo-bulk-all", BigDecimal.TEN),
+                7L
+        );
+
+        assertEquals(8, response.appliedCount());
+        assertEquals(0, response.alreadyPendingCount());
+        assertEquals(4, response.sources().size());
     }
 
     private static InventoryDemoAdjustmentMapper.DemoSourceRow source(int onHand, int rowVersion, String hash, String syncedHash) {

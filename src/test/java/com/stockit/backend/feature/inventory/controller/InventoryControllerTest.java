@@ -69,7 +69,7 @@ class InventoryControllerTest {
                 List.of(),
                 0,
                 List.of(
-                        new SalesPointResponse(77L, "SP-1", "판매처 1", "GREETING", new BigDecimal("10"), new BigDecimal("8"), new BigDecimal("2"), "SAFE", "센터")
+                        new SalesPointResponse(77L, "SP-1", "판매처 1", "GREETING", new BigDecimal("10"), new BigDecimal("8"), new BigDecimal("2"), "GOOD", "센터")
                 ),
                 null,
                 null,

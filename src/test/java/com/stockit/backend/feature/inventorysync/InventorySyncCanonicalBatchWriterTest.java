@@ -13,6 +13,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.time.LocalDate;
+import java.time.Instant;
 import java.util.Map;
 import java.util.Set;
 
@@ -142,5 +143,27 @@ class InventorySyncCanonicalBatchWriterTest {
                 eq(RUN_ID), eq(7L), eq(Set.of("2:UNASSIGNED")), any(LocalDate.class), eq(riskSnapshotLoader)
         );
         verify(snapshotCoordinator).scheduleAfterCommit(eq(RUN_ID), any(LocalDate.class));
+    }
+
+    @Test
+    void pinsRiskDateAndForecastCutoffToRunStartAcrossMidnight() {
+        Instant startedAt = Instant.parse("2026-08-27T14:30:00Z"); // 서울 2026-08-27 23:30
+        InventorySyncRunVO run = new InventorySyncRunVO();
+        run.setInventorySyncRunId(RUN_ID);
+        run.setRunStatus("RUNNING");
+        run.setMainAttemptNo(1);
+        run.setFencingToken(7L);
+        run.setStartedAt(startedAt);
+        when(runMapper.selectByIdForUpdate(RUN_ID)).thenReturn(run);
+        when(riskSnapshotLoader.findScopesRequiringDailyRefresh(LocalDate.of(2026, 8, 27)))
+                .thenReturn(Set.of("2:UNASSIGNED"));
+
+        writer.finish("101", Map.of("OFFLINE", 1L), Set.of(), 7L, 0);
+
+        verify(canonicalMapper).refreshLotStatuses(LocalDate.of(2026, 8, 27), 7L);
+        verify(riskWriter).evaluateAndPersist(
+                eq(RUN_ID), eq(7L), eq(Set.of("2:UNASSIGNED")), eq(LocalDate.of(2026, 8, 27)),
+                eq(startedAt), eq(riskSnapshotLoader)
+        );
     }
 }

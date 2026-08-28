@@ -27,8 +27,11 @@ public record SalesPointResponse(
         @Schema(description = "예약재고", example = "10")
         BigDecimal reservedQuantity,
 
-        @Schema(description = "위험등급", example = "SAFE")
+        @Schema(description = "DB와 동일한 위험등급 (CRITICAL, WARNING, NORMAL, GOOD)", example = "GOOD")
         String riskGrade,
+
+        @Schema(description = "위험 판정 상태 (ASSESSED, UNASSESSED)", example = "ASSESSED")
+        String assessmentStatus,
 
         @Schema(description = "안전재고 미달 여부 (Y, N)", example = "Y")
         String shortageYn,
@@ -45,6 +48,26 @@ public record SalesPointResponse(
         @Schema(description = "가격 상태 (AVAILABLE, NOT_LOADED, STALE)", example = "AVAILABLE")
         String priceStatus
 ) {
+    /** assessmentStatus 추가 전 호출부와의 소스 호환을 유지합니다. */
+    public SalesPointResponse(
+            Long salesPointId,
+            String salesPointCode,
+            String salesPointName,
+            String channelType,
+            BigDecimal currentQuantity,
+            BigDecimal availableQuantity,
+            BigDecimal reservedQuantity,
+            String riskGrade,
+            String shortageYn,
+            String warehouseName,
+            BigDecimal sellingPrice,
+            String salesPointState,
+            String priceStatus
+    ) {
+        this(salesPointId, salesPointCode, salesPointName, channelType, currentQuantity, availableQuantity,
+                reservedQuantity, riskGrade, null, shortageYn, warehouseName, sellingPrice, salesPointState, priceStatus);
+    }
+
     public SalesPointResponse(
             String salesPointCode,
             String salesPointName,

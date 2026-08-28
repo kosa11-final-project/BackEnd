@@ -12,7 +12,7 @@
                src.price_effective_from, src.price_effective_to, src.sku_unit_cost,
                src.manufactured_date, src.received_date, src.expiry_date, src.sale_stop_date, src.lot_status,
                src.safety_stock_qty, src.target_stock_qty,
-               src.on_hand_qty, src.reserved_qty, src.record_hash,
+               src.on_hand_qty, LEAST(src.reserved_qty, src.on_hand_qty) AS reserved_qty, src.record_hash,
                st.current_version AS source_version, src.row_version
           FROM inventory_source_row_map m
           JOIN inventory_source_state st ON st.source_type = m.source_type

@@ -48,10 +48,9 @@ class InventorySyncRiskWriterTest {
         assertEquals("GOOD", record.riskGrade());
         assertEquals("N", record.shortageYn());
         assertEquals(0, record.stockDays().compareTo(new BigDecimal("45.00")));
-        org.junit.jupiter.api.Assertions.assertTrue(record.reasonMessage()
-                .contains("판매가능재고=on_hand_qty(100)-판매제외LOT(40)=60"));
-        org.junit.jupiter.api.Assertions.assertTrue(record.reasonMessage()
-                .contains("판매 제외 LOT=40"));
+        org.junit.jupiter.api.Assertions.assertEquals(
+                "현재 판매 가능 재고 60개가 안전재고 30개를 충족하고, 30일 예상 폐기수량은 0개이며 90일 이내 장기 과잉재고도 예상되지 않습니다.",
+                record.reasonMessage());
         verify(mapper).mergeRiskAssessments(anyList());
     }
 
@@ -73,8 +72,8 @@ class InventorySyncRiskWriterTest {
         assertEquals("CRITICAL", records.get(0).riskGrade());
         assertEquals("Y", records.get(0).shortageYn());
         assertEquals(0, records.get(0).stockDays().compareTo(new BigDecimal("3")));
-        org.junit.jupiter.api.Assertions.assertTrue(records.get(0).reasonMessage().contains("산식:"));
-        org.junit.jupiter.api.Assertions.assertTrue(records.get(0).reasonMessage().contains("가용재고=on_hand_qty"));
+        org.junit.jupiter.api.Assertions.assertTrue(records.get(0).reasonMessage().contains("약 3일 후 재고가 소진될 것으로 예상됩니다"));
+        org.junit.jupiter.api.Assertions.assertFalse(records.get(0).reasonMessage().contains("산식:"));
         verify(mapper).mergeRiskAssessments(anyList());
     }
 
@@ -120,7 +119,7 @@ class InventorySyncRiskWriterTest {
         InventorySyncRiskMapper mapper = Mockito.mock(InventorySyncRiskMapper.class);
         InventorySyncRiskWriter writer = new InventorySyncRiskWriter(new RiskRuleEngine(), mapper);
         RiskAssessmentInput input = new RiskAssessmentInput(
-                "SKU-1", "UNASSIGNED", BigDecimal.TEN, null, null, BigDecimal.ONE,
+                "SKU-1", "DEPT-1", BigDecimal.TEN, null, null, BigDecimal.ONE,
                 LocalDate.of(2026, 8, 20), List.of(), false, false
         );
 
@@ -131,7 +130,8 @@ class InventorySyncRiskWriterTest {
         assertEquals("GOOD", records.get(0).riskGrade());
         assertEquals("N", records.get(0).shortageYn());
         org.junit.jupiter.api.Assertions.assertNull(records.get(0).stockDays());
-        org.junit.jupiter.api.Assertions.assertTrue(records.get(0).reasonMessage().contains("수요예측을 확인할 수 없어 현재 재고 기준으로 확인한 상황입니다"));
+        org.junit.jupiter.api.Assertions.assertEquals(
+                "현재 판매 가능 재고 10개가 안전재고 1개를 충족합니다.", records.get(0).reasonMessage());
         verify(mapper).mergeRiskAssessments(anyList());
     }
 
@@ -149,7 +149,7 @@ class InventorySyncRiskWriterTest {
         ));
 
         assertEquals("N", records.get(0).shortageYn());
-        assertEquals("NORMAL", records.get(0).riskGrade());
+        assertEquals("WARNING", records.get(0).riskGrade());
     }
 
     @Test
