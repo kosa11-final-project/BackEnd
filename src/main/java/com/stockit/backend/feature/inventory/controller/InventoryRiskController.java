@@ -29,7 +29,7 @@ public class InventoryRiskController {
     @GetMapping("/{skuCode}/sales-points/{salesPointCode}/risk")
     @Operation(
             summary = "선택 재고 위험도 및 근거 조회",
-            description = "서버의 결정론적 위험 규칙 엔진을 통해 on_hand_qty 가용재고, 수요예측, 안전재고, 소비기한·판매중지일 기반 위험등급(DANGER, CAUTION, NORMAL, SAFE)을 반환합니다. 판매처 코드는 UNASSIGNED를 지원하며 판매이력·판매속도·재고보유일수는 이 API에서 사용하지 않습니다."
+            description = "최근 재고 동기화 때 저장한 SKU×판매처 위험등급·대표 사유·판정시각을 반환합니다. 가용재고와 30일 예상 폐기수량·폐기율 등 별도 저장하지 않는 표시용 파생값은 현재 통합재고·LOT·최신 수요예측으로 계산합니다. 판매처 코드는 UNASSIGNED를 지원합니다."
     )
     public ApiResponse<RiskAssessmentDetailResponse> risk(
             @Parameter(description = "상품 SKU 업무 코드", example = "SKU-4D82A9F1")

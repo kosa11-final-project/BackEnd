@@ -9,22 +9,22 @@ import io.swagger.v3.oas.annotations.media.Schema;
 
 @Schema(description = "SKU × 판매처 위험도 평가 상세 응답")
 public record RiskAssessmentDetailResponse(
-        @Schema(description = "판정 상태 (ASSESSED, UNASSESSED, STALE, FAILED, REASSESSING)", example = "ASSESSED")
+        @Schema(description = "판정 상태 (ASSESSED, UNASSESSED)", example = "ASSESSED")
         String assessmentStatus,
 
-        @Schema(description = "API 위험 등급 (DANGER, CAUTION, NORMAL, SAFE)", example = "DANGER")
+        @Schema(description = "최근 동기화 저장 위험 등급. DB와 동일한 값(CRITICAL, WARNING, NORMAL, GOOD)을 반환하며 저장 판정이 없으면 null", example = "CRITICAL")
         String riskGrade,
 
-        @Schema(description = "DB 내부 위험 등급 (CRITICAL, WARNING, NORMAL, GOOD)", example = "CRITICAL")
+        @Schema(description = "최근 동기화 저장 DB 위험 등급 (CRITICAL, WARNING, NORMAL, GOOD). 저장 판정이 없으면 null", example = "CRITICAL")
         String dbRiskGrade,
 
-        @Schema(description = "조회 시점 입력으로 계산한 대표 위험 사유", example = "30일 예상 폐기율이 20% 이상인 상황입니다.")
+        @Schema(description = "최근 재고 동기화 때 저장한 대표 위험 사유", example = "30일 예상 폐기율이 20% 이상인 상황입니다.")
         String reasonMessage,
 
-        @Schema(description = "평가 규칙 버전", example = "v1.1.0")
+        @Schema(description = "평가 규칙 버전", example = "v1.8.0")
         String ruleVersion,
 
-        @Schema(description = "판정 시각")
+        @Schema(description = "최근 재고 동기화 위험 판정 시각")
         Instant assessedAt,
 
         @Schema(description = "기준일", example = "2026-08-16")
@@ -60,7 +60,7 @@ public record RiskAssessmentDetailResponse(
         @Schema(description = "현재 판매 가능한 LOT 중 최대 보유 일수(일)", example = "14")
         Integer maxHoldingDays,
 
-        @Schema(description = "세부 위험 사유 및 근거 목록")
+        @Schema(description = "저장된 canonical 핵심 사유의 하위 호환 목록(최대 1건)")
         List<RiskReasonDto> reasons,
 
         @Schema(description = "30일 평균 예측수요 기준 예상 소진까지 남은 일수", example = "20.0")

@@ -49,7 +49,9 @@
             SELECT df.base_date,
                    df.predicted_qty_d7,
                    df.predicted_qty_d14,
-                   df.predicted_qty_d30
+                   df.predicted_qty_d30,
+                   df.predicted_qty_d60,
+                   df.predicted_qty_d90
             FROM demand_forecast df
             INNER JOIN sku s ON s.sku_id = df.sku_id AND s.is_deleted = 0
             INNER JOIN sales_point sp ON sp.sales_point_id = df.sales_point_id AND sp.is_deleted = 0
@@ -60,7 +62,8 @@
             WHERE s.sku_code = #{skuCode}
               AND sp.sales_point_code = #{salesPointCode}
               AND df.is_deleted = 0
-              AND df.base_date &lt;= TRUNC(CAST(#{asOfDate} AS DATE))
+              AND df.base_date &gt;= TRUNC(CAST(#{asOfDate} AS DATE)) - 1
+              AND df.base_date &lt; TRUNC(CAST(#{asOfDate} AS DATE)) + 1
               AND df.forecast_source &lt;&gt; 'DUMMY_BASELINE'
             ORDER BY df.base_date DESC, df.updated_at DESC, df.forecast_id DESC
         )
@@ -78,7 +81,7 @@
                    ra.expiry_days_left,
                    ra.rule_version,
                    ra.reason_message,
-                   ra.updated_at AS assessed_at
+                   COALESCE(isr.started_at, ra.updated_at) AS assessed_at
             FROM risk_assessment ra
             INNER JOIN inventory_balance ib
                     ON ib.inventory_balance_id = ra.inventory_balance_id
@@ -89,6 +92,8 @@
             LEFT JOIN sales_point sp
                     ON sp.sales_point_id = NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id)
                    AND sp.is_deleted = 0
+            LEFT JOIN inventory_sync_run isr
+                   ON isr.inventory_sync_run_id = ra.inventory_sync_run_id
             WHERE ra.is_deleted = 0
               AND s.sku_code = #{skuCode}
               AND (
@@ -96,7 +101,7 @@
                   OR (#{salesPointCode} = 'UNASSIGNED'
                       AND NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id) IS NULL)
               )
-            ORDER BY ra.updated_at DESC,
+            ORDER BY COALESCE(isr.started_at, ra.updated_at) DESC,
                      ra.risk_assessment_id DESC
         )
         WHERE ROWNUM = 1
@@ -109,7 +114,8 @@
                l.sale_stop_date AS saleStopDate,
                l.received_date AS receivedDate,
                SUM(ib.on_hand_qty) AS quantity,
-               l.lot_status AS lotStatus
+               l.lot_status AS lotStatus,
+               SUM(ib.reserved_qty) AS reservedQty
         FROM lot l
         INNER JOIN inventory_balance ib ON ib.lot_id = l.lot_id AND ib.is_deleted = 0
         INNER JOIN sku s ON s.sku_id = ib.sku_id AND s.is_deleted = 0

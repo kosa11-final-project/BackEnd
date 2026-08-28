@@ -17,7 +17,7 @@ class SalesPointResponseTest {
                 BigDecimal.TEN,
                 BigDecimal.TEN,
                 BigDecimal.ZERO,
-                "SAFE",
+                "GOOD",
                 "스마트푸드센터"
         );
 
@@ -33,7 +33,7 @@ class SalesPointResponseTest {
                 BigDecimal.TEN,
                 BigDecimal.TEN,
                 BigDecimal.ZERO,
-                "SAFE",
+                "GOOD",
                 "스마트푸드센터",
                 BigDecimal.valueOf(12000)
         );
@@ -51,7 +51,7 @@ class SalesPointResponseTest {
                 BigDecimal.TEN,
                 BigDecimal.ONE,
                 BigDecimal.ZERO,
-                "SAFE",
+                "GOOD",
                 "Y",
                 null,
                 null,

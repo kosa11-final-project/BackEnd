@@ -29,7 +29,7 @@ class InventoryFilterSqlRenderingTest {
         InventoryQueryRequest request = new InventoryQueryRequest();
         request.setQ("만두");
         request.setStorageType(List.of("FROZEN"));
-        request.setRiskGrade(List.of("DANGER"));
+        request.setRiskGrade(List.of("CRITICAL"));
         request.setFilterOperator("OR");
         InventoryQuery query = request.toQuery(LocalDate.of(2026, 8, 24));
 
@@ -86,7 +86,7 @@ class InventoryFilterSqlRenderingTest {
         request.setRegionCode(List.of("GYEONGGI"));
         request.setCategoryIds(List.of("301", "302"));
         request.setStorageType(List.of("FROZEN", "ROOM_TEMP"));
-        request.setRiskGrade(List.of("NORMAL", "DANGER"));
+        request.setRiskGrade(List.of("NORMAL", "CRITICAL"));
         request.setAssessmentStatus(List.of("ASSESSED"));
         request.setShortageYn("Y");
         request.setFilterOperator("OR");
@@ -121,7 +121,7 @@ class InventoryFilterSqlRenderingTest {
         request.setRegionCode(List.of("GYEONGGI", "SEOUL"));
         request.setCategoryIds(List.of("301", "302"));
         request.setStorageType(List.of("FROZEN", "ROOM_TEMP"));
-        request.setRiskGrade(List.of("NORMAL", "DANGER"));
+        request.setRiskGrade(List.of("NORMAL", "CRITICAL"));
         request.setAssessmentStatus(List.of("ASSESSED", "UNASSESSED"));
         request.setShortageYn("Y");
         request.setFilterOperator("AND");

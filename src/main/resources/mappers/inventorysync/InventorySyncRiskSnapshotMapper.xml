@@ -53,6 +53,7 @@
             SELECT df.forecast_id,
                    df.sku_id,
                    df.sales_point_id,
+                   df.base_date,
                    df.updated_at AS forecast_updated_at,
                    ROW_NUMBER() OVER (
                        PARTITION BY df.sku_id, df.sales_point_id
@@ -64,14 +65,15 @@
                      AND mv.status = 'ACTIVE'
                      AND mv.is_deleted = 0
              WHERE df.is_deleted = 0
-               AND df.base_date &lt;= TRUNC(CAST(#{asOfDate} AS DATE))
+               AND df.base_date &gt;= TRUNC(CAST(#{asOfDate} AS DATE)) - 1
+               AND df.base_date &lt; TRUNC(CAST(#{asOfDate} AS DATE)) + 1
                AND df.forecast_source &lt;&gt; 'DUMMY_BASELINE'
         ), risk_rows AS (
             SELECT ib.sku_id,
                    NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id) AS sales_point_id,
                    ra.forecast_id,
-                   TRUNC(ra.updated_at) AS assessed_date,
-                   ra.updated_at AS assessed_at,
+                   TRUNC(COALESCE(isr.started_at, ra.updated_at)) AS assessed_date,
+                   COALESCE(isr.started_at, ra.updated_at) AS assessed_at,
                    ROW_NUMBER() OVER (
                        PARTITION BY ib.sku_id,
                                     NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id)
@@ -81,6 +83,8 @@
               INNER JOIN inventory_balance ib
                       ON ib.inventory_balance_id = ra.inventory_balance_id
                      AND ib.is_deleted = 0
+              LEFT JOIN inventory_sync_run isr
+                     ON isr.inventory_sync_run_id = ra.inventory_sync_run_id
              WHERE ra.is_deleted = 0
         )
         SELECT DISTINCT TO_CHAR(ib.sku_id) || ':'
@@ -101,9 +105,9 @@
            AND (
                NVL(rl.current_status, '__NULL__') != rl.resolved_status
                OR (
-                   rl.resolved_status = 'AVAILABLE'
-                   AND rl.sale_end_date > TRUNC(CAST(#{asOfDate} AS DATE))
-                   AND rl.sale_end_date &lt;= TRUNC(CAST(#{asOfDate} AS DATE)) + 30
+                   rl.sale_end_date IS NOT NULL
+                   AND rl.sale_end_date &gt; TRUNC(CAST(#{asOfDate} AS DATE))
+                   AND rl.sale_end_date &lt;= TRUNC(CAST(#{asOfDate} AS DATE)) + 90
                    AND (rr.assessed_date IS NULL
                         OR rr.assessed_date &lt; TRUNC(CAST(#{asOfDate} AS DATE)))
                )
@@ -116,41 +120,68 @@
 
     <!-- balance·policy·latest forecast·LOT를 한 set-based statement snapshot으로 읽습니다. -->
     <select id="selectAffectedScopeSnapshot" resultType="com.stockit.backend.feature.inventorysync.risk.InventorySyncRiskSnapshotMapper$RiskScopeRow">
-        WITH latest_forecast AS (
+        WITH candidate_scopes AS (
+            SELECT DISTINCT ib.sku_id,
+                            NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id) AS sales_point_id
+              FROM inventory_balance ib
+             WHERE ib.is_deleted = 0
+               AND (TO_CHAR(ib.sku_id) || ':'
+                    || COALESCE(TO_CHAR(NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id)), 'UNASSIGNED')) IN
+               <foreach collection="scopeKeys" item="scopeKey" open="(" separator="," close=")">#{scopeKey}</foreach>
+        ), latest_forecast AS (
             SELECT df.forecast_id, df.sku_id, df.sales_point_id, df.base_date,
                    df.predicted_qty_d7, df.predicted_qty_d14, df.predicted_qty_d30,
+                   df.predicted_qty_d60, df.predicted_qty_d90,
                    ROW_NUMBER() OVER (
                        PARTITION BY df.sku_id, df.sales_point_id
                        ORDER BY df.base_date DESC, df.updated_at DESC, df.forecast_id DESC
                    ) AS rn
               FROM demand_forecast df
+              INNER JOIN candidate_scopes cs
+                      ON cs.sku_id = df.sku_id
+                     AND (cs.sales_point_id = df.sales_point_id
+                          OR (cs.sales_point_id IS NULL AND df.sales_point_id IS NULL))
               INNER JOIN ml_model_version mv
                       ON mv.model_version_id = df.model_version_id
                      AND mv.status = 'ACTIVE'
                      AND mv.is_deleted = 0
              WHERE df.is_deleted = 0
-               AND df.base_date &lt;= TRUNC(CAST(#{asOfDate} AS DATE))
+               AND df.base_date &gt;= TRUNC(CAST(#{asOfDate} AS DATE)) - 1
+               AND df.base_date &lt; TRUNC(CAST(#{asOfDate} AS DATE)) + 1
+               AND df.updated_at &lt;= #{assessmentInstant}
                AND df.forecast_source &lt;&gt; 'DUMMY_BASELINE'
         ), latest_policy AS (
-            SELECT sku_id, NVL(stock_sales_point_id, allocated_sales_point_id) AS sales_point_id,
-                   safety_stock_qty,
-                   ROW_NUMBER() OVER (PARTITION BY sku_id, NVL(stock_sales_point_id, allocated_sales_point_id)
-                                      ORDER BY effective_from DESC NULLS LAST, inventory_policy_id DESC) AS rn
-              FROM inventory_policy
-             WHERE is_deleted = 0
-               AND (effective_from IS NULL OR effective_from &lt;= #{asOfDate})
-               AND (effective_to IS NULL OR effective_to &gt;= #{asOfDate})
+            SELECT ip.sku_id, NVL(ip.stock_sales_point_id, ip.allocated_sales_point_id) AS sales_point_id,
+                   ip.safety_stock_qty,
+                   ROW_NUMBER() OVER (PARTITION BY ip.sku_id, NVL(ip.stock_sales_point_id, ip.allocated_sales_point_id)
+                                      ORDER BY ip.effective_from DESC NULLS LAST, ip.inventory_policy_id DESC) AS rn
+              FROM inventory_policy ip
+              INNER JOIN candidate_scopes cs
+                      ON cs.sku_id = ip.sku_id
+                     AND (cs.sales_point_id = NVL(ip.stock_sales_point_id, ip.allocated_sales_point_id)
+                          OR (cs.sales_point_id IS NULL
+                              AND NVL(ip.stock_sales_point_id, ip.allocated_sales_point_id) IS NULL))
+             WHERE ip.is_deleted = 0
+               AND (ip.effective_from IS NULL OR ip.effective_from &lt;= #{asOfDate})
+               AND (ip.effective_to IS NULL OR ip.effective_to &gt;= #{asOfDate})
         )
         SELECT ib.inventory_balance_id, ib.sku_id,
                NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id) AS sales_point_id,
                lf.forecast_id, s.sku_code,
                COALESCE(sp.sales_point_code, 'UNASSIGNED') AS sales_point_code,
                ib.on_hand_qty, lf.predicted_qty_d7, lf.predicted_qty_d14, lf.predicted_qty_d30,
+               lf.predicted_qty_d60, lf.predicted_qty_d90,
                lp.safety_stock_qty, lf.base_date AS forecast_base_date,
                TO_CHAR(l.lot_id) AS lot_id, l.lot_no AS lot_number,
                l.expiry_date, l.sale_stop_date, l.received_date, l.lot_status,
-               ib.on_hand_qty AS lot_qty
+               ib.on_hand_qty AS lot_qty,
+               ib.reserved_qty AS lot_reserved_qty
           FROM inventory_balance ib
+          INNER JOIN candidate_scopes cs
+                  ON cs.sku_id = ib.sku_id
+                 AND (cs.sales_point_id = NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id)
+                      OR (cs.sales_point_id IS NULL
+                          AND NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id) IS NULL))
           JOIN sku s ON s.sku_id = ib.sku_id AND s.is_deleted = 0
           LEFT JOIN sales_point sp ON sp.sales_point_id = NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id)
                                   AND sp.is_deleted = 0
@@ -166,8 +197,5 @@
                                     AND lp.rn = 1
           LEFT JOIN lot l ON l.lot_id = ib.lot_id AND l.is_deleted = 0
          WHERE ib.is_deleted = 0
-           AND (TO_CHAR(ib.sku_id) || ':'
-                || COALESCE(TO_CHAR(NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id)), 'UNASSIGNED')) IN
-           <foreach collection="scopeKeys" item="scopeKey" open="(" separator="," close=")">#{scopeKey}</foreach>
     </select>
 </mapper>

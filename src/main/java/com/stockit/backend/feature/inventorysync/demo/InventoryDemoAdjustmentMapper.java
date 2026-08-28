@@ -23,8 +23,7 @@ public interface InventoryDemoAdjustmentMapper {
                     @Param("sourceHashAfter") String sourceHashAfter, @Param("requestedBy") Long requestedBy,
                     @Param("payloadJson") String payloadJson);
     BulkSourceStateRow lockBulkSourceState(@Param("sourceType") String sourceType);
-    int countEligibleSyncedRows(@Param("sourceType") String sourceType,
-                                @Param("decreaseQty") BigDecimal decreaseQty);
+    int countAdjustableSyncedRows(@Param("sourceType") String sourceType);
     int insertBulkAudit(@Param("requestId") String requestId, @Param("requestHash") String requestHash,
                         @Param("sourceType") String sourceType, @Param("decreaseQty") BigDecimal decreaseQty,
                         @Param("requestedBy") Long requestedBy);
