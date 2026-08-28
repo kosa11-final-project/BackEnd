@@ -109,9 +109,12 @@ class InventorySyncSnapshotCoordinatorTest {
 
     @Test
     void dashboardFailureDoesNotPreventStatisticsSnapshot() throws Exception {
+        CountDownLatch dashboardAttempted = new CountDownLatch(1);
         CountDownLatch statisticsFinished = new CountDownLatch(1);
-        doThrow(new IllegalStateException("dashboard unavailable"))
-                .when(dashboardSnapshotService).createSnapshot(SYNC_RUN_ID, BUSINESS_DATE);
+        doAnswer(invocation -> {
+            dashboardAttempted.countDown();
+            throw new IllegalStateException("dashboard unavailable");
+        }).when(dashboardSnapshotService).createSnapshot(SYNC_RUN_ID, BUSINESS_DATE);
         doAnswer(invocation -> {
             statisticsFinished.countDown();
             return java.util.List.of(2L);
@@ -119,6 +122,7 @@ class InventorySyncSnapshotCoordinatorTest {
 
         coordinator.scheduleAfterCommit(SYNC_RUN_ID, BUSINESS_DATE);
 
+        assertThat(dashboardAttempted.await(2, TimeUnit.SECONDS)).isTrue();
         assertThat(statisticsFinished.await(2, TimeUnit.SECONDS)).isTrue();
         verify(statisticsSnapshotService).createInventorySnapshots(SYNC_RUN_ID, BUSINESS_DATE);
     }
