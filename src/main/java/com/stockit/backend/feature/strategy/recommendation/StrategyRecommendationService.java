@@ -14,6 +14,8 @@ import com.stockit.backend.feature.strategy.domain.StrategyGenerationStage;
 import com.stockit.backend.feature.strategy.domain.StrategyType;
 import com.stockit.backend.feature.strategy.messaging.PermanentStrategyGenerationException;
 import com.stockit.backend.feature.strategy.messaging.RetryableStrategyGenerationException;
+import com.stockit.backend.feature.strategy.observability.AiStrategyGenerationMetrics;
+import com.stockit.backend.feature.strategy.observability.AiStrategyGenerationMetrics.Stage;
 
 /** 후보 선별, 외부 추천, 서버 의미 검증을 한 번의 순수 추천 단계로 묶는다. */
 @Service
@@ -40,6 +42,8 @@ public class StrategyRecommendationService {
     private final StrategyRecommendationResponseValidator validator;
     private final DeterministicRecommendationFallback fallback;
     private final StrategyCandidateEvaluationClassifier evaluationClassifier;
+    private final AiRecommendationQualityEvaluator qualityEvaluator;
+    private final AiStrategyGenerationMetrics metrics;
 
     public StrategyRecommendationService(
             BaselineImprovementCandidateFilter baselineImprovementFilter,
@@ -48,7 +52,9 @@ public class StrategyRecommendationService {
             AiRecommendationProvider provider,
             StrategyRecommendationResponseValidator validator,
             DeterministicRecommendationFallback fallback,
-            StrategyCandidateEvaluationClassifier evaluationClassifier
+            StrategyCandidateEvaluationClassifier evaluationClassifier,
+            AiRecommendationQualityEvaluator qualityEvaluator,
+            AiStrategyGenerationMetrics metrics
     ) {
         this.baselineImprovementFilter = baselineImprovementFilter;
         this.preselector = preselector;
@@ -57,6 +63,8 @@ public class StrategyRecommendationService {
         this.validator = validator;
         this.fallback = fallback;
         this.evaluationClassifier = evaluationClassifier;
+        this.qualityEvaluator = qualityEvaluator;
+        this.metrics = metrics;
     }
 
     public StrategyRecommendationResult recommend(
@@ -94,10 +102,19 @@ public class StrategyRecommendationService {
                     countExclusionsByReason(evaluation),
                     evaluation.simulationFailures().size()
             );
-            return handleEmptyEvaluation(strategyCaseId, evaluation);
+            StrategyRecommendationResult result = handleEmptyEvaluation(
+                    strategyCaseId, evaluation
+            );
+            metrics.recordRecommendation(result);
+            return result;
         }
         List<StrategyCandidateEvaluationResult.EvaluatedCandidate> eligible =
                 baselineImprovementFilter.filter(evaluation.evaluatedCandidates());
+        metrics.recordCandidateCount("eligible", eligible.size());
+        metrics.recordCandidateCount(
+                "baseline_rejected",
+                evaluation.evaluatedCandidates().size() - eligible.size()
+        );
         if (eligible.isEmpty()) {
             log.info(
                     "AI strategy candidate diagnostics; caseId={}, generated={}, "
@@ -113,13 +130,15 @@ public class StrategyRecommendationService {
                     evaluation.simulationFailures().size(),
                     countByType(evaluation.evaluatedCandidates())
             );
-            return StrategyRecommendationResult.noRecommendation(
+            StrategyRecommendationResult result = StrategyRecommendationResult.noRecommendation(
                     strategyCaseId,
                     evaluation.calculationContext(),
                     evaluation.baselineSimulation(),
                     NO_RECOMMENDATION_CODE,
                     NO_RECOMMENDATION_MESSAGE
             );
+            metrics.recordRecommendation(result);
+            return result;
         }
 
         StrategyCandidateEvaluationResult eligibleEvaluation =
@@ -130,9 +149,11 @@ public class StrategyRecommendationService {
                         evaluation.generationExclusions(),
                         evaluation.simulationFailures()
                 );
-        RecommendationCandidateSelection selection = preselector.select(
-                eligibleEvaluation
+        RecommendationCandidateSelection selection = metrics.measure(
+                Stage.CANDIDATE_PRESELECTION,
+                () -> preselector.select(eligibleEvaluation)
         );
+        metrics.recordCandidateCount("preselected", selection.candidates().size());
         AiRecommendationRequest request = requestFactory.create(
                 strategyCaseId,
                 evaluation.baselineSimulation(),
@@ -142,6 +163,7 @@ public class StrategyRecommendationService {
         StrategyRecommendationResult result = recommendAndValidate(
                 strategyCaseId, evaluation, selection, request, executionPolicy
         );
+        metrics.recordRecommendation(result);
         log.info(
                 "AI strategy candidate diagnostics; caseId={}, generated={}, simulated={}, "
                         + "eligible={}, rejectedByBaseline={}, preselected={}, recommended={}, "
@@ -170,15 +192,27 @@ public class StrategyRecommendationService {
             RecommendationExecutionPolicy executionPolicy
     ) {
         try {
-            AiRecommendationProviderResponse response = provider.recommend(request);
-            return validator.validateAndMap(
+            AiRecommendationProviderResponse response = metrics.measure(
+                    Stage.LLM_RECOMMENDATION,
+                    () -> provider.recommend(request)
+            );
+            metrics.recordLlmUsage(response);
+            StrategyRecommendationResult result = validator.validateAndMap(
                     strategyCaseId, evaluation.calculationContext(),
                     evaluation.baselineSimulation(), selection, request, response
             );
+            metrics.recordRecommendationQuality(
+                    qualityEvaluator.evaluate(
+                            request, response,
+                            evaluation.calculationContext().requestConstraints()
+                    ), "llm"
+            );
+            return result;
         } catch (PermanentStrategyGenerationException exception) {
             if (!isLlmFailure(exception.getFailureCode())) {
                 throw exception;
             }
+            metrics.recordLlmFailure(exception.getFailureCode());
             return fallback(
                     strategyCaseId, evaluation, selection, request,
                     exception.getFailureCode(), exception.getMessage()
@@ -186,8 +220,12 @@ public class StrategyRecommendationService {
         } catch (RetryableStrategyGenerationException exception) {
             if (!executionPolicy.fallbackOnTransientLlmFailure()
                     || !isLlmFailure(exception.getFailureCode())) {
+                if (isLlmFailure(exception.getFailureCode())) {
+                    metrics.recordLlmFailure(exception.getFailureCode());
+                }
                 throw exception;
             }
+            metrics.recordLlmFailure(exception.getFailureCode());
             return fallback(
                     strategyCaseId, evaluation, selection, request,
                     exception.getFailureCode(), exception.getMessage()
@@ -246,10 +284,17 @@ public class StrategyRecommendationService {
         AiRecommendationProviderResponse fallbackResponse = fallback.create(
                 selection, request
         );
-        return validator.validateAndMap(
+        StrategyRecommendationResult result = validator.validateAndMap(
                 strategyCaseId, evaluation.calculationContext(),
                 evaluation.baselineSimulation(), selection, request, fallbackResponse
         );
+        metrics.recordRecommendationQuality(
+                qualityEvaluator.evaluate(
+                        request, fallbackResponse,
+                        evaluation.calculationContext().requestConstraints()
+                ), "fallback"
+        );
+        return result;
     }
 
     private static boolean isLlmFailure(String failureCode) {

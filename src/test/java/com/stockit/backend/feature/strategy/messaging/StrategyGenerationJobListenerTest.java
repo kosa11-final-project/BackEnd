@@ -28,6 +28,9 @@ import com.stockit.backend.feature.strategy.service.StrategyGenerationFailureSer
 import com.stockit.backend.feature.strategy.service.StrategyGenerationJobHandler;
 import com.stockit.backend.feature.strategy.service.StrategyGenerationRetryPublisher;
 import com.stockit.backend.feature.strategy.domain.StrategyGenerationStage;
+import com.stockit.backend.feature.strategy.observability.AiStrategyGenerationMetrics;
+
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 @ExtendWith({MockitoExtension.class, OutputCaptureExtension.class})
 class StrategyGenerationJobListenerTest {
@@ -60,7 +63,8 @@ class StrategyGenerationJobListenerTest {
                 jobHandler,
                 retryPublisher,
                 failureService,
-                properties
+                properties,
+                new AiStrategyGenerationMetrics(new SimpleMeterRegistry())
         );
     }
 
