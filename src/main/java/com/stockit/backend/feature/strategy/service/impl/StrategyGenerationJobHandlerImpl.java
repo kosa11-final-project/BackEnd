@@ -30,6 +30,8 @@ import com.stockit.backend.feature.strategy.messaging.RetryableStrategyGeneratio
 import com.stockit.backend.feature.strategy.messaging.StrategyGenerationBusyException;
 import com.stockit.backend.feature.strategy.messaging.StrategyGenerationJobMessage;
 import com.stockit.backend.feature.strategy.messaging.StrategyGenerationAttempt;
+import com.stockit.backend.feature.strategy.observability.AiStrategyGenerationMetrics;
+import com.stockit.backend.feature.strategy.observability.AiStrategyGenerationMetrics.Stage;
 import com.stockit.backend.feature.strategy.recommendation.RecommendationExecutionPolicy;
 import com.stockit.backend.feature.strategy.service.StrategyCasePayloadException;
 import com.stockit.backend.feature.strategy.service.StrategyCaseRequestPayloadSerializer;
@@ -66,6 +68,7 @@ public class StrategyGenerationJobHandlerImpl implements StrategyGenerationJobHa
     private final ForecastModelVersionResolver modelVersionResolver;
     private final StrategyGenerationStageService stageService;
     private final StrategyRecommendationStageProcessor recommendationStageProcessor;
+    private final AiStrategyGenerationMetrics metrics;
 
     public StrategyGenerationJobHandlerImpl(
             StrategyCaseMapper strategyCaseMapper,
@@ -77,7 +80,8 @@ public class StrategyGenerationJobHandlerImpl implements StrategyGenerationJobHa
             StrategyForecastResponseValidator responseValidator,
             ForecastModelVersionResolver modelVersionResolver,
             StrategyGenerationStageService stageService,
-            StrategyRecommendationStageProcessor recommendationStageProcessor
+            StrategyRecommendationStageProcessor recommendationStageProcessor,
+            AiStrategyGenerationMetrics metrics
     ) {
         this.strategyCaseMapper = strategyCaseMapper;
         this.payloadSerializer = payloadSerializer;
@@ -89,6 +93,7 @@ public class StrategyGenerationJobHandlerImpl implements StrategyGenerationJobHa
         this.modelVersionResolver = modelVersionResolver;
         this.stageService = stageService;
         this.recommendationStageProcessor = recommendationStageProcessor;
+        this.metrics = metrics;
     }
 
     /**
@@ -224,8 +229,9 @@ public class StrategyGenerationJobHandlerImpl implements StrategyGenerationJobHa
                 request.forecastEndDate()
         );
         try {
-            StrategyForecastResponse response = forecastProvider.forecast(
-                    request
+            StrategyForecastResponse response = metrics.measure(
+                    Stage.FORECAST_API,
+                    () -> forecastProvider.forecast(request)
             );
             responseValidator.validate(context, response);
             Long modelVersionId = modelVersionResolver.resolve(response);

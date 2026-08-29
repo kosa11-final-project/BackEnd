@@ -71,11 +71,20 @@ sourceSets {
         compileClasspath += sourceSets.main.output
         runtimeClasspath += output + compileClasspath
     }
+
+    strategyPerfTest {
+        java.srcDir 'src/strategyPerfTest/java'
+        resources.srcDir 'src/strategyPerfTest/resources'
+        compileClasspath += sourceSets.main.output
+        runtimeClasspath += output + compileClasspath
+    }
 }
 
 configurations {
     geminiLiveTestImplementation.extendsFrom testImplementation
     geminiLiveTestRuntimeOnly.extendsFrom testRuntimeOnly
+    strategyPerfTestImplementation.extendsFrom testImplementation
+    strategyPerfTestRuntimeOnly.extendsFrom testRuntimeOnly
 }
 
 tasks.register('geminiLiveTest', Test) {
@@ -85,6 +94,17 @@ tasks.register('geminiLiveTest', Test) {
     classpath = sourceSets.geminiLiveTest.runtimeClasspath
     useJUnitPlatform()
     shouldRunAfter test
+    outputs.upToDateWhen { false }
+}
+
+tasks.register('strategyPerfTest', Test) {
+    group = 'verification'
+    description = 'Runs the opt-in AI strategy candidate simulation benchmark.'
+    testClassesDirs = sourceSets.strategyPerfTest.output.classesDirs
+    classpath = sourceSets.strategyPerfTest.runtimeClasspath
+    useJUnitPlatform()
+    shouldRunAfter test
+    outputs.upToDateWhen { false }
 }
 
 tasks.register('generateBcrypt', JavaExec) {

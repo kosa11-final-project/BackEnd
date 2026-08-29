@@ -46,11 +46,14 @@ import com.stockit.backend.feature.strategy.messaging.PermanentStrategyGeneratio
 import com.stockit.backend.feature.strategy.messaging.RetryableStrategyGenerationException;
 import com.stockit.backend.feature.strategy.messaging.StrategyGenerationBusyException;
 import com.stockit.backend.feature.strategy.messaging.StrategyGenerationJobMessage;
+import com.stockit.backend.feature.strategy.observability.AiStrategyGenerationMetrics;
 import com.stockit.backend.feature.strategy.service.StrategyCasePayloadException;
 import com.stockit.backend.feature.strategy.service.StrategyCaseRequestPayloadSerializer;
 import com.stockit.backend.feature.strategy.service.StrategyGenerationStageService;
 import com.stockit.backend.feature.strategy.service.StrategyRecommendationStageProcessor;
 import com.stockit.backend.feature.strategy.vo.StrategyCaseVO;
+
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 @ExtendWith(MockitoExtension.class)
 class StrategyGenerationJobHandlerImplTest {
@@ -90,7 +93,8 @@ class StrategyGenerationJobHandlerImplTest {
                 responseValidator,
                 modelVersionResolver,
                 stageService,
-                recommendationStageProcessor
+                recommendationStageProcessor,
+                new AiStrategyGenerationMetrics(new SimpleMeterRegistry())
         );
     }
 
