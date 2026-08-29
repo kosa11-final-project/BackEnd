@@ -97,7 +97,7 @@ public class GeminiRecommendationProvider implements AiRecommendationProvider {
         body.put("generation_config", Map.of(
                 "max_output_tokens", properties.getMaxOutputTokens(),
                 "seed", properties.getSeed(),
-                "thinking_level", "low",
+                "thinking_level", properties.getThinkingLevel(),
                 "thinking_summaries", "none"
         ));
         return body;
@@ -171,6 +171,8 @@ public class GeminiRecommendationProvider implements AiRecommendationProvider {
                         interaction.id(), interaction.model(),
                         usage == null ? null : usage.totalInputTokens(),
                         usage == null ? null : usage.totalOutputTokens(),
+                        usage == null ? null : usage.totalThoughtTokens(),
+                        usage == null ? null : usage.totalTokens(),
                         payload.recommendations()
                 );
             } catch (PermanentStrategyGenerationException exception) {
