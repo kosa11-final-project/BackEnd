@@ -13,6 +13,8 @@ import com.stockit.backend.feature.strategy.vo.AiStrategyCaseStatusCountVO;
 @Mapper
 public interface AiStrategyCaseListMapper {
 
+    int countActiveWarehouseCode(@Param("warehouseCode") String warehouseCode);
+
     long countCases(
             @Param("query") AiStrategyCaseListQuery query,
             @Param("visibleAt") LocalDateTime visibleAt,

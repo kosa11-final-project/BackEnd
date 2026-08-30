@@ -11,6 +11,10 @@
           ON product.product_id = sku.product_id
         LEFT JOIN category
           ON category.category_id = product.category_id
+        LEFT JOIN category parent_category
+          ON parent_category.category_id = category.parent_category_id
+        LEFT JOIN category grandparent_category
+          ON grandparent_category.category_id = parent_category.parent_category_id
         LEFT JOIN app_user requester
           ON requester.user_id = strategy_case.created_by
     </sql>
@@ -49,6 +53,143 @@
         <if test="query.createdToExclusive != null">
           AND strategy_case.created_at &lt; #{query.createdToExclusive}
         </if>
+        <if test="query.channelType != null">
+          AND EXISTS (
+              SELECT 1
+              FROM sales_point filter_sales_point
+              JOIN sales_channel filter_sales_channel
+                ON filter_sales_channel.sales_channel_id = filter_sales_point.sales_channel_id
+              WHERE filter_sales_point.is_deleted = 0
+                AND filter_sales_point.active_yn = 'Y'
+                AND filter_sales_channel.is_deleted = 0
+                AND filter_sales_channel.active_yn = 'Y'
+                AND CASE
+                        WHEN filter_sales_point.sales_point_code = 'GREETING' THEN 'GREETING'
+                        WHEN filter_sales_point.sales_point_code = 'MODU_MATJIP' THEN 'ECOMMERCE'
+                        WHEN filter_sales_point.sales_point_code LIKE 'DEPT_%' THEN 'HYUNDAI_DEPT'
+                        WHEN filter_sales_point.sales_point_code LIKE 'HMART_%' THEN 'HMART'
+                        ELSE filter_sales_channel.channel_code
+                    END = #{query.channelType}
+                AND (
+                    filter_sales_point.sales_point_id = strategy_case.requested_sales_point_id
+                    OR REGEXP_LIKE(
+                        strategy_case.request_payload_json,
+                        '.*"candidateSalesPointIds"\s*:\s*\[([^]]*,)?\s*'
+                        || TO_CHAR(filter_sales_point.sales_point_id, 'FM999999999999999999999999999999')
+                        || '\s*(,|\]).*'
+                    )
+                    OR (
+                        REGEXP_LIKE(
+                            strategy_case.request_payload_json,
+                            '.*"candidateSalesPointIds"\s*:\s*\[\s*\].*'
+                        )
+                        AND EXISTS (
+                            SELECT 1
+                            FROM inventory_balance channel_balance
+                            WHERE channel_balance.sku_id = strategy_case.sku_id
+                              AND channel_balance.is_deleted = 0
+                              AND COALESCE(
+                                  channel_balance.stock_sales_point_id,
+                                  channel_balance.allocated_sales_point_id
+                              ) = filter_sales_point.sales_point_id
+                        )
+                    )
+                )
+          )
+        </if>
+        <if test="query.warehouseCode != null">
+          AND EXISTS (
+              SELECT 1
+              FROM inventory_balance warehouse_balance
+              JOIN warehouse filter_warehouse
+                ON filter_warehouse.warehouse_id = warehouse_balance.warehouse_id
+              WHERE warehouse_balance.sku_id = strategy_case.sku_id
+                AND warehouse_balance.is_deleted = 0
+                AND filter_warehouse.is_deleted = 0
+                AND filter_warehouse.active_yn = 'Y'
+                AND filter_warehouse.warehouse_code = #{query.warehouseCode}
+                AND (
+                    (
+                        warehouse_balance.lot_id IS NOT NULL
+                        AND REGEXP_LIKE(
+                            strategy_case.request_payload_json,
+                            '.*"lotIds"\s*:\s*\[([^]]*,)?\s*'
+                            || TO_CHAR(warehouse_balance.lot_id, 'FM999999999999999999999999999999')
+                            || '\s*(,|\]).*'
+                        )
+                    )
+                    OR (
+                        REGEXP_LIKE(
+                            strategy_case.request_payload_json,
+                            '.*"lotIds"\s*:\s*\[\s*\].*'
+                        )
+                        AND (
+                            COALESCE(
+                                warehouse_balance.stock_sales_point_id,
+                                warehouse_balance.allocated_sales_point_id
+                            ) = strategy_case.requested_sales_point_id
+                            OR (
+                                COALESCE(
+                                    warehouse_balance.stock_sales_point_id,
+                                    warehouse_balance.allocated_sales_point_id
+                                ) IS NOT NULL
+                                AND REGEXP_LIKE(
+                                    strategy_case.request_payload_json,
+                                    '.*"candidateSalesPointIds"\s*:\s*\[([^]]*,)?\s*'
+                                    || TO_CHAR(
+                                        COALESCE(
+                                            warehouse_balance.stock_sales_point_id,
+                                            warehouse_balance.allocated_sales_point_id
+                                        ),
+                                        'FM999999999999999999999999999999'
+                                    ) || '\s*(,|\]).*'
+                                )
+                            )
+                            OR REGEXP_LIKE(
+                                strategy_case.request_payload_json,
+                                '.*"candidateSalesPointIds"\s*:\s*\[\s*\].*'
+                            )
+                        )
+                    )
+                )
+          )
+        </if>
+        <if test="query.strategyFrom != null and query.strategyTo != null">
+          AND TO_DATE(CAST(REGEXP_SUBSTR(
+                  strategy_case.request_payload_json,
+                  '"preferredStartDate"\s*:\s*"([0-9]{4}-[0-9]{2}-[0-9]{2})"',
+                  1, 1, NULL, 1
+              ) AS VARCHAR2(10)), 'YYYY-MM-DD') &lt;= #{query.strategyTo}
+          AND TO_DATE(CAST(REGEXP_SUBSTR(
+                  strategy_case.request_payload_json,
+                  '"preferredEndDate"\s*:\s*"([0-9]{4}-[0-9]{2}-[0-9]{2})"',
+                  1, 1, NULL, 1
+              ) AS VARCHAR2(10)), 'YYYY-MM-DD') &gt;= #{query.strategyFrom}
+        </if>
+        <if test="query.strategyFrom != null and query.strategyTo == null">
+          AND TO_DATE(CAST(REGEXP_SUBSTR(
+                  strategy_case.request_payload_json,
+                  '"preferredStartDate"\s*:\s*"([0-9]{4}-[0-9]{2}-[0-9]{2})"',
+                  1, 1, NULL, 1
+              ) AS VARCHAR2(10)), 'YYYY-MM-DD') &lt;= #{query.strategyFrom}
+          AND TO_DATE(CAST(REGEXP_SUBSTR(
+                  strategy_case.request_payload_json,
+                  '"preferredEndDate"\s*:\s*"([0-9]{4}-[0-9]{2}-[0-9]{2})"',
+                  1, 1, NULL, 1
+              ) AS VARCHAR2(10)), 'YYYY-MM-DD') &gt;= #{query.strategyFrom}
+        </if>
+        <if test="query.strategyFrom == null and query.strategyTo != null">
+          AND TO_DATE(CAST(REGEXP_SUBSTR(
+                  strategy_case.request_payload_json,
+                  '"preferredStartDate"\s*:\s*"([0-9]{4}-[0-9]{2}-[0-9]{2})"',
+                  1, 1, NULL, 1
+              ) AS VARCHAR2(10)), 'YYYY-MM-DD') &lt;= #{query.strategyTo}
+          AND TO_DATE(CAST(REGEXP_SUBSTR(
+                  strategy_case.request_payload_json,
+                  '"preferredEndDate"\s*:\s*"([0-9]{4}-[0-9]{2}-[0-9]{2})"',
+                  1, 1, NULL, 1
+              ) AS VARCHAR2(10)), 'YYYY-MM-DD') &gt;= #{query.strategyTo}
+        </if>
     </sql>
 
     <sql id="selectedStatusFilter">
@@ -77,6 +218,8 @@
                category.category_id,
                category.category_name,
                category.category_level,
+               parent_category.category_name AS parent_category_name,
+               grandparent_category.category_name AS grandparent_category_name,
                requester.user_id AS requester_id,
                requester.user_name AS requester_name,
                strategy_case.created_at,
@@ -107,6 +250,14 @@
         <include refid="caseListFrom"/>
         <include refid="visibleCaseFilters"/>
         GROUP BY strategy_case.case_status
+    </select>
+
+    <select id="countActiveWarehouseCode" resultType="int">
+        SELECT COUNT(*)
+        FROM warehouse
+        WHERE warehouse_code = #{warehouseCode}
+          AND active_yn = 'Y'
+          AND is_deleted = 0
     </select>
 
 </mapper>

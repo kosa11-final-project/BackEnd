@@ -3,6 +3,7 @@ package com.stockit.backend.feature.strategy.mapper;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.LocalDateTime;
+import java.time.LocalDate;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
@@ -17,6 +18,7 @@ import com.stockit.backend.feature.strategy.vo.AiStrategyCaseListQuery;
 import com.stockit.backend.feature.strategy.vo.AiStrategyCaseListVO;
 import com.stockit.backend.feature.strategy.vo.AiStrategyCaseStatusCountVO;
 import com.stockit.backend.feature.strategy.domain.StrategyRecommendationOutcome;
+import com.stockit.backend.feature.strategy.dto.response.AiStrategyCaseListItemResponse;
 
 @SpringBootTest
 @ActiveProfiles("test")
@@ -55,6 +57,10 @@ class AiStrategyCaseListMapperTest {
             assertThat(value.getSkuCode()).isEqualTo("SKU_TOFU");
             assertThat(value.getImageUrl()).isEqualTo("https://example.com/tofu.jpg");
             assertThat(value.getCategoryName()).isEqualTo("가공식품");
+            assertThat(value.getParentCategoryName()).isEqualTo("분식");
+            assertThat(value.getGrandparentCategoryName()).isEqualTo("간식/디저트");
+            assertThat(AiStrategyCaseListItemResponse.from(value).sku().categoryPathLabel())
+                    .isEqualTo("간식/디저트 > 분식 > 가공식품");
             assertThat(value.getRequesterName()).isEqualTo("이주영");
             assertThat(value.getRecommendationOutcome())
                     .isEqualTo(StrategyRecommendationOutcome.OPTIONS_GENERATED);
@@ -123,6 +129,73 @@ class AiStrategyCaseListMapperTest {
         assertThat(mapper.selectCases(second, VISIBLE_AT, VISIBLE_FROM))
                 .extracting(AiStrategyCaseListVO::getStrategyCaseId)
                 .containsExactly(101L);
+    }
+
+    @Test
+    void filtersByChannelWarehouseAndTheirCombination() {
+        assertThat(mapper.selectCases(filtered("GREETING", null, null, null), VISIBLE_AT, VISIBLE_FROM))
+                .extracting(AiStrategyCaseListVO::getStrategyCaseId)
+                .containsExactly(101L);
+        assertThat(mapper.selectCases(filtered(null, "GYEONGIN_1", null, null), VISIBLE_AT, VISIBLE_FROM))
+                .extracting(AiStrategyCaseListVO::getStrategyCaseId)
+                .containsExactly(101L);
+        assertThat(mapper.selectCases(filtered("GREETING", "GYEONGIN_1", null, null), VISIBLE_AT, VISIBLE_FROM))
+                .extracting(AiStrategyCaseListVO::getStrategyCaseId)
+                .containsExactly(101L);
+    }
+
+    @Test
+    void filtersByContainingDateAndOverlappingStrategyRange() {
+        assertThat(mapper.selectCases(filtered(null, null, LocalDate.of(2026, 8, 22), null), VISIBLE_AT, VISIBLE_FROM))
+                .extracting(AiStrategyCaseListVO::getStrategyCaseId)
+                .containsExactly(101L);
+        assertThat(mapper.selectCases(filtered(null, null, null, LocalDate.of(2026, 8, 27)), VISIBLE_AT, VISIBLE_FROM))
+                .extracting(AiStrategyCaseListVO::getStrategyCaseId)
+                .containsExactly(102L);
+        assertThat(mapper.selectCases(
+                filtered(null, null, LocalDate.of(2026, 8, 24), LocalDate.of(2026, 8, 27)),
+                VISIBLE_AT, VISIBLE_FROM
+        )).extracting(AiStrategyCaseListVO::getStrategyCaseId)
+                .containsExactly(102L, 101L);
+        assertThat(mapper.selectCases(
+                filtered(null, null, LocalDate.of(2026, 9, 10), LocalDate.of(2026, 9, 20)),
+                VISIBLE_AT, VISIBLE_FROM
+        )).isEmpty();
+    }
+
+    @Test
+    void appliesNewFiltersToStatusCountsAndReturnsTwoLevelCategory() {
+        AiStrategyCaseListQuery channelQuery = filtered("GREETING", null, null, null);
+        assertThat(mapper.countCasesByStatus(channelQuery, VISIBLE_AT, VISIBLE_FROM))
+                .singleElement()
+                .satisfies(count -> {
+                    assertThat(count.getCaseStatus()).isEqualTo(
+                            com.stockit.backend.feature.strategy.domain.StrategyCaseStatus.GENERATING
+                    );
+                    assertThat(count.getStatusCount()).isOne();
+                });
+
+        assertThat(mapper.selectCases(query(0, 10, "만두", null, null, null, null, "DESC"), VISIBLE_AT, VISIBLE_FROM))
+                .singleElement()
+                .satisfies(value -> {
+                    assertThat(value.getCategoryName()).isEqualTo("분식");
+                    assertThat(value.getParentCategoryName()).isEqualTo("간식/디저트");
+                    assertThat(value.getGrandparentCategoryName()).isNull();
+                    assertThat(AiStrategyCaseListItemResponse.from(value).sku().categoryPathLabel())
+                            .isEqualTo("간식/디저트 > 분식");
+                });
+    }
+
+    private static AiStrategyCaseListQuery filtered(
+            String channelType,
+            String warehouseCode,
+            LocalDate strategyFrom,
+            LocalDate strategyTo
+    ) {
+        return new AiStrategyCaseListQuery(
+                0, 10, null, null, null, null, null,
+                channelType, warehouseCode, strategyFrom, strategyTo, "DESC"
+        );
     }
 
     private static AiStrategyCaseListQuery query(

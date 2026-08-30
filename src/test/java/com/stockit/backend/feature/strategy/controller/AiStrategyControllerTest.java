@@ -375,10 +375,14 @@ class AiStrategyControllerTest {
                 0, 10, 0, 0, true, true
         ));
 
-        mockMvc.perform(get("/api/v1/ai-strategies")
+                mockMvc.perform(get("/api/v1/ai-strategies")
                         .queryParam("status", "GENERATED")
                         .queryParam("from", "2026-08-01")
-                        .queryParam("to", "2026-08-24"))
+                        .queryParam("to", "2026-08-24")
+                        .queryParam("channelType", "GREETING")
+                        .queryParam("warehouseCode", "GYEONGIN_1")
+                        .queryParam("strategyFrom", "2026-08-20")
+                        .queryParam("strategyTo", "2026-08-31"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.statusCounts.all").value(3))
                 .andExpect(jsonPath("$.data.statusCounts.generated").value(1))
@@ -738,6 +742,21 @@ class AiStrategyControllerTest {
 
         mockMvc.perform(get("/api/v1/ai-strategies")
                         .queryParam("status", "GENERATED", "GENERATING"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON-002"));
+    }
+
+    @Test
+    @WithMockUser(roles = "GREENFOOD_ADMIN")
+    void rejectsInvalidChannelAndStrategyDateRange() throws Exception {
+        mockMvc.perform(get("/api/v1/ai-strategies")
+                        .queryParam("channelType", "ONLINE"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON-002"));
+
+        mockMvc.perform(get("/api/v1/ai-strategies")
+                        .queryParam("strategyFrom", "2026-08-31")
+                        .queryParam("strategyTo", "2026-08-20"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("COMMON-002"));
     }
