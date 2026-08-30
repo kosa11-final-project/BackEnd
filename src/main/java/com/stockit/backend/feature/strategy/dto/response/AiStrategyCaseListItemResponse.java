@@ -1,6 +1,7 @@
 package com.stockit.backend.feature.strategy.dto.response;
 
 import java.time.LocalDateTime;
+import java.util.stream.Stream;
 
 import com.stockit.backend.feature.strategy.domain.StrategyCaseStatus;
 import com.stockit.backend.feature.strategy.domain.StrategyGenerationStage;
@@ -33,7 +34,10 @@ public record AiStrategyCaseListItemResponse(
                 value.getCaseStatus(),
                 value.getGenerationStage(),
                 value.getRecommendationOutcome(),
-                new Sku(value.getSkuId(), value.getSkuCode(), value.getSkuName(), value.getImageUrl(), category),
+                new Sku(
+                        value.getSkuId(), value.getSkuCode(), value.getSkuName(), value.getImageUrl(),
+                        category, categoryPathLabel(value)
+                ),
                 new Requester(value.getRequesterId(), value.getRequesterName()),
                 value.getCreatedAt(),
                 value.getCompletedAt(),
@@ -42,12 +46,27 @@ public record AiStrategyCaseListItemResponse(
         );
     }
 
+    private static String categoryPathLabel(AiStrategyCaseListVO value) {
+        if (value.getCategoryId() == null) {
+            return null;
+        }
+        String label = Stream.of(
+                        value.getGrandparentCategoryName(),
+                        value.getParentCategoryName(),
+                        value.getCategoryName()
+                )
+                .filter(name -> name != null && !name.isBlank())
+                .collect(java.util.stream.Collectors.joining(" > "));
+        return label.isEmpty() ? null : label;
+    }
+
     public record Sku(
             Long skuId,
             String skuCode,
             String skuName,
             String imageUrl,
-            Category category
+            Category category,
+            String categoryPathLabel
     ) {
     }
 

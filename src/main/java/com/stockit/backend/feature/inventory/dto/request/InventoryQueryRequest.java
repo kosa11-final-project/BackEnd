@@ -10,6 +10,7 @@ import org.springframework.util.StringUtils;
 import com.stockit.backend.common.exception.AppException;
 import com.stockit.backend.common.exception.ErrorCode;
 import com.stockit.backend.feature.inventory.vo.InventoryQuery;
+import com.stockit.backend.feature.inventory.domain.InventoryChannelType;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Max;
@@ -22,7 +23,7 @@ import jakarta.validation.constraints.Size;
  */
 public class InventoryQueryRequest {
 
-    private static final List<String> CHANNEL_TYPES = List.of("GREETING", "ECOMMERCE", "HYUNDAI_DEPT", "HMART");
+    private static final List<String> CHANNEL_TYPES = InventoryChannelType.codes();
     private static final List<String> STORAGE_TYPES = List.of("FROZEN", "COLD", "ROOM_TEMP");
     private static final List<String> RISK_GRADES = List.of("GOOD", "NORMAL", "WARNING", "CRITICAL");
     private static final List<String> ASSESSMENT_STATUSES = List.of("ASSESSED", "UNASSESSED");

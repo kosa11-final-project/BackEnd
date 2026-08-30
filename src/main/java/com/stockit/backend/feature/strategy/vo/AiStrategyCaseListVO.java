@@ -25,6 +25,8 @@ public class AiStrategyCaseListVO {
     private Long categoryId;
     private String categoryName;
     private Integer categoryLevel;
+    private String parentCategoryName;
+    private String grandparentCategoryName;
     private Long requesterId;
     private String requesterName;
     private LocalDateTime createdAt;
