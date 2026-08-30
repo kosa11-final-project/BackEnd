@@ -11,6 +11,7 @@ import org.springframework.util.StringUtils;
 import com.stockit.backend.common.exception.AppException;
 import com.stockit.backend.common.exception.ErrorCode;
 import com.stockit.backend.feature.strategy.vo.AiStrategyCaseListQuery;
+import com.stockit.backend.feature.inventory.domain.InventoryChannelType;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Max;
@@ -54,6 +55,24 @@ public class AiStrategyCaseListRequest {
     @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
     private LocalDate to;
 
+    @Schema(
+            description = "판매 채널 유형",
+            allowableValues = {"GREETING", "ECOMMERCE", "HYUNDAI_DEPT", "HMART"}
+    )
+    private String channelType;
+
+    @Schema(description = "물류센터 업무 코드", example = "GYEONGIN_1", maxLength = 50)
+    @Size(max = 50, message = "warehouseCode는 50자 이내여야 합니다.")
+    private String warehouseCode;
+
+    @Schema(description = "선택 구간 시작일(전략 희망 기간과 겹침)", example = "2026-08-20")
+    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+    private LocalDate strategyFrom;
+
+    @Schema(description = "선택 구간 종료일(전략 희망 기간과 겹침)", example = "2026-08-31")
+    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+    private LocalDate strategyTo;
+
     @Schema(description = "생성 요청일 정렬", example = "createdAt,desc", defaultValue = "createdAt,desc")
     private String sort = "createdAt,desc";
 
@@ -66,6 +85,9 @@ public class AiStrategyCaseListRequest {
         if (from != null && to != null && from.isAfter(to)) {
             throw new AppException(ErrorCode.INVALID_PARAMETER);
         }
+        if (strategyFrom != null && strategyTo != null && strategyFrom.isAfter(strategyTo)) {
+            throw new AppException(ErrorCode.INVALID_PARAMETER);
+        }
 
         String normalizedStatus = upperToNull(status);
         if ("ALL".equals(normalizedStatus)) {
@@ -74,6 +96,12 @@ public class AiStrategyCaseListRequest {
         if (normalizedStatus != null && !VISIBLE_STATUSES.contains(normalizedStatus)) {
             throw new AppException(ErrorCode.INVALID_PARAMETER);
         }
+
+        String normalizedChannelType = trimToNull(channelType);
+        if (normalizedChannelType != null && !InventoryChannelType.supports(normalizedChannelType)) {
+            throw new AppException(ErrorCode.INVALID_PARAMETER);
+        }
+        String normalizedWarehouseCode = trimToNull(warehouseCode);
 
         String rawQuery = trimToNull(query);
         Long strategyCaseId = parsePositiveLong(rawQuery);
@@ -87,6 +115,10 @@ public class AiStrategyCaseListRequest {
                     normalizedStatus,
                     from == null ? null : from.atStartOfDay(),
                     to == null ? null : to.plusDays(1).atStartOfDay(),
+                    normalizedChannelType,
+                    normalizedWarehouseCode,
+                    strategyFrom,
+                    strategyTo,
                     sortDirection(sort)
             );
         } catch (DateTimeException exception) {
@@ -150,6 +182,14 @@ public class AiStrategyCaseListRequest {
     public void setFrom(LocalDate from) { this.from = from; }
     public LocalDate getTo() { return to; }
     public void setTo(LocalDate to) { this.to = to; }
+    public String getChannelType() { return channelType; }
+    public void setChannelType(String channelType) { this.channelType = channelType; }
+    public String getWarehouseCode() { return warehouseCode; }
+    public void setWarehouseCode(String warehouseCode) { this.warehouseCode = warehouseCode; }
+    public LocalDate getStrategyFrom() { return strategyFrom; }
+    public void setStrategyFrom(LocalDate strategyFrom) { this.strategyFrom = strategyFrom; }
+    public LocalDate getStrategyTo() { return strategyTo; }
+    public void setStrategyTo(LocalDate strategyTo) { this.strategyTo = strategyTo; }
     public String getSort() { return sort; }
     public void setSort(String sort) { this.sort = sort; }
 }

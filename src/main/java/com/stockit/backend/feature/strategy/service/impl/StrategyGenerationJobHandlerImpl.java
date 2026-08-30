@@ -19,6 +19,7 @@ import com.stockit.backend.feature.strategy.forecast.ForecastLockManager;
 import com.stockit.backend.feature.strategy.forecast.ForecastModelVersionResolver;
 import com.stockit.backend.feature.strategy.forecast.ForecastProvider;
 import com.stockit.backend.feature.strategy.forecast.InvalidForecastCheckpointException;
+import com.stockit.backend.feature.strategy.forecast.StrategyForecastRequest;
 import com.stockit.backend.feature.strategy.forecast.StrategyForecastRequestContext;
 import com.stockit.backend.feature.strategy.forecast.StrategyForecastRequestFactory;
 import com.stockit.backend.feature.strategy.forecast.StrategyForecastResponse;
@@ -28,6 +29,10 @@ import com.stockit.backend.feature.strategy.messaging.PermanentStrategyGeneratio
 import com.stockit.backend.feature.strategy.messaging.RetryableStrategyGenerationException;
 import com.stockit.backend.feature.strategy.messaging.StrategyGenerationBusyException;
 import com.stockit.backend.feature.strategy.messaging.StrategyGenerationJobMessage;
+import com.stockit.backend.feature.strategy.messaging.StrategyGenerationAttempt;
+import com.stockit.backend.feature.strategy.observability.AiStrategyGenerationMetrics;
+import com.stockit.backend.feature.strategy.observability.AiStrategyGenerationMetrics.Stage;
+import com.stockit.backend.feature.strategy.recommendation.RecommendationExecutionPolicy;
 import com.stockit.backend.feature.strategy.service.StrategyCasePayloadException;
 import com.stockit.backend.feature.strategy.service.StrategyCaseRequestPayloadSerializer;
 import com.stockit.backend.feature.strategy.service.StrategyGenerationJobHandler;
@@ -63,6 +68,7 @@ public class StrategyGenerationJobHandlerImpl implements StrategyGenerationJobHa
     private final ForecastModelVersionResolver modelVersionResolver;
     private final StrategyGenerationStageService stageService;
     private final StrategyRecommendationStageProcessor recommendationStageProcessor;
+    private final AiStrategyGenerationMetrics metrics;
 
     public StrategyGenerationJobHandlerImpl(
             StrategyCaseMapper strategyCaseMapper,
@@ -74,7 +80,8 @@ public class StrategyGenerationJobHandlerImpl implements StrategyGenerationJobHa
             StrategyForecastResponseValidator responseValidator,
             ForecastModelVersionResolver modelVersionResolver,
             StrategyGenerationStageService stageService,
-            StrategyRecommendationStageProcessor recommendationStageProcessor
+            StrategyRecommendationStageProcessor recommendationStageProcessor,
+            AiStrategyGenerationMetrics metrics
     ) {
         this.strategyCaseMapper = strategyCaseMapper;
         this.payloadSerializer = payloadSerializer;
@@ -86,22 +93,54 @@ public class StrategyGenerationJobHandlerImpl implements StrategyGenerationJobHa
         this.modelVersionResolver = modelVersionResolver;
         this.stageService = stageService;
         this.recommendationStageProcessor = recommendationStageProcessor;
+        this.metrics = metrics;
     }
 
     /**
      * 저장된 Case를 복원해 완료된 작업은 건너뛰고 현재 Worker가 소유한 예측만 실행
      */
     @Override
-    public void handle(StrategyGenerationJobMessage message) {
+    public void handle(
+            StrategyGenerationJobMessage message,
+            StrategyGenerationAttempt attempt
+    ) {
         validateMessage(message);
+        if (attempt == null) {
+            throw new PermanentStrategyGenerationException(
+                    INVALID_MESSAGE_CODE,
+                    "AI strategy generation attempt context is missing"
+            );
+        }
+        RecommendationExecutionPolicy recommendationPolicy = attempt.isFinalAttempt()
+                ? RecommendationExecutionPolicy.fallbackTransientLlmFailure()
+                : RecommendationExecutionPolicy.retryTransientLlmFailure();
         StrategyCaseVO strategyCase = loadCase(message.strategyCaseId());
+        log.debug(
+                "AI strategy pipeline started. strategyCaseId={}, caseStatus={}, "
+                        + "generationStage={}",
+                message.strategyCaseId(), strategyCase.getCaseStatus(),
+                strategyCase.getGenerationStage()
+        );
         if (strategyCase.getCaseStatus() == StrategyCaseStatus.GENERATING
                 && strategyCase.getGenerationStage()
                 == StrategyGenerationStage.STRATEGY_GENERATING) {
-            recommendationStageProcessor.process(message.strategyCaseId());
+            log.debug(
+                    "Demand forecast stage already completed; resuming recommendation. "
+                            + "strategyCaseId={}",
+                    message.strategyCaseId()
+            );
+            recommendationStageProcessor.process(
+                    message.strategyCaseId(), recommendationPolicy
+            );
             return;
         }
         if (isForecastStepCompleteOrTerminal(strategyCase)) {
+            log.debug(
+                    "AI strategy pipeline skipped because case is already complete or "
+                            + "terminal. strategyCaseId={}, caseStatus={}, generationStage={}",
+                    message.strategyCaseId(), strategyCase.getCaseStatus(),
+                    strategyCase.getGenerationStage()
+            );
             return;
         }
 
@@ -112,7 +151,15 @@ public class StrategyGenerationJobHandlerImpl implements StrategyGenerationJobHa
                 strategyCase.getGenerationStage()
         );
         if (checkpoint.isPresent()) {
-            completeFromCheckpoint(strategyCase, context, checkpoint.get());
+            log.info(
+                    "Demand forecast checkpoint found; skipping ML API call. "
+                            + "strategyCaseId={}, forecastRunId={}",
+                    message.strategyCaseId(),
+                    checkpoint.get().forecastResponse().forecastRunId()
+            );
+            completeFromCheckpoint(
+                    strategyCase, context, checkpoint.get(), recommendationPolicy
+            );
             return;
         }
 
@@ -121,14 +168,21 @@ public class StrategyGenerationJobHandlerImpl implements StrategyGenerationJobHa
                 message.strategyCaseId(),
                 strategyCase.getGenerationStage()
         );
+        log.debug(
+                "Demand forecast lock acquired. strategyCaseId={}",
+                message.strategyCaseId()
+        );
         try {
-            processWhileOwningLock(message.strategyCaseId());
+            processWhileOwningLock(message.strategyCaseId(), recommendationPolicy);
         } finally {
             releaseQuietly(lock, message.strategyCaseId());
         }
     }
 
-    private void processWhileOwningLock(Long strategyCaseId) {
+    private void processWhileOwningLock(
+            Long strategyCaseId,
+            RecommendationExecutionPolicy recommendationPolicy
+    ) {
         StrategyCaseVO latest = loadCase(strategyCaseId);
         if (isForecastStepCompleteOrTerminal(latest)) {
             return;
@@ -141,26 +195,54 @@ public class StrategyGenerationJobHandlerImpl implements StrategyGenerationJobHa
                 latest.getGenerationStage()
         );
         if (checkpoint.isPresent()) {
-            completeFromCheckpoint(latest, context, checkpoint.get());
+            log.info(
+                    "Demand forecast checkpoint appeared after lock acquisition; "
+                            + "skipping ML API call. strategyCaseId={}, forecastRunId={}",
+                    strategyCaseId,
+                    checkpoint.get().forecastResponse().forecastRunId()
+            );
+            completeFromCheckpoint(
+                    latest, context, checkpoint.get(), recommendationPolicy
+            );
             return;
         }
 
         if (!ensureForecasting(latest)) {
             return;
         }
-        executeForecasting(strategyCaseId, context);
+        executeForecasting(strategyCaseId, context, recommendationPolicy);
     }
 
     private void executeForecasting(
             Long strategyCaseId,
-        StrategyForecastRequestContext context
+            StrategyForecastRequestContext context,
+            RecommendationExecutionPolicy recommendationPolicy
     ) {
+        StrategyForecastRequest request = context.request();
+        long startedNanos = System.nanoTime();
+        log.info(
+                "Demand forecast API call started. strategyCaseId={}, skuId={}, "
+                        + "sourceSalesPointId={}, candidateSalesPointCount={}, "
+                        + "forecastStartDate={}, forecastEndDate={}",
+                strategyCaseId, request.skuId(), request.sourceSalesPointId(),
+                request.candidateSalesPointIds().size(), request.forecastStartDate(),
+                request.forecastEndDate()
+        );
         try {
-            StrategyForecastResponse response = forecastProvider.forecast(
-                    context.request()
+            StrategyForecastResponse response = metrics.measure(
+                    Stage.FORECAST_API,
+                    () -> forecastProvider.forecast(request)
             );
             responseValidator.validate(context, response);
             Long modelVersionId = modelVersionResolver.resolve(response);
+            log.info(
+                    "Demand forecast API call completed. strategyCaseId={}, "
+                            + "forecastRunId={}, modelName={}, modelVersion={}, "
+                            + "forecastDays={}, salesPointCount={}, elapsedMs={}",
+                    strategyCaseId, response.forecastRunId(), response.modelName(),
+                    response.modelVersion(), response.forecastDays(),
+                    response.salesPointForecasts().size(), elapsedMillis(startedNanos)
+            );
             // Redis 저장 후 DB 단계를 전환해 중단 시 체크포인트로 전환만 재개할 수 있도록 구성
             saveCheckpoint(ForecastCheckpoint.create(
                     context,
@@ -168,7 +250,12 @@ public class StrategyGenerationJobHandlerImpl implements StrategyGenerationJobHa
                     modelVersionId,
                     Instant.now()
             ));
-            completeForecasting(strategyCaseId);
+            log.debug(
+                    "Demand forecast checkpoint saved. strategyCaseId={}, "
+                            + "forecastRunId={}, modelVersionId={}",
+                    strategyCaseId, response.forecastRunId(), modelVersionId
+            );
+            completeForecasting(strategyCaseId, recommendationPolicy);
         } catch (PermanentStrategyGenerationException
                  | RetryableStrategyGenerationException
                  | StrategyGenerationBusyException exception) {
@@ -324,7 +411,8 @@ public class StrategyGenerationJobHandlerImpl implements StrategyGenerationJobHa
     private void completeFromCheckpoint(
             StrategyCaseVO strategyCase,
             StrategyForecastRequestContext context,
-            ForecastCheckpoint checkpoint
+            ForecastCheckpoint checkpoint,
+            RecommendationExecutionPolicy recommendationPolicy
     ) {
         try {
             responseValidator.validate(context, checkpoint.forecastResponse());
@@ -342,7 +430,9 @@ public class StrategyGenerationJobHandlerImpl implements StrategyGenerationJobHa
                     );
                 }
             }
-            completeForecasting(strategyCase.getStrategyCaseId());
+            completeForecasting(
+                    strategyCase.getStrategyCaseId(), recommendationPolicy
+            );
         } catch (PermanentStrategyGenerationException
                  | RetryableStrategyGenerationException
                  | StrategyGenerationBusyException exception) {
@@ -356,7 +446,10 @@ public class StrategyGenerationJobHandlerImpl implements StrategyGenerationJobHa
         }
     }
 
-    private void completeForecasting(Long strategyCaseId) {
+    private void completeForecasting(
+            Long strategyCaseId,
+            RecommendationExecutionPolicy recommendationPolicy
+    ) {
         boolean completed;
         try {
             completed = stageService.completeForecasting(strategyCaseId);
@@ -369,7 +462,12 @@ public class StrategyGenerationJobHandlerImpl implements StrategyGenerationJobHa
             );
         }
         if (completed) {
-            recommendationStageProcessor.process(strategyCaseId);
+            log.debug(
+                    "Demand forecast stage completed; entering strategy generation. "
+                            + "strategyCaseId={}",
+                    strategyCaseId
+            );
+            recommendationStageProcessor.process(strategyCaseId, recommendationPolicy);
             return;
         }
         StrategyCaseVO latest = loadCase(strategyCaseId);
@@ -377,7 +475,7 @@ public class StrategyGenerationJobHandlerImpl implements StrategyGenerationJobHa
             if (latest.getCaseStatus() == StrategyCaseStatus.GENERATING
                     && latest.getGenerationStage()
                     == StrategyGenerationStage.STRATEGY_GENERATING) {
-                recommendationStageProcessor.process(strategyCaseId);
+                recommendationStageProcessor.process(strategyCaseId, recommendationPolicy);
             }
             return;
         }
@@ -434,6 +532,10 @@ public class StrategyGenerationJobHandlerImpl implements StrategyGenerationJobHa
                 "Unexpected error occurred while processing demand forecast",
                 exception
         );
+    }
+
+    private static long elapsedMillis(long startedNanos) {
+        return (System.nanoTime() - startedNanos) / 1_000_000L;
     }
 
     private static void validateMessage(StrategyGenerationJobMessage message) {

@@ -10,7 +10,8 @@ import jakarta.servlet.http.HttpServletRequest;
 public final class AiStrategyCaseListQueryParameterValidator {
 
     private static final Set<String> ALLOWED_PARAMETERS = Set.of(
-            "page", "size", "query", "status", "from", "to", "sort"
+            "page", "size", "query", "status", "from", "to", "sort",
+            "channelType", "warehouseCode", "strategyFrom", "strategyTo"
     );
 
     private AiStrategyCaseListQueryParameterValidator() {

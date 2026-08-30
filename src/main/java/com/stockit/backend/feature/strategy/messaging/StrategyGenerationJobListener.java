@@ -17,6 +17,8 @@ import com.stockit.backend.feature.strategy.service.StrategyGenerationFailureSer
 import com.stockit.backend.feature.strategy.service.StrategyGenerationJobHandler;
 import com.stockit.backend.feature.strategy.service.StrategyGenerationRetryPublisher;
 import com.stockit.backend.feature.strategy.domain.StrategyGenerationStage;
+import com.stockit.backend.feature.strategy.observability.AiStrategyGenerationMetrics;
+import com.stockit.backend.feature.strategy.observability.AiStrategyGenerationMetrics.Stage;
 
 /**
  * AI 전략 생성 메시지의 ACK, 지연 재시도와 DLQ 분기를 담당하는 RabbitMQ Adapter
@@ -44,13 +46,15 @@ public class StrategyGenerationJobListener {
     private final StrategyGenerationRetryPublisher retryPublisher;
     private final StrategyGenerationFailureService failureService;
     private final StrategyGenerationMessagingProperties properties;
+    private final AiStrategyGenerationMetrics metrics;
 
     public StrategyGenerationJobListener(
             ObjectMapper objectMapper,
             StrategyGenerationJobHandler jobHandler,
             StrategyGenerationRetryPublisher retryPublisher,
             StrategyGenerationFailureService failureService,
-            StrategyGenerationMessagingProperties properties
+            StrategyGenerationMessagingProperties properties,
+            AiStrategyGenerationMetrics metrics
     ) {
         this.objectMapper = objectMapper.copy().disable(
                 DeserializationFeature.ADJUST_DATES_TO_CONTEXT_TIME_ZONE
@@ -59,6 +63,7 @@ public class StrategyGenerationJobListener {
         this.retryPublisher = retryPublisher;
         this.failureService = failureService;
         this.properties = properties;
+        this.metrics = metrics;
     }
 
     /**
@@ -67,19 +72,38 @@ public class StrategyGenerationJobListener {
     @RabbitListener(queues = StrategyGenerationMessagingProperties.MAIN_QUEUE)
     public void consume(Message rawMessage, Channel channel) throws IOException {
         long deliveryTag = rawMessage.getMessageProperties().getDeliveryTag();
+        long startedNanos = System.nanoTime();
         StrategyGenerationJobMessage jobMessage = null;
 
         try {
             int retryCount = readRetryCount(rawMessage);
             jobMessage = deserialize(rawMessage);
             putLogContext(jobMessage);
+            log.info(
+                    "AI strategy generation message received. messageId={}, "
+                            + "strategyCaseId={}, retryCount={}, requestedAt={}",
+                    jobMessage.messageId(), jobMessage.strategyCaseId(), retryCount,
+                    jobMessage.requestedAt()
+            );
 
-            jobHandler.handle(jobMessage);
+            StrategyGenerationJobMessage measuredMessage = jobMessage;
+            metrics.measure(
+                    Stage.TOTAL_GENERATION,
+                    () -> jobHandler.handle(
+                            measuredMessage,
+                            new StrategyGenerationAttempt(
+                                    retryCount + 1,
+                                    properties.getMaxAttempts()
+                            )
+                    )
+            );
             // DB와 외부 저장소 처리가 모두 끝난 뒤에만 원본 메시지 제거
             channel.basicAck(deliveryTag, false);
             log.info(
-                    "AI strategy generation message handled. retryCount={}",
-                    retryCount
+                    "AI strategy generation message handled. messageId={}, "
+                            + "strategyCaseId={}, retryCount={}, elapsedMs={}",
+                    jobMessage.messageId(), jobMessage.strategyCaseId(), retryCount,
+                    elapsedMillis(startedNanos)
             );
         } catch (StrategyGenerationBusyException exception) {
             handleBusy(rawMessage, jobMessage, channel, deliveryTag, exception);
@@ -90,7 +114,14 @@ public class StrategyGenerationJobListener {
                     exception.getFailureCode(),
                     exception.getMessage()
             );
-            log.error("Permanent AI strategy message failure; routing to DLQ", exception);
+            log.error(
+                    "Permanent AI strategy message failure; routing to DLQ. "
+                            + "messageId={}, strategyCaseId={}, stage={}, failureCode={}, "
+                            + "elapsedMs={}",
+                    messageId(jobMessage), strategyCaseId(jobMessage),
+                    exception.getExpectedStage(), exception.getFailureCode(),
+                    elapsedMillis(startedNanos), exception
+            );
             // 동일 메시지를 반복해도 회복되지 않는 오류이므로 재시도 없이 DLQ 격리
             channel.basicReject(deliveryTag, false);
         } catch (RetryableStrategyGenerationException exception) {
@@ -117,6 +148,18 @@ public class StrategyGenerationJobListener {
             MDC.remove("messageId");
             MDC.remove("strategyCaseId");
         }
+    }
+
+    private static java.util.UUID messageId(StrategyGenerationJobMessage message) {
+        return message == null ? null : message.messageId();
+    }
+
+    private static Long strategyCaseId(StrategyGenerationJobMessage message) {
+        return message == null ? null : message.strategyCaseId();
+    }
+
+    private static long elapsedMillis(long startedNanos) {
+        return (System.nanoTime() - startedNanos) / 1_000_000L;
     }
 
     private StrategyGenerationJobMessage deserialize(Message rawMessage) {
@@ -174,14 +217,21 @@ public class StrategyGenerationJobListener {
                 retryPublisher.publishForRetry(jobMessage, nextRetryCount);
                 channel.basicAck(deliveryTag, false);
                 log.warn(
-                        "AI strategy generation will be retried. retryCount={}",
-                        nextRetryCount,
+                        "AI strategy generation will be retried. messageId={}, "
+                                + "strategyCaseId={}, stage={}, failureCode={}, "
+                                + "retryCount={}",
+                        messageId(jobMessage), strategyCaseId(jobMessage),
+                        expectedStage, failureCode, nextRetryCount,
                         exception
                 );
                 return;
             } catch (RuntimeException retryPublishException) {
                 log.error(
-                        "Failed to publish AI strategy retry message; requeueing original",
+                        "Failed to publish AI strategy retry message; requeueing original. "
+                                + "messageId={}, strategyCaseId={}, stage={}, "
+                                + "failureCode={}, retryCount={}",
+                        messageId(jobMessage), strategyCaseId(jobMessage),
+                        expectedStage, failureCode, nextRetryCount,
                         retryPublishException
                 );
                 // 대체 메시지를 만들지 못했으므로 Broker가 원본을 다시 전달하도록 요청
@@ -200,8 +250,11 @@ public class StrategyGenerationJobListener {
                 failureMessage
         );
         log.error(
-                "AI strategy generation retries exhausted; routing to DLQ. attempts={}",
-                properties.getMaxAttempts(),
+                "AI strategy generation retries exhausted; routing to DLQ. "
+                        + "messageId={}, strategyCaseId={}, stage={}, failureCode={}, "
+                        + "attempts={}",
+                messageId(jobMessage), strategyCaseId(jobMessage), expectedStage,
+                failureCode, properties.getMaxAttempts(),
                 exception
         );
         channel.basicReject(deliveryTag, false);
@@ -221,8 +274,9 @@ public class StrategyGenerationJobListener {
             channel.basicAck(deliveryTag, false);
             log.info(
                     "AI strategy generation is owned by another worker; delaying without "
-                            + "consuming an API retry. retryCount={}",
-                    retryCount
+                            + "consuming an API retry. messageId={}, strategyCaseId={}, "
+                            + "retryCount={}",
+                    messageId(jobMessage), strategyCaseId(jobMessage), retryCount
             );
         } catch (RuntimeException retryPublishException) {
             log.error(

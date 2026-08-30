@@ -1,0 +1,53 @@
+logging {
+  level = "info"
+}
+
+discovery.docker "stockit" {
+  host             = "unix:///var/run/docker.sock"
+  refresh_interval = "5s"
+}
+
+discovery.relabel "stockit" {
+  targets = discovery.docker.stockit.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/stockit-.*"
+    action        = "keep"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+    replacement   = "$1"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_log_stream"]
+    target_label  = "stream"
+  }
+
+  rule {
+    target_label = "job"
+    replacement  = "stockit-docker"
+  }
+}
+
+loki.source.docker "stockit" {
+  host             = "unix:///var/run/docker.sock"
+  targets          = discovery.relabel.stockit.output
+  forward_to       = [loki.write.monitoring.receiver]
+  refresh_interval = "5s"
+}
+
+loki.write "monitoring" {
+  endpoint {
+    url = sys.env("LOKI_PUSH_URL")
+  }
+
+  external_labels = {
+    environment = sys.env("ALLOY_ENVIRONMENT"),
+    host        = sys.env("ALLOY_HOST_LABEL"),
+  }
+}

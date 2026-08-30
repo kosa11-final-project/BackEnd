@@ -6,6 +6,7 @@ import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -69,9 +70,12 @@ public class StrategyCandidateSimulationEngine {
             SimulationDetailLevel detailLevel
     ) {
         validateRange(context, candidate);
-        validateTransferCostPolicies(context, candidate);
+        Map<InventoryCostLocation, InventoryCostPolicyResolver.Cost> costByLocation =
+                new HashMap<>();
+        validateTransferCostPolicies(context, candidate, costByLocation);
         CandidatePlan plan = CandidatePlan.create(candidate);
         List<LotState> lots = plan.createLotStates(context.evaluationInventory());
+        lots.sort(LotState.OUTBOUND_ORDER);
         Map<Long, Map<LocalDate, BigDecimal>> demandBySalesPoint = demandBySalesPoint(
                 context,
                 plan,
@@ -95,7 +99,9 @@ public class StrategyCandidateSimulationEngine {
         for (LocalDate date = context.forecastStartDate();
                 !date.isAfter(context.forecastEndDate());
                 date = date.plusDays(1)) {
-            DisposalResult disposal = disposeExpired(context, lots, date);
+            DisposalResult disposal = disposeExpired(
+                    context, lots, date, costByLocation
+            );
             cumulativeDisposal = quantity(cumulativeDisposal.add(disposal.total()));
             cumulativeDisposalCost = money(
                     cumulativeDisposalCost.add(disposal.cost())
@@ -124,7 +130,7 @@ public class StrategyCandidateSimulationEngine {
                     )
             );
             cumulativeHoldingCost = money(cumulativeHoldingCost.add(
-                    holdingCost(context, lots)
+                    holdingCost(context, lots, costByLocation)
             ));
 
             if (strategyApplied && sellThroughDays == null
@@ -392,10 +398,11 @@ public class StrategyCandidateSimulationEngine {
                         "Daily forecast is missing: " + date
                 );
             }
+            // LOT의 출고 순서는 후보 시작 전 1회, 전략 적용 직후 1회만 정렬한다.
+            // 위치별 filter는 이미 정렬된 원본 순서를 보존하므로 일자별 재정렬이 불필요하다.
             List<LotState> sellable = lots.stream()
                     .filter(lot -> Objects.equals(lot.salesPointId, entry.getKey()))
                     .filter(lot -> lot.isSellableAt(date, candidate))
-                    .sorted(LotState.OUTBOUND_ORDER)
                     .toList();
             for (LotState lot : sellable) {
                 if (remainingDemand.signum() <= 0) {
@@ -472,7 +479,8 @@ public class StrategyCandidateSimulationEngine {
     private static DisposalResult disposeExpired(
             StrategyCalculationContext context,
             List<LotState> lots,
-            LocalDate date
+            LocalDate date,
+            Map<InventoryCostLocation, InventoryCostPolicyResolver.Cost> costByLocation
     ) {
         BigDecimal total = ZERO_QUANTITY;
         BigDecimal allocated = ZERO_QUANTITY;
@@ -481,10 +489,9 @@ public class StrategyCandidateSimulationEngine {
             if (lot.isExpiredAt(date) && lot.remaining.signum() > 0) {
                 total = total.add(lot.remaining);
                 InventoryCostPolicyResolver.Cost policy =
-                        InventoryCostPolicyResolver.resolve(
-                                context.inventoryPolicies(),
-                                lot.warehouseId,
-                                lot.salesPointId
+                        resolveInventoryCost(
+                                context, costByLocation,
+                                lot.warehouseId, lot.salesPointId
                         );
                 cost = cost.add(lot.remaining.multiply(policy.unitDisposalCost()));
                 if (lot.strategyAllocated) {
@@ -503,7 +510,8 @@ public class StrategyCandidateSimulationEngine {
     /** 당일 판매·폐기 이후 각 LOT의 실제 위치 기준으로 1일 보관비를 계산한다. */
     private static BigDecimal holdingCost(
             StrategyCalculationContext context,
-            List<LotState> lots
+            List<LotState> lots,
+            Map<InventoryCostLocation, InventoryCostPolicyResolver.Cost> costByLocation
     ) {
         BigDecimal result = ZERO_MONEY;
         for (LotState lot : lots) {
@@ -511,10 +519,9 @@ public class StrategyCandidateSimulationEngine {
                 continue;
             }
             InventoryCostPolicyResolver.Cost policy =
-                    InventoryCostPolicyResolver.resolve(
-                            context.inventoryPolicies(),
-                            lot.warehouseId,
-                            lot.salesPointId
+                    resolveInventoryCost(
+                            context, costByLocation,
+                            lot.warehouseId, lot.salesPointId
                     );
             result = result.add(
                     lot.remaining.multiply(policy.dailyUnitHoldingCost())
@@ -571,6 +578,7 @@ public class StrategyCandidateSimulationEngine {
             allocatedLots.add(allocated);
         }
         lots.addAll(allocatedLots);
+        lots.sort(LotState.OUTBOUND_ORDER);
     }
 
     private static void validateRange(
@@ -591,14 +599,17 @@ public class StrategyCandidateSimulationEngine {
     /** 이동 전후 위치 중 비용 정책이 누락되면 가상의 비용 절감액을 만들지 않는다. */
     private static void validateTransferCostPolicies(
             StrategyCalculationContext context,
-            StrategyCandidate candidate
+            StrategyCandidate candidate,
+            Map<InventoryCostLocation, InventoryCostPolicyResolver.Cost> costByLocation
     ) {
         for (StrategyCandidate.Action action : candidate.actions()) {
             if (action.actionType() != StrategyType.RT_TRANSFER) {
                 continue;
             }
-            if (!hasInventoryCostPolicy(context, action.source())
-                    || !hasInventoryCostPolicy(context, action.target())) {
+            if (!hasInventoryCostPolicy(context, action.source(), costByLocation)
+                    || !hasInventoryCostPolicy(
+                            context, action.target(), costByLocation
+                    )) {
                 throw new CandidateSimulationException(
                         "CANDIDATE_INVENTORY_COST_POLICY_NOT_FOUND",
                         "Inventory cost policy is required for both transfer locations"
@@ -609,13 +620,31 @@ public class StrategyCandidateSimulationEngine {
 
     private static boolean hasInventoryCostPolicy(
             StrategyCalculationContext context,
-            StrategyCandidate.Location location
+            StrategyCandidate.Location location,
+            Map<InventoryCostLocation, InventoryCostPolicyResolver.Cost> costByLocation
     ) {
-        return InventoryCostPolicyResolver.resolve(
-                context.inventoryPolicies(),
+        return resolveInventoryCost(
+                context,
+                costByLocation,
                 location.warehouseId(),
                 location.salesPointId()
         ).matched();
+    }
+
+    private static InventoryCostPolicyResolver.Cost resolveInventoryCost(
+            StrategyCalculationContext context,
+            Map<InventoryCostLocation, InventoryCostPolicyResolver.Cost> costByLocation,
+            Long warehouseId,
+            Long salesPointId
+    ) {
+        InventoryCostLocation location = new InventoryCostLocation(
+                warehouseId, salesPointId
+        );
+        return costByLocation.computeIfAbsent(location, ignored ->
+                InventoryCostPolicyResolver.resolve(
+                        context.inventoryPolicies(), warehouseId, salesPointId
+                )
+        );
     }
 
     private static BigDecimal estimatedActionCost(StrategyCandidate candidate) {
@@ -665,6 +694,10 @@ public class StrategyCandidateSimulationEngine {
             BigDecimal paymentFee,
             BigDecimal logisticsCost
     ) {
+    }
+
+    /** 창고와 할당 판매처 조합별 보관·폐기비 정책 조회 결과를 후보 내에서 재사용한다. */
+    private record InventoryCostLocation(Long warehouseId, Long salesPointId) {
     }
 
     private record ChannelTerms(

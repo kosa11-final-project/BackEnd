@@ -6,10 +6,12 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import java.util.List;
+import java.util.Map;
+import java.time.LocalDate;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -25,6 +27,9 @@ import com.stockit.backend.feature.strategy.calculation.engine.BaselineSimulatio
 import com.stockit.backend.feature.strategy.calculation.engine.CandidateSimulationException;
 import com.stockit.backend.feature.strategy.calculation.engine.StrategyCandidateSimulationEngine;
 import com.stockit.backend.feature.strategy.calculation.service.StrategyCalculationContextLoader;
+import com.stockit.backend.feature.strategy.observability.AiStrategyGenerationMetrics;
+
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 @ExtendWith(MockitoExtension.class)
 class StrategyCandidateEvaluationServiceImplTest {
@@ -37,8 +42,18 @@ class StrategyCandidateEvaluationServiceImplTest {
     private StrategyCandidateGenerationService candidateGenerationService;
     @Mock
     private StrategyCandidateSimulationEngine candidateSimulationEngine;
-    @InjectMocks
     private StrategyCandidateEvaluationServiceImpl service;
+
+    @BeforeEach
+    void setUp() {
+        service = new StrategyCandidateEvaluationServiceImpl(
+                contextLoader,
+                baselineEngine,
+                candidateGenerationService,
+                candidateSimulationEngine,
+                new AiStrategyGenerationMetrics(new SimpleMeterRegistry())
+        );
+    }
 
     @Test
     void isolatesOneCandidateFailureAndKeepsOtherEvaluation() {
@@ -53,6 +68,11 @@ class StrategyCandidateEvaluationServiceImplTest {
         when(accepted.candidateId()).thenReturn("CAND-OK");
         when(rejected.candidateId()).thenReturn("CAND-FAIL");
         when(simulation.candidateId()).thenReturn("CAND-OK");
+        when(context.salesPoints()).thenReturn(Map.of());
+        when(context.evaluationInventory()).thenReturn(List.of());
+        when(context.referenceInventory()).thenReturn(List.of());
+        when(context.forecastStartDate()).thenReturn(LocalDate.of(2026, 8, 20));
+        when(context.forecastEndDate()).thenReturn(LocalDate.of(2026, 8, 27));
         when(contextLoader.load(strategyCaseId)).thenReturn(context);
         when(baselineEngine.simulate(context)).thenReturn(baseline);
         when(candidateGenerationService.generate(context)).thenReturn(

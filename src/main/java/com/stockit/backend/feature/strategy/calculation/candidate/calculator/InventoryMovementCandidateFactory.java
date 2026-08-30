@@ -145,8 +145,15 @@ public class InventoryMovementCandidateFactory {
                     "Source sales point cannot also be the movement target");
         }
         SalesPoint target = context.salesPoints().get(targetId);
-        if (target == null
-                || (requireCompleteTargetPrice && !target.hasCompletePrice())) {
+        if (target == null) {
+            return excluded(
+                    strategyType,
+                    targetId,
+                    CandidateExclusionReason.TARGET_SALES_POINT_NOT_FOUND,
+                    "Target sales point is missing from calculation context"
+            );
+        }
+        if (requireCompleteTargetPrice && !target.hasCompletePrice()) {
             return excluded(
                     strategyType,
                     targetId,
@@ -160,17 +167,21 @@ public class InventoryMovementCandidateFactory {
                 target,
                 strategyType
         );
-        Map<LocalDate, BigDecimal> unmetDemand = targetDemandPolicy.calculate(
-                context,
-                targetId
-        );
-        BigDecimal targetDemandTotal = sum(unmetDemand.values());
+        Map<LocalDate, BigDecimal> executableDemand =
+                context.sourceSalesPointId() == null
+                        ? targetDemandPolicy.calculateGrossDemand(context, targetId)
+                        : targetDemandPolicy.calculate(context, targetId);
+        BigDecimal targetDemandTotal = sum(executableDemand.values());
         if (targetDemandTotal.signum() == 0) {
             return excluded(
                     strategyType,
                     targetId,
-                    CandidateExclusionReason.TARGET_ADDITIONAL_DEMAND_NOT_FOUND,
-                    "Target has no additional sellable demand in the strategy period"
+                    context.sourceSalesPointId() == null
+                            ? CandidateExclusionReason.TARGET_FORECAST_DEMAND_NOT_FOUND
+                            : CandidateExclusionReason.TARGET_ADDITIONAL_DEMAND_NOT_FOUND,
+                    context.sourceSalesPointId() == null
+                            ? "Target has no forecast demand in the strategy period"
+                            : "Target has no additional sellable demand in the strategy period"
             );
         }
 
@@ -193,7 +204,7 @@ public class InventoryMovementCandidateFactory {
                     targetPriority,
                     targetId,
                     selection,
-                    unmetDemand,
+                    executableDemand,
                     targetDemandTotal
             );
             candidates.addAll(result.candidates());
@@ -209,7 +220,7 @@ public class InventoryMovementCandidateFactory {
             int targetPriority,
             Long targetId,
             WarehouseSelection selection,
-            Map<LocalDate, BigDecimal> unmetDemand,
+            Map<LocalDate, BigDecimal> executableDemand,
             BigDecimal targetDemandTotal
     ) {
         SourceInventoryCapacityPolicy.Capacity sourceCapacity = sourceCapacityPolicy.resolve(
@@ -227,7 +238,7 @@ public class InventoryMovementCandidateFactory {
         MovementCandidatePlan maximumPlan = allocationPolicy.plan(
                 selection.eligibleLots(),
                 sourceCapacity.byLocation(),
-                unmetDemand,
+                executableDemand,
                 sourceCapacity.total().min(targetDemandTotal)
         );
         BigDecimal maxExecutableQuantity = CalculationPrecisionPolicy
@@ -258,7 +269,7 @@ public class InventoryMovementCandidateFactory {
             MovementCandidatePlan tierPlan = allocationPolicy.plan(
                     selection.eligibleLots(),
                     sourceCapacity.byLocation(),
-                    unmetDemand,
+                    executableDemand,
                     requested
             );
             if (tierPlan.plannedQuantity().compareTo(requested) != 0) {
