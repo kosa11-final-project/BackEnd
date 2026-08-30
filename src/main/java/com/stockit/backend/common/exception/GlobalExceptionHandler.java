@@ -226,6 +226,24 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * 새 필터·정렬 요청이 기존 JDBC 조회를 대체한 경우에는 오류 응답을 만들지 않습니다.
+     * 499는 표준 애플리케이션 오류가 아니라 클라이언트가 더 이상 기다리지 않는 상태를
+     * 관찰용으로 표현하기 위한 비표준 상태 코드입니다.
+     */
+    @ExceptionHandler(RequestCancelledException.class)
+    public ResponseEntity<Void> handleRequestCancelled(
+            RequestCancelledException exception,
+            HttpServletRequest request
+    ) {
+        log.debug(
+                "Inventory query cancelled by a newer request. method={}, path={}",
+                request.getMethod(),
+                request.getRequestURI()
+        );
+        return ResponseEntity.status(499).build();
+    }
+
+    /**
      * 처리되지 않은 모든 일반 예외({@link Exception})를 처리합니다.
      *
      * @param exception 발생 예외
