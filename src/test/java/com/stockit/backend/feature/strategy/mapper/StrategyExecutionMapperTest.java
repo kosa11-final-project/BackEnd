@@ -19,6 +19,7 @@ import com.stockit.backend.feature.strategy.vo.StrategyExecutionDailySalesVO;
 import com.stockit.backend.feature.strategy.vo.StrategyExecutionInventoryVO;
 import com.stockit.backend.feature.strategy.vo.StrategyExecutionPerformanceVO;
 import com.stockit.backend.feature.strategy.vo.StrategyExecutionQuery;
+import com.stockit.backend.feature.strategy.vo.StrategyExecutionSummaryVO;
 import com.stockit.backend.feature.strategy.vo.StrategyPerformanceSyncRowVO;
 
 @SpringBootTest
@@ -61,6 +62,30 @@ class StrategyExecutionMapperTest {
                 .containsExactly("REALLOCATION", "PRICE_DISCOUNT");
         assertThat(actions.get(0).getSourceWarehouseName()).isEqualTo("성남센터");
         assertThat(actions.get(0).getTargetSalesPointName()).isEqualTo("그리팅몰");
+    }
+
+    @Test
+    void aggregatesDistinctStrategiesUsingOnlyLatestExecutionResult() {
+        StrategyExecutionQuery query = query(0, 10, null, null, null, "DESC");
+
+        StrategyExecutionSummaryVO summary = mapper.selectFinalStrategyExecutionSummary(query);
+
+        assertThat(summary.getExecutionStrategyCount()).isEqualTo(2);
+        assertThat(summary.getInProgressStrategyCount()).isEqualTo(1);
+        assertThat(summary.getAttentionStrategyCount()).isEqualTo(1);
+        assertThat(summary.getTotalStrategyCount()).isEqualTo(3);
+    }
+
+    @Test
+    void appliesTheSameFiltersToListCountAndSummary() {
+        StrategyExecutionQuery query = query(0, 10, null, null, "PRICE_DISCOUNT", "DESC");
+
+        StrategyExecutionSummaryVO summary = mapper.selectFinalStrategyExecutionSummary(query);
+
+        assertThat(summary.getExecutionStrategyCount()).isEqualTo(1);
+        assertThat(summary.getInProgressStrategyCount()).isEqualTo(1);
+        assertThat(summary.getAttentionStrategyCount()).isEqualTo(1);
+        assertThat(summary.getTotalStrategyCount()).isEqualTo(mapper.countFinalStrategyExecutions(query));
     }
 
     @Test

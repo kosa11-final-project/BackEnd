@@ -12,6 +12,7 @@ import org.springframework.stereotype.Component;
 /** 수요예측 장애를 Teams 채널용 Adaptive Card로 변환합니다. */
 @Component
 class DemandForecastTeamsAlertCardFactory {
+    private static final int MAX_ERROR_DETAIL_LENGTH = 600;
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
     private static final DateTimeFormatter OCCURRED_AT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss z");
@@ -41,9 +42,18 @@ class DemandForecastTeamsAlertCardFactory {
         if (message.errorMessage() != null && !message.errorMessage().isBlank()) {
             body.add(Map.of(
                     "type", "TextBlock",
-                    "text", message.errorMessage(),
-                    "wrap", true,
+                    "text", "오류 상세",
+                    "weight", "Bolder",
+                    "size", "Small",
                     "spacing", "Medium"
+            ));
+            body.add(Map.of(
+                    "type", "TextBlock",
+                    "text", conciseErrorDetail(message.errorMessage()),
+                    "wrap", true,
+                    "size", "Small",
+                    "isSubtle", true,
+                    "spacing", "Small"
             ));
         }
 
@@ -78,6 +88,23 @@ class DemandForecastTeamsAlertCardFactory {
 
     private static String string(Object value) {
         return value == null ? null : value.toString();
+    }
+
+    /**
+     * MyBatis 예외는 mapper 경로와 statement 정보를 포함한 뒤 동일한 Cause를 반복한다.
+     * Teams 카드에는 운영자가 바로 판단할 수 있는 가장 안쪽 Cause만 노출한다.
+     */
+    private static String conciseErrorDetail(String errorMessage) {
+        String detail = errorMessage.replace("###", "").trim();
+        int lastCause = detail.lastIndexOf("Cause:");
+        if (lastCause >= 0) {
+            detail = detail.substring(lastCause + "Cause:".length()).trim();
+        }
+        detail = detail.replaceAll("\\s+", " ");
+        if (detail.length() <= MAX_ERROR_DETAIL_LENGTH) {
+            return detail;
+        }
+        return detail.substring(0, MAX_ERROR_DETAIL_LENGTH - 1).stripTrailing() + "…";
     }
 
     private static void addFact(
