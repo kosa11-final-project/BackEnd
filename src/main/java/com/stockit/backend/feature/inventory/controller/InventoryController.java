@@ -3,6 +3,8 @@ package com.stockit.backend.feature.inventory.controller;
 import java.time.LocalDate;
 import java.time.ZoneId;
 
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
@@ -18,6 +20,7 @@ import com.stockit.backend.feature.inventory.dto.response.InventoryDetailRespons
 import com.stockit.backend.feature.inventory.dto.response.InventoryListResponse;
 import com.stockit.backend.feature.inventory.dto.response.InventoryLotsResponse;
 import com.stockit.backend.feature.inventory.dto.response.InventorySummaryResponse;
+import com.stockit.backend.feature.inventory.service.InventoryQueryCancellationCoordinator;
 import com.stockit.backend.feature.inventory.service.InventoryQueryService;
 
 import io.swagger.v3.oas.annotations.Operation;
@@ -26,8 +29,8 @@ import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.validation.Valid;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
 
 @RestController
 @RequestMapping("/api/v1/inventories")
@@ -38,9 +41,21 @@ public class InventoryController {
     private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Seoul");
 
     private final InventoryQueryService inventoryQueryService;
+    private final InventoryQueryCancellationCoordinator queryCancellationCoordinator;
 
     public InventoryController(InventoryQueryService inventoryQueryService) {
         this.inventoryQueryService = inventoryQueryService;
+        this.queryCancellationCoordinator = new InventoryQueryCancellationCoordinator();
+    }
+
+    @Autowired
+    public InventoryController(
+            InventoryQueryService inventoryQueryService,
+            ObjectProvider<InventoryQueryCancellationCoordinator> queryCancellationCoordinatorProvider
+    ) {
+        this.inventoryQueryService = inventoryQueryService;
+        this.queryCancellationCoordinator = queryCancellationCoordinatorProvider
+                .getIfAvailable(InventoryQueryCancellationCoordinator::new);
     }
 
     @GetMapping
@@ -66,7 +81,12 @@ public class InventoryController {
             @Valid @ParameterObject @ModelAttribute InventoryQueryRequest request
     ) {
         InventoryQueryParameterValidator.validate(httpRequest);
-        return ApiResponse.of(inventoryQueryService.find(request.toQuery(today())));
+        var query = request.toQuery(today());
+        return ApiResponse.of(queryCancellationCoordinator.execute(
+                "inventory-list",
+                httpRequest,
+                () -> inventoryQueryService.find(query)
+        ));
     }
 
     @GetMapping("/summary")
@@ -87,7 +107,12 @@ public class InventoryController {
             @Valid @ParameterObject @ModelAttribute InventoryQueryRequest request
     ) {
         InventoryQueryParameterValidator.validate(httpRequest);
-        return ApiResponse.of(inventoryQueryService.summary(request.toQuery(today())));
+        var query = request.toQuery(today());
+        return ApiResponse.of(queryCancellationCoordinator.execute(
+                "inventory-summary",
+                httpRequest,
+                () -> inventoryQueryService.summary(query)
+        ));
     }
 
     @GetMapping("/{skuCode}/sales-points/{salesPointCode}")
