@@ -82,7 +82,7 @@ abstract class AbstractChannelStrategyCandidateCalculator
             if (target == null) {
                 exclusions.add(exclusion(
                         targetId,
-                        CandidateExclusionReason.CHANNEL_TARGET_NOT_AVAILABLE,
+                        CandidateExclusionReason.TARGET_SALES_POINT_NOT_FOUND,
                         "Target sales point is missing from calculation context"
                 ));
                 continue;

@@ -1,0 +1,345 @@
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: StockIt infrastructure incidents
+    folder: StockIt
+    interval: 1m
+    rules:
+      - uid: stockit-node-cpu-high
+        title: StockIt EC2 CPU 사용률 높음
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: stockit-prometheus
+            model:
+              editorMode: code
+              expr: 100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 0
+              to: 0
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: []
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [B]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            relativeTimeRange:
+              from: 0
+              to: 0
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [80]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [C]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: B
+              refId: C
+              type: threshold
+        dashboardUid: stockit-backend-overview
+        panelId: 1
+        noDataState: KeepLast
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: EC2 CPU 사용률이 80%를 초과했습니다.
+          description: 최근 5분 CPU 사용률을 기준으로 장애 원인 분석을 시작합니다.
+        labels:
+          severity: warning
+          service: infrastructure
+        isPaused: false
+        notification_settings:
+          receiver: StockIt AI Incident Analyzer
+
+      - uid: stockit-node-memory-high
+        title: StockIt EC2 메모리 사용률 높음
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: stockit-prometheus
+            model:
+              editorMode: code
+              expr: 100 * (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes))
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 0
+              to: 0
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator: {params: [], type: gt}
+                  operator: {type: and}
+                  query: {params: [B]}
+                  reducer: {params: [], type: last}
+                  type: query
+              datasource: {type: __expr__, uid: __expr__}
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            relativeTimeRange:
+              from: 0
+              to: 0
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator: {params: [85], type: gt}
+                  operator: {type: and}
+                  query: {params: [C]}
+                  reducer: {params: [], type: last}
+                  type: query
+              datasource: {type: __expr__, uid: __expr__}
+              expression: B
+              refId: C
+              type: threshold
+        noDataState: KeepLast
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: EC2 메모리 사용률이 85%를 초과했습니다.
+          description: 메모리 부족 또는 비정상 프로세스 여부를 분석합니다.
+        labels:
+          severity: warning
+          service: infrastructure
+        isPaused: false
+        notification_settings:
+          receiver: StockIt AI Incident Analyzer
+
+      - uid: stockit-node-disk-high
+        title: StockIt EC2 디스크 사용률 높음
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: stockit-prometheus
+            model:
+              editorMode: code
+              expr: 100 * (1 - node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay|squashfs"} / node_filesystem_size_bytes{mountpoint="/",fstype!~"tmpfs|overlay|squashfs"})
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 0
+              to: 0
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator: {params: [], type: gt}
+                  operator: {type: and}
+                  query: {params: [B]}
+                  reducer: {params: [], type: last}
+                  type: query
+              datasource: {type: __expr__, uid: __expr__}
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            relativeTimeRange:
+              from: 0
+              to: 0
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator: {params: [85], type: gt}
+                  operator: {type: and}
+                  query: {params: [C]}
+                  reducer: {params: [], type: last}
+                  type: query
+              datasource: {type: __expr__, uid: __expr__}
+              expression: B
+              refId: C
+              type: threshold
+        noDataState: KeepLast
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: EC2 루트 디스크 사용률이 85%를 초과했습니다.
+          description: 로그 증가 또는 디스크 고갈 가능성을 분석합니다.
+        labels:
+          severity: warning
+          service: infrastructure
+        isPaused: false
+        notification_settings:
+          receiver: StockIt AI Incident Analyzer
+
+      - uid: stockit-backend-unavailable
+        title: StockIt 백엔드 응답 중단
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: stockit-prometheus
+            model:
+              editorMode: code
+              expr: min(up{job="stockit-backend"})
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 0
+              to: 0
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator: {params: [], type: gt}
+                  operator: {type: and}
+                  query: {params: [B]}
+                  reducer: {params: [], type: last}
+                  type: query
+              datasource: {type: __expr__, uid: __expr__}
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            relativeTimeRange:
+              from: 0
+              to: 0
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator: {params: [1], type: lt}
+                  operator: {type: and}
+                  query: {params: [C]}
+                  reducer: {params: [], type: last}
+                  type: query
+              datasource: {type: __expr__, uid: __expr__}
+              expression: B
+              refId: C
+              type: threshold
+        noDataState: Alerting
+        execErrState: Alerting
+        for: 1m
+        annotations:
+          summary: Spring Boot 백엔드가 Prometheus 수집 요청에 응답하지 않습니다.
+          description: 컨테이너 중단, 애플리케이션 오류 또는 네트워크 장애 여부를 분석합니다.
+        labels:
+          severity: critical
+          service: stockit-backend
+        isPaused: false
+        notification_settings:
+          receiver: StockIt AI Incident Analyzer
+
+      - uid: stockit-backend-error-spike
+        title: StockIt 백엔드 오류 로그 급증
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: stockit-loki
+            model:
+              datasource: {type: loki, uid: stockit-loki}
+              editorMode: code
+              expr: sum(count_over_time({job="stockit-docker",container=~"stockit-backend-.*"} |~ "(?i)(error|exception|failed)" [5m]))
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              queryType: instant
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 0
+              to: 0
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator: {params: [], type: gt}
+                  operator: {type: and}
+                  query: {params: [B]}
+                  reducer: {params: [], type: last}
+                  type: query
+              datasource: {type: __expr__, uid: __expr__}
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            relativeTimeRange:
+              from: 0
+              to: 0
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator: {params: [5], type: gt}
+                  operator: {type: and}
+                  query: {params: [C]}
+                  reducer: {params: [], type: last}
+                  type: query
+              datasource: {type: __expr__, uid: __expr__}
+              expression: B
+              refId: C
+              type: threshold
+        noDataState: OK
+        execErrState: Error
+        for: 1m
+        annotations:
+          summary: 백엔드 컨테이너에서 5분 동안 오류 로그가 5건을 초과했습니다.
+          description: Loki 오류 로그와 Prometheus 지표를 결합해 장애 원인을 분석합니다.
+        labels:
+          severity: warning
+          service: stockit-backend
+        isPaused: false
+        notification_settings:
+          receiver: StockIt AI Incident Analyzer

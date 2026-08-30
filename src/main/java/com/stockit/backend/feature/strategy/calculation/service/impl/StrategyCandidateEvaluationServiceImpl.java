@@ -19,6 +19,8 @@ import com.stockit.backend.feature.strategy.calculation.engine.CandidateSimulati
 import com.stockit.backend.feature.strategy.calculation.engine.StrategyCandidateSimulationEngine;
 import com.stockit.backend.feature.strategy.calculation.service.StrategyCalculationContextLoader;
 import com.stockit.backend.feature.strategy.calculation.service.StrategyCandidateEvaluationService;
+import com.stockit.backend.feature.strategy.observability.AiStrategyGenerationMetrics;
+import com.stockit.backend.feature.strategy.observability.AiStrategyGenerationMetrics.Stage;
 
 @Service
 public class StrategyCandidateEvaluationServiceImpl
@@ -28,17 +30,20 @@ public class StrategyCandidateEvaluationServiceImpl
     private final BaselineSimulationEngine baselineEngine;
     private final StrategyCandidateGenerationService candidateGenerationService;
     private final StrategyCandidateSimulationEngine candidateSimulationEngine;
+    private final AiStrategyGenerationMetrics metrics;
 
     public StrategyCandidateEvaluationServiceImpl(
             StrategyCalculationContextLoader contextLoader,
             BaselineSimulationEngine baselineEngine,
             StrategyCandidateGenerationService candidateGenerationService,
-            StrategyCandidateSimulationEngine candidateSimulationEngine
+            StrategyCandidateSimulationEngine candidateSimulationEngine,
+            AiStrategyGenerationMetrics metrics
     ) {
         this.contextLoader = contextLoader;
         this.baselineEngine = baselineEngine;
         this.candidateGenerationService = candidateGenerationService;
         this.candidateSimulationEngine = candidateSimulationEngine;
+        this.metrics = metrics;
     }
 
     @Override
@@ -46,9 +51,42 @@ public class StrategyCandidateEvaluationServiceImpl
             Long strategyCaseId,
             SimulationDetailLevel detailLevel
     ) {
-        StrategyCalculationContext context = contextLoader.load(strategyCaseId);
-        BaselineSimulation baseline = baselineEngine.simulate(context);
-        CandidateGenerationResult generated = candidateGenerationService.generate(context);
+        StrategyCalculationContext context = metrics.measure(
+                Stage.CONTEXT_LOAD,
+                () -> contextLoader.load(strategyCaseId)
+        );
+        metrics.recordInput(context);
+        BaselineSimulation baseline = metrics.measure(
+                Stage.BASELINE_SIMULATION,
+                () -> baselineEngine.simulate(context)
+        );
+        CandidateGenerationResult generated = metrics.measure(
+                Stage.CANDIDATE_GENERATION,
+                () -> candidateGenerationService.generate(context)
+        );
+        metrics.recordCandidateCount("generated", generated.candidates().size());
+        metrics.recordCandidateCount("generation_excluded", generated.exclusions().size());
+        SimulationBatch batch = metrics.measure(
+                Stage.CANDIDATE_SIMULATION,
+                () -> simulateCandidates(context, baseline, detailLevel, generated)
+        );
+        metrics.recordCandidateCount("evaluated", batch.evaluated().size());
+        metrics.recordCandidateCount("simulation_failed", batch.failures().size());
+        return new StrategyCandidateEvaluationResult(
+                context,
+                baseline,
+                batch.evaluated(),
+                generated.exclusions(),
+                batch.failures()
+        );
+    }
+
+    private SimulationBatch simulateCandidates(
+            StrategyCalculationContext context,
+            BaselineSimulation baseline,
+            SimulationDetailLevel detailLevel,
+            CandidateGenerationResult generated
+    ) {
         List<StrategyCandidateEvaluationResult.EvaluatedCandidate> evaluated =
                 new ArrayList<>();
         List<CandidateSimulationFailure> failures = new ArrayList<>();
@@ -76,12 +114,12 @@ public class StrategyCandidateEvaluationServiceImpl
                 ));
             }
         }
-        return new StrategyCandidateEvaluationResult(
-                context,
-                baseline,
-                evaluated,
-                generated.exclusions(),
-                failures
-        );
+        return new SimulationBatch(evaluated, failures);
+    }
+
+    private record SimulationBatch(
+            List<StrategyCandidateEvaluationResult.EvaluatedCandidate> evaluated,
+            List<CandidateSimulationFailure> failures
+    ) {
     }
 }

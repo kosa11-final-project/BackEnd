@@ -24,6 +24,7 @@ import com.stockit.backend.feature.strategy.domain.StrategyCaseStatus;
 import com.stockit.backend.feature.strategy.domain.StrategyGenerationStage;
 import com.stockit.backend.feature.strategy.domain.StrategyRecommendationOutcome;
 import com.stockit.backend.feature.strategy.mapper.StrategyCaseMapper;
+import com.stockit.backend.feature.strategy.observability.AiStrategyGenerationMetrics;
 import com.stockit.backend.feature.strategy.recommendation.StrategyRecommendationResult;
 import com.stockit.backend.feature.strategy.recommendation.StrategyRecommendationService;
 import com.stockit.backend.feature.strategy.result.StrategyGenerationResult;
@@ -36,6 +37,8 @@ import com.stockit.backend.feature.strategy.result.StrategyResultStore;
 import com.stockit.backend.feature.strategy.service.StrategyGenerationStageService;
 import com.stockit.backend.feature.strategy.simulation.StrategySimulationContextStore;
 import com.stockit.backend.feature.strategy.vo.StrategyCaseVO;
+
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 @ExtendWith(MockitoExtension.class)
 class StrategyRecommendationStageProcessorImplTest {
@@ -56,7 +59,8 @@ class StrategyRecommendationStageProcessorImplTest {
         processor = new StrategyRecommendationStageProcessorImpl(
                 caseMapper, evaluationService, recommendationService, resultFactory,
                 resultStore, lockManager, stageService, new StrategyResultProperties(),
-                simulationContextStore
+                simulationContextStore,
+                new AiStrategyGenerationMetrics(new SimpleMeterRegistry())
         );
     }
 
@@ -83,7 +87,12 @@ class StrategyRecommendationStageProcessorImplTest {
         when(lockManager.tryAcquire(1L)).thenReturn(Optional.of(lock));
         when(evaluationService.evaluate(1L, SimulationDetailLevel.SUMMARY_ONLY))
                 .thenReturn(evaluation);
-        when(recommendationService.recommend(1L, evaluation)).thenReturn(recommendation);
+        when(recommendationService.recommend(
+                1L,
+                evaluation,
+                com.stockit.backend.feature.strategy.recommendation
+                        .RecommendationExecutionPolicy.retryTransientLlmFailure()
+        )).thenReturn(recommendation);
         when(recommendation.calculationContext()).thenReturn(calculationContext);
         when(resultFactory.create(1L, recommendation)).thenReturn(result);
         when(result.options()).thenReturn(List.of(mock(StrategyGenerationResult.Option.class)));

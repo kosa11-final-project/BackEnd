@@ -19,10 +19,14 @@ docs/*
 !docs/ai-strategy-rabbitmq.md
 !docs/demand-forecast-orchestration.md
 !docs/ai-strategy-candidate-simulation.md
+!docs/ai-strategy-recommendation-evaluation.md
 !docs/inventory-risk-grade-policy.md
 
 *.log
 hs_err_pid*
+
+__pycache__/
+*.py[cod]
 
 ### macOS / Windows ###
 .DS_Store

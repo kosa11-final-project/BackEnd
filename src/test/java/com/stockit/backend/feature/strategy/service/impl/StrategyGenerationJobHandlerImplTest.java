@@ -46,11 +46,14 @@ import com.stockit.backend.feature.strategy.messaging.PermanentStrategyGeneratio
 import com.stockit.backend.feature.strategy.messaging.RetryableStrategyGenerationException;
 import com.stockit.backend.feature.strategy.messaging.StrategyGenerationBusyException;
 import com.stockit.backend.feature.strategy.messaging.StrategyGenerationJobMessage;
+import com.stockit.backend.feature.strategy.observability.AiStrategyGenerationMetrics;
 import com.stockit.backend.feature.strategy.service.StrategyCasePayloadException;
 import com.stockit.backend.feature.strategy.service.StrategyCaseRequestPayloadSerializer;
 import com.stockit.backend.feature.strategy.service.StrategyGenerationStageService;
 import com.stockit.backend.feature.strategy.service.StrategyRecommendationStageProcessor;
 import com.stockit.backend.feature.strategy.vo.StrategyCaseVO;
+
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 @ExtendWith(MockitoExtension.class)
 class StrategyGenerationJobHandlerImplTest {
@@ -90,7 +93,8 @@ class StrategyGenerationJobHandlerImplTest {
                 responseValidator,
                 modelVersionResolver,
                 stageService,
-                recommendationStageProcessor
+                recommendationStageProcessor,
+                new AiStrategyGenerationMetrics(new SimpleMeterRegistry())
         );
     }
 
@@ -396,7 +400,29 @@ class StrategyGenerationJobHandlerImplTest {
 
         verify(payloadSerializer, never()).deserialize(any());
         verify(checkpointStore, never()).find(any(), any(), any());
-        verify(recommendationStageProcessor).process(12345L);
+        verify(recommendationStageProcessor).process(
+                12345L,
+                com.stockit.backend.feature.strategy.recommendation
+                        .RecommendationExecutionPolicy.fallbackTransientLlmFailure()
+        );
+    }
+
+    @Test
+    void preservesLlmRetryBeforeFinalMessageAttempt() {
+        when(strategyCaseMapper.selectStrategyCaseById(12345L))
+                .thenReturn(generatingCase(StrategyGenerationStage.STRATEGY_GENERATING));
+
+        handler.handle(
+                message(),
+                new com.stockit.backend.feature.strategy.messaging
+                        .StrategyGenerationAttempt(1, 3)
+        );
+
+        verify(recommendationStageProcessor).process(
+                12345L,
+                com.stockit.backend.feature.strategy.recommendation
+                        .RecommendationExecutionPolicy.retryTransientLlmFailure()
+        );
     }
 
     @Test

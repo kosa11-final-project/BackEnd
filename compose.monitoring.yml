@@ -19,11 +19,42 @@ services:
       - stockit-prometheus-data:/prometheus
     restart: unless-stopped
 
+  loki:
+    image: grafana/loki:3.5.3
+    container_name: stockit-loki
+    command:
+      - -config.file=/etc/loki/loki-config.yml
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./monitoring/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - stockit-loki-data:/loki
+    restart: unless-stopped
+
+  incident-analyzer:
+    build:
+      context: ./infra/incident-analyzer
+    container_name: stockit-incident-analyzer
+    env_file:
+      - path: ${INCIDENT_ANALYZER_ENV_FILE:-./infra/env/incident-analyzer.env}
+        required: false
+    environment:
+      INCIDENT_LOKI_BASE_URL: http://loki:3100
+      INCIDENT_PROMETHEUS_BASE_URL: http://prometheus:9090
+    depends_on:
+      - loki
+      - prometheus
+    expose:
+      - "8080"
+    restart: unless-stopped
+
   grafana:
     image: grafana/grafana:12.1.0
     container_name: stockit-grafana
     depends_on:
       - prometheus
+      - loki
+      - incident-analyzer
     ports:
       - "3000:3000"
     environment:
@@ -40,3 +71,4 @@ services:
 volumes:
   stockit-prometheus-data:
   stockit-grafana-data:
+  stockit-loki-data:
