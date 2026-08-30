@@ -177,6 +177,23 @@ class InventoryQuantitySqlContractTest {
     }
 
     @Test
+    void inventoryTotalsIncludeBalancesRegardlessOfWarehouseMasterAvailability() throws IOException {
+        String inventorySql = read("inventory/InventoryMapper.xml");
+        String candidateBaseWhere = inventorySql.substring(
+                inventorySql.indexOf("<sql id=\"candidateBaseWhere\">"),
+                inventorySql.indexOf("<sql id=\"candidateFilterOperator\">")
+        );
+
+        assertThat(candidateBaseWhere)
+                .contains("WHERE ib.is_deleted = 0")
+                .doesNotContain("FROM warehouse active_w")
+                .doesNotContain("active_w.active_yn = 'Y'");
+        assertThat(inventorySql)
+                .doesNotContain("LEFT JOIN warehouse active_w")
+                .contains("창고 마스터의 활성 여부와 관계없이 삭제되지 않은 통합 재고 잔액을 총량에 포함한다");
+    }
+
+    @Test
     void inventoryListAndDetailExposeTheProductSupplierName() throws IOException {
         String inventorySql = read("inventory/InventoryMapper.xml");
 
