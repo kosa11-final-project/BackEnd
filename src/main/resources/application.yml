@@ -143,6 +143,15 @@ app:
         environment: ${APP_ENVIRONMENT:local}
         dashboard-url: ${DEMAND_FORECAST_DASHBOARD_URL:}
   ai-strategy:
+    alert:
+      teams:
+        enabled: ${AI_STRATEGY_FAILURE_TEAMS_ALERT_ENABLED:false}
+        webhook-url: ${AI_STRATEGY_FAILURE_TEAMS_WEBHOOK_URL:}
+        connect-timeout: ${AI_STRATEGY_FAILURE_TEAMS_CONNECT_TIMEOUT:3s}
+        read-timeout: ${AI_STRATEGY_FAILURE_TEAMS_READ_TIMEOUT:10s}
+        environment: ${APP_ENVIRONMENT:local}
+        case-url-template: ${AI_STRATEGY_FAILURE_CASE_URL_TEMPLATE:}
+        log-url-template: ${AI_STRATEGY_FAILURE_LOG_URL_TEMPLATE:}
     sse:
       timeout: ${AI_STRATEGY_SSE_TIMEOUT:30m}
       heartbeat-interval: ${AI_STRATEGY_SSE_HEARTBEAT_INTERVAL:25s}
