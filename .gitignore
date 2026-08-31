@@ -20,6 +20,7 @@ docs/*
 !docs/demand-forecast-orchestration.md
 !docs/ai-strategy-candidate-simulation.md
 !docs/ai-strategy-recommendation-evaluation.md
+!docs/ai-strategy-failure-teams-alert.md
 !docs/inventory-risk-grade-policy.md
 
 *.log

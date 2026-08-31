@@ -8,6 +8,7 @@ import java.util.Set;
 import org.springframework.stereotype.Component;
 
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCandidateEvaluationResult;
+import com.stockit.backend.feature.strategy.domain.StrategyType;
 
 /** LLM 응답 형식이 잘못됐을 때 후보 선별 순서를 이용해 안전한 대안을 만든다. */
 @Component
@@ -20,6 +21,20 @@ public class DeterministicRecommendationFallback {
         List<StrategyCandidateEvaluationResult.EvaluatedCandidate> selected =
                 new ArrayList<>();
         Set<RecommendationFamilyKey> families = new HashSet<>();
+        Set<StrategyType> types = new HashSet<>();
+        for (StrategyCandidateEvaluationResult.EvaluatedCandidate candidate
+                : selection.candidates()) {
+            StrategyType primaryType = candidate.candidate().strategyTypes().get(0);
+            RecommendationFamilyKey family = RecommendationFamilyKey.from(
+                    candidate.candidate()
+            );
+            if (types.add(primaryType) && families.add(family)) {
+                selected.add(candidate);
+            }
+            if (selected.size() >= request.maximumRecommendationCount()) {
+                break;
+            }
+        }
         for (StrategyCandidateEvaluationResult.EvaluatedCandidate candidate
                 : selection.candidates()) {
             if (families.add(RecommendationFamilyKey.from(candidate.candidate()))) {

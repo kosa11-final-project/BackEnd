@@ -70,9 +70,51 @@ class StrategyRecommendationResponseValidatorTest {
         );
     }
 
+    @Test
+    void rejectsOptionNameContainingQuantityOrDateRange() {
+        var selection = new RecommendationCandidateSelection(List.of(evaluated("A", 20L)));
+
+        assertThatThrownBy(() -> validator.validateAndMap(
+                1L, mock(com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculationContext.class),
+                mock(BaselineSimulation.class), selection, request(1, 1),
+                response(List.of(item("A", 1, "할인 전략 (31.0개 규모)")))
+        )).isInstanceOfSatisfying(
+                PermanentStrategyGenerationException.class,
+                exception -> assertThat(exception.getMessage())
+                        .contains("must not contain a date or quantity")
+        );
+    }
+
+    @Test
+    void rejectsRecommendationsThatIgnoreAvailableStrategyTypeDiversity() {
+        var selection = new RecommendationCandidateSelection(List.of(
+                evaluated("A", 20L, StrategyType.REALLOCATION),
+                evaluated("B", 30L, StrategyType.REALLOCATION),
+                evaluated("C", 40L, StrategyType.RT_TRANSFER)
+        ));
+
+        assertThatThrownBy(() -> validator.validateAndMap(
+                1L, mock(com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculationContext.class),
+                mock(BaselineSimulation.class), selection, request(2, 2),
+                response(List.of(item("A", 1), item("B", 2)))
+        )).isInstanceOfSatisfying(
+                PermanentStrategyGenerationException.class,
+                exception -> assertThat(exception.getMessage())
+                        .contains("strategy type diversity")
+        );
+    }
+
     private static StrategyCandidateEvaluationResult.EvaluatedCandidate evaluated(
             String id,
             Long targetSalesPointId
+    ) {
+        return evaluated(id, targetSalesPointId, StrategyType.REALLOCATION);
+    }
+
+    private static StrategyCandidateEvaluationResult.EvaluatedCandidate evaluated(
+            String id,
+            Long targetSalesPointId,
+            StrategyType strategyType
     ) {
         BigDecimal quantity = BigDecimal.TEN;
         StrategyCandidate.Location source = new StrategyCandidate.Location(1L, 10L);
@@ -80,7 +122,7 @@ class StrategyRecommendationResponseValidatorTest {
                 1L, targetSalesPointId
         );
         StrategyCandidate.Action action = new StrategyCandidate.Action(
-                StrategyType.REALLOCATION,
+                strategyType,
                 source,
                 target,
                 quantity,
@@ -94,7 +136,7 @@ class StrategyRecommendationResponseValidatorTest {
         );
         StrategyCandidate candidate = new StrategyCandidate(
                 id,
-                List.of(StrategyType.REALLOCATION),
+                List.of(strategyType),
                 LocalDate.of(2026, 8, 25),
                 null,
                 List.of(action),
@@ -130,8 +172,14 @@ class StrategyRecommendationResponseValidatorTest {
     private static AiRecommendationProviderResponse.Recommendation item(
             String id, int rank
     ) {
+        return item(id, rank, "전략 " + rank);
+    }
+
+    private static AiRecommendationProviderResponse.Recommendation item(
+            String id, int rank, String optionName
+    ) {
         return new AiRecommendationProviderResponse.Recommendation(
-                id, rank, "전략 " + rank, "추천 이유", "장점", "주의사항"
+                id, rank, optionName, "추천 이유", "장점", "주의사항"
         );
     }
 }

@@ -165,29 +165,34 @@ public class StrategyAdjustmentSimulationServiceImpl
                 option.candidate(),
                 command
         );
-        StrategyCandidate baseCandidate = selectBaseCandidate(
+        BaseCandidateSelection baseSelection = selectBaseCandidate(
                 candidateGenerationService.generate(adjustedContext),
                 option.candidate(),
-                command
+                command,
+                !selectionRequest
+        );
+        AdjustStrategySimulationCommand effectiveCommand = adjustedCommand(
+                command,
+                baseSelection.actionQuantity()
         );
         StrategyCandidate adjustedCandidate = resizeAndApplyDiscount(
                 adjustedContext,
                 option.candidate(),
-                baseCandidate,
-                command
+                baseSelection.candidate(),
+                effectiveCommand
         );
         List<Long> allocatedInventoryBalanceIds = allocatedInventoryBalanceIds(
                 adjustedCandidate
         );
         periodEligibilityPolicy.validateAllocatedPeriod(
                 adjustedContext,
-                command.endDate(),
+                effectiveCommand.endDate(),
                 allocatedInventoryBalanceIds
         );
         PeriodConstraints periodConstraints = periodEligibilityPolicy.constraints(
                 adjustedContext,
-                command.startDate(),
-                command.endDate(),
+                effectiveCommand.startDate(),
+                effectiveCommand.endDate(),
                 allocatedInventoryBalanceIds,
                 effectiveBusinessDate
         );
@@ -205,7 +210,7 @@ public class StrategyAdjustmentSimulationServiceImpl
                     adjustedCandidate,
                     periodConstraints,
                     simulation,
-                    command
+                    effectiveCommand
             );
         } catch (CandidateSimulationException exception) {
             throw new AppException(
@@ -332,10 +337,11 @@ public class StrategyAdjustmentSimulationServiceImpl
                 ));
     }
 
-    private StrategyCandidate selectBaseCandidate(
+    private BaseCandidateSelection selectBaseCandidate(
             CandidateGenerationResult generated,
             StrategyGenerationResult.Candidate template,
-            AdjustStrategySimulationCommand command
+            AdjustStrategySimulationCommand command,
+            boolean clampQuantity
     ) {
         StrategyType generationType = generationType(template.strategyTypes());
         Set<Long> targets = new LinkedHashSet<>(targetSalesPointIds(template));
@@ -356,10 +362,19 @@ public class StrategyAdjustmentSimulationServiceImpl
                 .max(Comparator.comparing(
                         StrategyAdjustmentSimulationServiceImpl::allocatedQuantity
                 ))
-                .filter(candidate -> allocatedQuantity(candidate).compareTo(
-                        command.actionQuantity()) >= 0)
                 .orElse(null);
-        if (selected != null) return selected;
+        if (selected != null) {
+            BigDecimal maximumQuantity = allocatedQuantity(selected);
+            if (maximumQuantity.compareTo(command.actionQuantity()) >= 0) {
+                return new BaseCandidateSelection(
+                        selected,
+                        command.actionQuantity()
+                );
+            }
+            if (clampQuantity) {
+                return new BaseCandidateSelection(selected, maximumQuantity);
+            }
+        }
         boolean sellableEndExceeded = structurallyMatching.isEmpty()
                 && generated.exclusions().stream()
                 .anyMatch(exclusion -> matchesSellablePeriodExclusion(
@@ -374,6 +389,21 @@ public class StrategyAdjustmentSimulationServiceImpl
         throw new AppException(
                 ErrorCode.AI_STRATEGY_SIMULATION_INVALID,
                 "조정 기간의 재고·수요 조건으로 요청 수량을 실행할 수 없습니다."
+        );
+    }
+
+    private static AdjustStrategySimulationCommand adjustedCommand(
+            AdjustStrategySimulationCommand command,
+            BigDecimal actionQuantity
+    ) {
+        if (command.actionQuantity().compareTo(actionQuantity) == 0) {
+            return command;
+        }
+        return new AdjustStrategySimulationCommand(
+                actionQuantity,
+                command.discountRate(),
+                command.startDate(),
+                command.endDate()
         );
     }
 
@@ -672,5 +702,11 @@ public class StrategyAdjustmentSimulationServiceImpl
         return types.size() == 1
                 && (types.get(0) == StrategyType.REALLOCATION
                 || types.get(0) == StrategyType.RT_TRANSFER);
+    }
+
+    private record BaseCandidateSelection(
+            StrategyCandidate candidate,
+            BigDecimal actionQuantity
+    ) {
     }
 }
