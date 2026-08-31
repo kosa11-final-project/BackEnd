@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Component;
@@ -13,6 +14,7 @@ import com.stockit.backend.feature.strategy.calculation.domain.BaselineSimulatio
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCandidateEvaluationResult;
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculationContext;
 import com.stockit.backend.feature.strategy.domain.StrategyGenerationStage;
+import com.stockit.backend.feature.strategy.domain.StrategyType;
 import com.stockit.backend.feature.strategy.messaging.PermanentStrategyGenerationException;
 
 /** JSON Schema만으로 보장할 수 없는 후보 소속·중복·순위·문자열 규칙을 검증한다. */
@@ -21,6 +23,8 @@ public class StrategyRecommendationResponseValidator {
 
     private static final int MAX_NAME_LENGTH = 100;
     private static final int MAX_TEXT_LENGTH = 500;
+    private static final Pattern DATE_IN_NAME = Pattern.compile("\\d{4}-\\d{2}-\\d{2}");
+    private static final Pattern QUANTITY_IN_NAME = Pattern.compile("\\d+(?:\\.\\d+)?\\s*개");
 
     public StrategyRecommendationResult validateAndMap(
             Long strategyCaseId,
@@ -46,6 +50,7 @@ public class StrategyRecommendationResponseValidator {
                 ));
         Set<String> ids = new HashSet<>();
         Set<RecommendationFamilyKey> familyKeys = new HashSet<>();
+        Set<StrategyType> selectedTypes = new HashSet<>();
         Set<Integer> ranks = new HashSet<>();
         for (AiRecommendationProviderResponse.Recommendation value : values) {
             if (value == null || !allowed.containsKey(value.candidateId())
@@ -59,7 +64,8 @@ public class StrategyRecommendationResponseValidator {
             if (!familyKeys.add(familyKey)) {
                 fail("LLM response contains duplicate strategy families");
             }
-            requireText(value.optionName(), MAX_NAME_LENGTH, "optionName");
+            requireOptionName(value.optionName());
+            selectedTypes.add(primaryType(allowed.get(value.candidateId())));
             requireText(value.recommendationReason(), MAX_TEXT_LENGTH,
                     "recommendationReason");
             requireText(value.advantage(), MAX_TEXT_LENGTH, "advantage");
@@ -69,6 +75,14 @@ public class StrategyRecommendationResponseValidator {
             if (!ranks.contains(rank)) {
                 fail("LLM ranks must be contiguous from one");
             }
+        }
+        long availableTypeCount = selection.candidates().stream()
+                .map(StrategyRecommendationResponseValidator::primaryType)
+                .distinct()
+                .count();
+        int requiredTypeCount = (int) Math.min(values.size(), availableTypeCount);
+        if (selectedTypes.size() < requiredTypeCount) {
+            fail("LLM response does not maximize strategy type diversity");
         }
 
         List<StrategyRecommendationResult.RecommendedOption> options = values.stream()
@@ -92,6 +106,19 @@ public class StrategyRecommendationResponseValidator {
         if (value == null || value.isBlank() || value.length() > maxLength) {
             fail(field + " is invalid");
         }
+    }
+
+    private static void requireOptionName(String value) {
+        requireText(value, MAX_NAME_LENGTH, "optionName");
+        if (DATE_IN_NAME.matcher(value).find() || QUANTITY_IN_NAME.matcher(value).find()) {
+            fail("optionName must not contain a date or quantity");
+        }
+    }
+
+    private static StrategyType primaryType(
+            StrategyCandidateEvaluationResult.EvaluatedCandidate value
+    ) {
+        return value.candidate().strategyTypes().get(0);
     }
 
     private static void fail(String message) {

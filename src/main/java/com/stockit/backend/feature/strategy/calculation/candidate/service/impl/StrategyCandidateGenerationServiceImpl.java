@@ -29,7 +29,8 @@ public class StrategyCandidateGenerationServiceImpl
             StrategyType.REALLOCATION,
             StrategyType.RT_TRANSFER,
             StrategyType.PRICE_DISCOUNT,
-            StrategyType.CHANNEL_EXPANSION
+            StrategyType.CHANNEL_EXPANSION,
+            StrategyType.CHANNEL_CONCENTRATION
     );
 
     private final Map<StrategyType, StrategyCandidateCalculator> calculators;
