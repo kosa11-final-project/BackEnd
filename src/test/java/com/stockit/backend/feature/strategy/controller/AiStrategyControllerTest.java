@@ -36,6 +36,9 @@ import com.stockit.backend.feature.strategy.domain.StrategyCaseStatus;
 import com.stockit.backend.feature.strategy.domain.StrategyRetryDateAdjustmentPolicy;
 import com.stockit.backend.feature.strategy.domain.StrategyType;
 import com.stockit.backend.feature.strategy.approval.StrategyReviewStatus;
+import com.stockit.backend.feature.strategy.approval.StrategyExecutionConditionChange;
+import com.stockit.backend.feature.strategy.approval.StrategyExecutionConditionChangedDetails;
+import com.stockit.backend.feature.strategy.approval.StrategyExecutionConditionChangeType;
 import com.stockit.backend.feature.strategy.dto.response.AiStrategyReviewerListResponse;
 import com.stockit.backend.feature.strategy.dto.response.AiStrategyTeamsRequestResponse;
 import com.stockit.backend.feature.strategy.dto.response.AiStrategySelectionValidationResponse;
@@ -502,11 +505,31 @@ class AiStrategyControllerTest {
     @Test
     void returnsBusinessErrorCodeWhenFinalOptionPrevalidationConflicts()
             throws Exception {
+        StrategyExecutionConditionChangedDetails details =
+                new StrategyExecutionConditionChangedDetails(
+                        123L,
+                        "CAND-1",
+                        LocalDateTime.of(2026, 8, 31, 16, 37, 54),
+                        List.of(new StrategyExecutionConditionChange(
+                                StrategyExecutionConditionChangeType
+                                        .AVAILABLE_QUANTITY_DECREASED,
+                                "actionQuantity",
+                                "실행 가능 재고",
+                                null,
+                                decimal("42"),
+                                decimal("31"),
+                                decimal("42"),
+                                decimal("31"),
+                                "개",
+                                "가용재고가 요청 수량보다 11개 부족합니다."
+                        ))
+                );
         when(selectionValidationService.validate(
                 123L, "CAND-1", null, 1L
         )).thenThrow(new AppException(
-                ErrorCode.AI_STRATEGY_SELECTION_CONFLICT,
-                "최종 선택 수량이 현재 안전재고를 침해합니다."
+                ErrorCode.AI_STRATEGY_EXECUTION_CONDITION_CHANGED,
+                "전략 생성 이후 실행 조건이 변경되었습니다.",
+                details
         ));
 
         CsrfCredentials csrf = requestCsrf();
@@ -519,11 +542,19 @@ class AiStrategyControllerTest {
                                 {
                                   "optionId": "CAND-1"
                                 }
-                                """))
+                """))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("AI_STRATEGY-017"))
+                .andExpect(jsonPath("$.code").value("AI_STRATEGY-028"))
                 .andExpect(jsonPath("$.message")
-                        .value("최종 선택 수량이 현재 안전재고를 침해합니다."));
+                        .value("전략 생성 이후 실행 조건이 변경되었습니다."))
+                .andExpect(jsonPath("$.details.strategyCaseId").value(123))
+                .andExpect(jsonPath("$.details.optionId").value("CAND-1"))
+                .andExpect(jsonPath("$.details.changes[0].type")
+                        .value("AVAILABLE_QUANTITY_DECREASED"))
+                .andExpect(jsonPath("$.details.changes[0].currentValue")
+                        .value(31))
+                .andExpect(jsonPath("$.details.changes[0].suggestedValue")
+                        .value(31));
     }
 
     @Test
