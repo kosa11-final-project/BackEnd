@@ -23,6 +23,7 @@ class DemandForecastFastApiClientTest {
 
     private final AtomicReference<String> requestBody = new AtomicReference<>();
     private final AtomicReference<String> requestMethod = new AtomicReference<>();
+    private final AtomicReference<String> requestPath = new AtomicReference<>();
 
     private HttpServer server;
     private DemandForecastFastApiClient client;
@@ -39,6 +40,7 @@ class DemandForecastFastApiClientTest {
                         true,
                         "http://localhost:" + server.getAddress().getPort(),
                         "test-api-key",
+                        null,
                         null,
                         null,
                         null,
@@ -77,8 +79,18 @@ class DemandForecastFastApiClientTest {
         assertThat(requestBody).hasValue("");
     }
 
+    @Test
+    void requestsDailyImportWithoutRequestBody() {
+        client.requestDailyImport("forecast-job-001");
+
+        assertThat(requestMethod).hasValue("POST");
+        assertThat(requestPath).hasValue(JOBS_PATH + "/forecast-job-001/daily-import");
+        assertThat(requestBody).hasValue("");
+    }
+
     private void handle(HttpExchange exchange) throws IOException {
         requestMethod.set(exchange.getRequestMethod());
+        requestPath.set(exchange.getRequestURI().getPath());
         requestBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
         String response = exchange.getRequestURI().getPath().endsWith("/import")
                 ? ""
