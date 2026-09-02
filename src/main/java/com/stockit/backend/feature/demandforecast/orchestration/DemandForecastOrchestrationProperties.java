@@ -11,6 +11,7 @@ public record DemandForecastOrchestrationProperties(
         String fastApiKey,
         String submitPath,
         String statusPath,
+        String dailyImportPath,
         String importPath,
         Duration connectTimeout,
         Duration readTimeout,
@@ -39,6 +40,12 @@ public record DemandForecastOrchestrationProperties(
         return importPath == null || importPath.isBlank()
                 ? "/api/v1/demand-forecasts/jobs/{azureJobId}/import"
                 : importPath;
+    }
+
+    public String resolvedDailyImportPath() {
+        return dailyImportPath == null || dailyImportPath.isBlank()
+                ? "/api/v1/demand-forecasts/jobs/{azureJobId}/daily-import"
+                : dailyImportPath;
     }
 
     public Duration resolvedConnectTimeout() {

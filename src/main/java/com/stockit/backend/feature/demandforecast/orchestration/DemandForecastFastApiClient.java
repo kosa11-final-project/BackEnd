@@ -52,6 +52,14 @@ public class DemandForecastFastApiClient {
                 .toBodilessEntity();
     }
 
+    public void requestDailyImport(String azureJobId) {
+        restClient.post()
+                .uri(properties.resolvedDailyImportPath(), azureJobId)
+                .header(API_KEY_HEADER, key())
+                .retrieve()
+                .toBodilessEntity();
+    }
+
     private String key() {
         return properties.fastApiKey() == null ? "" : properties.fastApiKey();
     }

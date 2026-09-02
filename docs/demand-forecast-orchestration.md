@@ -7,7 +7,8 @@
   -> 전날 SALES_DAILY 검증·CSV 생성·Azure Blob 업로드
   -> FastAPI Azure ML Job 제출
   -> FastAPI를 통한 Azure Job 상태 조회
-  -> 완료 시 FastAPI 결과 전송 요청
+  -> 완료 시 FastAPI Cosmos 일별 예측 적재 요청
+  -> FastAPI Backend 결과 전송 요청
   -> 최대 1,000건 단위 staging 저장
   -> 전체 배치·전체 건수 검증
   -> demand_forecast 최종 MERGE
@@ -62,6 +63,7 @@ DEMAND_FORECAST_POLL_INTERVAL=30s
 DEMAND_FORECAST_JOB_TIMEOUT=2h
 DEMAND_FORECAST_FASTAPI_BASE_URL=https://<fastapi-host>
 DEMAND_FORECAST_FASTAPI_KEY=<secret>
+DEMAND_FORECAST_DAILY_IMPORT_PATH=/api/v1/demand-forecasts/jobs/{azureJobId}/daily-import
 DEMAND_FORECAST_TEAMS_ALERT_ENABLED=true
 DEMAND_FORECAST_TEAMS_WEBHOOK_URL=https://<teams-workflow-webhook>
 DEMAND_FORECAST_TEAMS_CONNECT_TIMEOUT=3s
