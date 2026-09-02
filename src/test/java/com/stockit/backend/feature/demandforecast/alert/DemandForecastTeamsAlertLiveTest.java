@@ -57,6 +57,10 @@ class DemandForecastTeamsAlertLiveTest {
                                     "text": "🔴 [TEST] 수요예측 Teams 알림 요청 계약"
                                   },
                                   {
+                                    "type": "TextBlock",
+                                    "text": "오류 상세"
+                                  },
+                                  {
                                     "type": "FactSet",
                                     "facts": [
                                       {"title": "환경", "value": "test"},
