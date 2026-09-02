@@ -129,6 +129,7 @@ app:
       fast-api-key: ${DEMAND_FORECAST_FASTAPI_KEY:}
       submit-path: ${DEMAND_FORECAST_SUBMIT_PATH:/api/v1/demand-forecasts/jobs}
       status-path: ${DEMAND_FORECAST_STATUS_PATH:/api/v1/demand-forecasts/jobs/{azureJobId}}
+      daily-import-path: ${DEMAND_FORECAST_DAILY_IMPORT_PATH:/api/v1/demand-forecasts/jobs/{azureJobId}/daily-import}
       import-path: ${DEMAND_FORECAST_IMPORT_PATH:/api/v1/demand-forecasts/jobs/{azureJobId}/import}
       connect-timeout: ${DEMAND_FORECAST_CONNECT_TIMEOUT:3s}
       read-timeout: ${DEMAND_FORECAST_READ_TIMEOUT:30s}

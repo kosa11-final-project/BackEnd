@@ -1,6 +1,7 @@
 package com.stockit.backend.feature.demandforecast.orchestration;
 
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -10,6 +11,7 @@ import java.time.Duration;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 import org.springframework.context.ApplicationEventPublisher;
 
 import com.stockit.backend.feature.demandforecast.domain.DemandForecastSchedulerFailureEvent;
@@ -34,7 +36,8 @@ class DemandForecastAzureJobPollerTest {
             runControl,
             fastApiClient,
             new DemandForecastOrchestrationProperties(
-                    true, null, null, null, null, null, null, null, Duration.ofHours(2)
+                    true, null, null, null, null, null, null, null, null,
+                    Duration.ofHours(2)
             ),
             eventPublisher
     );
@@ -86,6 +89,24 @@ class DemandForecastAzureJobPollerTest {
         poller.poll();
 
         verify(eventPublisher).publishEvent(any(DemandForecastSchedulerFailureEvent.class));
+    }
+
+    @Test
+    void requestsCosmosDailyImportBeforeBackendImportWhenJobCompletes() {
+        DemandForecastRunVO completedRun = run(1L, "azure-job-1");
+        when(mapper.selectTimedOutRuns(7200L)).thenReturn(List.of());
+        when(mapper.selectAzurePollingRuns()).thenReturn(List.of(completedRun));
+        when(fastApiClient.status("azure-job-1"))
+                .thenReturn(new DemandForecastFastApiClient.StatusResponse("COMPLETED", null));
+        when(runControl.requiredSystemUserId()).thenReturn(99L);
+        when(mapper.markImportRequested(1L, 99L)).thenReturn(1);
+
+        poller.poll();
+
+        InOrder importOrder = inOrder(fastApiClient);
+        importOrder.verify(fastApiClient).requestDailyImport("azure-job-1");
+        importOrder.verify(fastApiClient).requestImport("azure-job-1");
+        verify(mapper).markImportRequested(1L, 99L);
     }
 
     private static DemandForecastRunVO run(Long runId, String azureJobId) {
