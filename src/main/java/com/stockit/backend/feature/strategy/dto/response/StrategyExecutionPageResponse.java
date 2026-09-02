@@ -12,9 +12,16 @@ public record StrategyExecutionPageResponse(
         @Schema(example = "125") long totalElements,
         @Schema(example = "13") int totalPages,
         @Schema(example = "true") boolean first,
-        @Schema(example = "false") boolean last
+        @Schema(example = "false") boolean last,
+        StrategyExecutionSummaryResponse summary
 ) {
     public StrategyExecutionPageResponse {
         content = List.copyOf(content == null ? List.of() : content);
+        if (summary == null) {
+            throw new IllegalArgumentException("summary must not be null");
+        }
+        if (summary.totalStrategyCount() != totalElements) {
+            throw new IllegalArgumentException("summary.totalStrategyCount must equal totalElements");
+        }
     }
 }

@@ -17,6 +17,8 @@ import com.stockit.backend.feature.strategy.service.StrategyGenerationFailureSer
 import com.stockit.backend.feature.strategy.service.StrategyGenerationJobHandler;
 import com.stockit.backend.feature.strategy.service.StrategyGenerationRetryPublisher;
 import com.stockit.backend.feature.strategy.domain.StrategyGenerationStage;
+import com.stockit.backend.feature.strategy.observability.AiStrategyGenerationMetrics;
+import com.stockit.backend.feature.strategy.observability.AiStrategyGenerationMetrics.Stage;
 
 /**
  * AI 전략 생성 메시지의 ACK, 지연 재시도와 DLQ 분기를 담당하는 RabbitMQ Adapter
@@ -44,13 +46,15 @@ public class StrategyGenerationJobListener {
     private final StrategyGenerationRetryPublisher retryPublisher;
     private final StrategyGenerationFailureService failureService;
     private final StrategyGenerationMessagingProperties properties;
+    private final AiStrategyGenerationMetrics metrics;
 
     public StrategyGenerationJobListener(
             ObjectMapper objectMapper,
             StrategyGenerationJobHandler jobHandler,
             StrategyGenerationRetryPublisher retryPublisher,
             StrategyGenerationFailureService failureService,
-            StrategyGenerationMessagingProperties properties
+            StrategyGenerationMessagingProperties properties,
+            AiStrategyGenerationMetrics metrics
     ) {
         this.objectMapper = objectMapper.copy().disable(
                 DeserializationFeature.ADJUST_DATES_TO_CONTEXT_TIME_ZONE
@@ -59,6 +63,7 @@ public class StrategyGenerationJobListener {
         this.retryPublisher = retryPublisher;
         this.failureService = failureService;
         this.properties = properties;
+        this.metrics = metrics;
     }
 
     /**
@@ -81,11 +86,15 @@ public class StrategyGenerationJobListener {
                     jobMessage.requestedAt()
             );
 
-            jobHandler.handle(
-                    jobMessage,
-                    new StrategyGenerationAttempt(
-                            retryCount + 1,
-                            properties.getMaxAttempts()
+            StrategyGenerationJobMessage measuredMessage = jobMessage;
+            metrics.measure(
+                    Stage.TOTAL_GENERATION,
+                    () -> jobHandler.handle(
+                            measuredMessage,
+                            new StrategyGenerationAttempt(
+                                    retryCount + 1,
+                                    properties.getMaxAttempts()
+                            )
                     )
             );
             // DB와 외부 저장소 처리가 모두 끝난 뒤에만 원본 메시지 제거

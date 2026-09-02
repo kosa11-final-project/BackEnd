@@ -7,6 +7,8 @@
         목록 grain은 SKU다. candidate_keys는 필터에 맞는 SKU × 판매처(또는 센터 미할당)를 고정하고,
         최종 select에서 SKU 집계 1행과 판매처별 salesPoints JSON을 함께 반환한다.
         warehouse filter는 EXISTS로만 적용해 center/LOT 1:N join이 row를 복제하지 않게 한다.
+        정책 B: 창고 마스터의 활성 여부와 관계없이 삭제되지 않은 통합 재고 잔액을 총량에 포함한다.
+        warehouse filter를 지정했을 때만 선택 가능한 활성 창고를 후보 조건으로 사용한다.
     -->
     <sql id="candidateBaseWhere">
         WHERE ib.is_deleted = 0
@@ -15,16 +17,6 @@
           AND p.is_deleted = 0
           AND (sp.sales_point_id IS NULL OR (sp.is_deleted = 0 AND sp.active_yn = 'Y'))
           AND (sc.sales_channel_id IS NULL OR (sc.is_deleted = 0 AND sc.active_yn = 'Y'))
-          AND (
-              ib.warehouse_id IS NULL
-              OR EXISTS (
-                  SELECT 1
-                  FROM warehouse active_w
-                  WHERE active_w.warehouse_id = ib.warehouse_id
-                    AND active_w.is_deleted = 0
-                    AND active_w.active_yn = 'Y'
-              )
-          )
     </sql>
 
     <!-- 동적 문자열 치환 없이 검증된 filterOperator를 고정 SQL 토큰으로 변환한다. -->
@@ -343,7 +335,8 @@
         </if>
     </sql>
 
-    <select id="selectInventoryList" resultType="InventoryItemVO">
+    <!-- 필터·정렬 요청이 교체되거나 DB가 지연되어도 한 쿼리가 무한 점유하지 않도록 30초 상한을 둡니다. -->
+    <select id="selectInventoryList" resultType="InventoryItemVO" timeout="30">
         WITH risk_rows AS (
             SELECT ib.sku_id,
                    NVL(ib.stock_sales_point_id, NVL(ib.allocated_sales_point_id, -1)) AS sales_point_id,
@@ -430,10 +423,6 @@
             FROM inventory_balance ib
             INNER JOIN candidate_keys ck ON ck.sku_id = ib.sku_id
                                         AND ck.sales_point_id = NVL(ib.stock_sales_point_id, NVL(ib.allocated_sales_point_id, -1))
-            LEFT JOIN warehouse active_w
-                    ON active_w.warehouse_id = ib.warehouse_id
-                   AND active_w.is_deleted = 0
-                   AND active_w.active_yn = 'Y'
             LEFT JOIN lot l ON l.lot_id = ib.lot_id AND l.is_deleted = 0
             WHERE ib.is_deleted = 0
         ),
@@ -676,10 +665,6 @@
             INNER JOIN candidate_keys ck ON ck.sku_id = ib.sku_id
                                         AND ck.sales_point_id = NVL(ib.stock_sales_point_id, NVL(ib.allocated_sales_point_id, -1))
             INNER JOIN paged_candidates pc ON pc.sku_id = ib.sku_id
-            LEFT JOIN warehouse active_w
-                    ON active_w.warehouse_id = ib.warehouse_id
-                   AND active_w.is_deleted = 0
-                   AND active_w.active_yn = 'Y'
             LEFT JOIN lot l ON l.lot_id = ib.lot_id AND l.is_deleted = 0
             WHERE ib.is_deleted = 0
         ),
@@ -975,7 +960,7 @@
         </choose>
     </select>
 
-    <select id="countInventory" resultType="long">
+    <select id="countInventory" resultType="long" timeout="30">
         WITH risk_rows AS (
             SELECT ib.sku_id,
                    NVL(ib.stock_sales_point_id, NVL(ib.allocated_sales_point_id, -1)) AS sales_point_id,
@@ -1044,7 +1029,7 @@
         FROM candidate_keys
     </select>
 
-    <select id="selectInventorySummary" resultType="InventorySummaryVO">
+    <select id="selectInventorySummary" resultType="InventorySummaryVO" timeout="30">
         WITH risk_rows AS (
             SELECT /*+ MATERIALIZE */
                    ib.inventory_balance_id,
@@ -1135,10 +1120,6 @@
             FROM inventory_balance ib
             INNER JOIN candidate_keys ck ON ck.sku_id = ib.sku_id
                                         AND ck.sales_point_id = NVL(ib.stock_sales_point_id, NVL(ib.allocated_sales_point_id, -1))
-            LEFT JOIN warehouse active_w
-                    ON active_w.warehouse_id = ib.warehouse_id
-                   AND active_w.is_deleted = 0
-                   AND active_w.active_yn = 'Y'
             LEFT JOIN lot l ON l.lot_id = ib.lot_id AND l.is_deleted = 0
             WHERE ib.is_deleted = 0
         ),
@@ -1363,10 +1344,6 @@
             FROM inventory_balance ib
             INNER JOIN sku s ON s.sku_id = ib.sku_id
             LEFT JOIN sales_point sp ON sp.sales_point_id = NVL(ib.stock_sales_point_id, ib.allocated_sales_point_id)
-            LEFT JOIN warehouse active_w
-                    ON active_w.warehouse_id = ib.warehouse_id
-                   AND active_w.is_deleted = 0
-                   AND active_w.active_yn = 'Y'
             LEFT JOIN lot l ON l.lot_id = ib.lot_id AND l.is_deleted = 0
             WHERE ib.is_deleted = 0
               AND s.is_deleted = 0

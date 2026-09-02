@@ -49,9 +49,20 @@
         JOIN product
           ON product.product_id = sku.product_id
          AND product.is_deleted = 0
-        LEFT JOIN strategy_execution_result execution_result
+        LEFT JOIN (
+            SELECT latest_result.*
+            FROM (
+                SELECT result.*,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY result.final_selection_id
+                           ORDER BY result.strategy_execution_result_id DESC
+                       ) AS result_rank
+                FROM strategy_execution_result result
+                WHERE result.is_deleted = 0
+            ) latest_result
+            WHERE latest_result.result_rank = 1
+        ) execution_result
           ON execution_result.final_selection_id = final_selection.final_selection_id
-         AND execution_result.is_deleted = 0
         WHERE final_selection.selection_rank = 1
     </sql>
 
@@ -79,6 +90,26 @@
 
     <select id="countFinalStrategyExecutions" resultType="long">
         SELECT COUNT(*)
+        FROM (
+            <include refid="finalStrategyBaseSelect"/>
+            <include refid="strategyExecutionFilters"/>
+        ) filtered_executions
+    </select>
+
+    <select id="selectFinalStrategyExecutionSummary" resultType="StrategyExecutionSummaryVO">
+        SELECT COUNT(DISTINCT CASE
+                   WHEN filtered_executions.case_status != 'READY_TO_EXECUTE'
+                   THEN filtered_executions.strategy_case_id
+               END) AS execution_strategy_count,
+               COUNT(DISTINCT CASE
+                   WHEN filtered_executions.case_status = 'EXECUTING'
+                   THEN filtered_executions.strategy_case_id
+               END) AS in_progress_strategy_count,
+               COUNT(DISTINCT CASE
+                   WHEN filtered_executions.result_status = 'PARTIAL'
+                   THEN filtered_executions.strategy_case_id
+               END) AS attention_strategy_count,
+               COUNT(DISTINCT filtered_executions.strategy_case_id) AS total_strategy_count
         FROM (
             <include refid="finalStrategyBaseSelect"/>
             <include refid="strategyExecutionFilters"/>

@@ -20,6 +20,8 @@ import com.stockit.backend.feature.strategy.result.StrategyResultProperties;
 import com.stockit.backend.feature.strategy.service.AiStrategyCaseListService;
 import com.stockit.backend.feature.strategy.vo.AiStrategyCaseListQuery;
 import com.stockit.backend.feature.strategy.vo.AiStrategyCaseStatusCountVO;
+import com.stockit.backend.common.exception.AppException;
+import com.stockit.backend.common.exception.ErrorCode;
 
 @Service
 @Transactional(readOnly = true)
@@ -52,6 +54,10 @@ public class AiStrategyCaseListServiceImpl implements AiStrategyCaseListService 
     @Override
     public AiStrategyCaseListPageResponse findAll(AiStrategyCaseListQuery query) {
         Objects.requireNonNull(query, "query must not be null");
+        if (query.warehouseCode() != null
+                && mapper.countActiveWarehouseCode(query.warehouseCode()) == 0) {
+            throw new AppException(ErrorCode.INVALID_PARAMETER);
+        }
         LocalDateTime visibleAt = LocalDateTime.now(clock.withZone(BUSINESS_ZONE));
         LocalDateTime visibleFrom = visibleAt.minus(resultProperties.getTtl());
 

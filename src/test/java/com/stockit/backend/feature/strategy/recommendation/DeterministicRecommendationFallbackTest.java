@@ -54,17 +54,52 @@ class DeterministicRecommendationFallbackTest {
                 .containsExactly(1, 2, 3, 4);
     }
 
+    @Test
+    void selectsOneCandidatePerStrategyTypeBeforeFillingRemainingSlots() {
+        RecommendationCandidateSelection selection =
+                new RecommendationCandidateSelection(List.of(
+                        evaluated("MOVE-A", 20L, StrategyType.REALLOCATION),
+                        evaluated("MOVE-B", 30L, StrategyType.REALLOCATION),
+                        evaluated("DISCOUNT", 10L, StrategyType.PRICE_DISCOUNT),
+                        evaluated("EXPANSION", 40L, StrategyType.CHANNEL_EXPANSION)
+                ));
+        AiRecommendationRequest request = new AiRecommendationRequest(
+                "v3", 1L, 3, 3,
+                mock(AiRecommendationRequest.BaselineInput.class),
+                List.of(
+                        mock(AiRecommendationRequest.CandidateInput.class),
+                        mock(AiRecommendationRequest.CandidateInput.class),
+                        mock(AiRecommendationRequest.CandidateInput.class),
+                        mock(AiRecommendationRequest.CandidateInput.class)
+                )
+        );
+
+        AiRecommendationProviderResponse response = fallback.create(selection, request);
+
+        assertThat(response.recommendations())
+                .extracting(AiRecommendationProviderResponse.Recommendation::candidateId)
+                .containsExactly("MOVE-A", "DISCOUNT", "EXPANSION");
+    }
+
     private static StrategyCandidateEvaluationResult.EvaluatedCandidate evaluated(
             String id,
             Long targetSalesPointId
+    ) {
+        return evaluated(id, targetSalesPointId, StrategyType.REALLOCATION);
+    }
+
+    private static StrategyCandidateEvaluationResult.EvaluatedCandidate evaluated(
+            String id,
+            Long targetSalesPointId,
+            StrategyType strategyType
     ) {
         StrategyCandidate candidate = mock(StrategyCandidate.class);
         StrategyCandidate.Action action = mock(StrategyCandidate.Action.class);
         StrategyCandidateSimulation simulation = mock(StrategyCandidateSimulation.class);
         when(candidate.candidateId()).thenReturn(id);
-        when(candidate.strategyTypes()).thenReturn(List.of(StrategyType.REALLOCATION));
+        when(candidate.strategyTypes()).thenReturn(List.of(strategyType));
         when(candidate.actions()).thenReturn(List.of(action));
-        when(action.actionType()).thenReturn(StrategyType.REALLOCATION);
+        when(action.actionType()).thenReturn(strategyType);
         when(action.source()).thenReturn(new StrategyCandidate.Location(1L, 10L));
         when(action.target()).thenReturn(
                 new StrategyCandidate.Location(1L, targetSalesPointId)

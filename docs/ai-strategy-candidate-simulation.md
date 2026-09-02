@@ -35,6 +35,68 @@ LLM이 비교할 수 있는 요약 지표를 만든다. 동일한 계산 엔진�
 - `SUMMARY_ONLY`: LLM 호출 전 전체 후보에 사용하며 요약과 무전략 비교값만 생성한다.
 - `WITH_DAILY_SERIES`: 최종 선택 후보에 사용하며 동일한 계산에 일별 재고·매출·공헌이익 시계열을 추가한다.
 
+## 생성 단계 성능 계측
+
+Micrometer의 `stockit.ai.strategy.generation.stage.duration` Histogram으로 다음
+단계를 분리해 측정한다.
+
+- `total_generation`
+- `forecast_api`
+- `context_load`
+- `baseline_simulation`
+- `candidate_generation`
+- `candidate_simulation`
+- `candidate_preselection`
+- `llm_recommendation`
+- `finalization`
+
+Metric 태그는 `stage`, `outcome`, `phase`처럼 값의 종류가 제한된 항목만 사용한다.
+`strategyCaseId`, `skuId`, `salesPointId`, `candidateId`는 요청마다 달라지는
+고카디널리티 값이므로 Metric 태그에 포함하지 않고 일반 로그에서만 추적한다.
+
+입력 판매처·LOT·예측일 수, 후보 생성·제외·시뮬레이션 실패·사전 선별·최종 추천
+개수, LLM 입출력 Token과 정상 추천·Fallback·현상 유지 결과도 별도 Summary와
+Counter로 기록한다.
+
+LLM 추천의 경제성 Regret, 대안 다양성, 사용자 우선순위·고정 조건 준수 및
+Gemini 실호출 평가 방법은 `docs/ai-strategy-recommendation-evaluation.md`에 기록한다.
+
+## 후보 시뮬레이션 최적화와 재현 벤치마크
+
+후보별 일별 판매 처리에서는 LOT 출고 순서가 날짜에 따라 바뀌지 않는다. 식품의
+FEFO와 공산품의 FIFO 비교 기준은 모두 LOT의 정적 속성이므로, 매 판매처·일자마다
+LOT를 다시 정렬하지 않고 다음 시점에만 정렬한다.
+
+1. 후보의 LOT 상태를 처음 생성한 직후
+2. 전략 시작일에 이동·할인 적용 LOT를 분리한 직후
+
+보관비·폐기비 정책도 후보 내에서 같은 창고·판매처 조합을 반복 조회하므로 위치별
+조회 결과를 후보 생명주기 동안 재사용한다. 두 최적화 모두 후보 생성 정책, 수량,
+정렬 결과와 재무 계산식을 변경하지 않는다.
+
+외부 DB·ML·Gemini 변동을 제외한 수동 벤치마크는 다음 명령으로 실행한다.
+
+```bash
+./gradlew strategyPerfTest --info
+```
+
+2026-08-29 동일 JVM에서 변경 전후를 각각 10회 Warm-up 후 30회 측정한 결과는
+다음과 같다.
+시간은 운영 SLA가 아니라 같은 Fixture에서 변경 전후를 비교하는 회귀 지표다.
+
+| Fixture | 후보 수 | LOT 수 | 변경 전 p50 | 변경 후 p50 | 변경 전 p95 | 변경 후 p95 | p95 개선율 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 소형 | 5 | 5 | 1.814ms | 1.110ms | 2.653ms | 1.614ms | 39.2% |
+| 일반 | 150 | 20 | 34.388ms | 13.019ms | 43.844ms | 14.964ms | 65.9% |
+| 대형 | 500 | 50 | 275.402ms | 74.029ms | 284.838ms | 77.711ms | 72.7% |
+
+Fixture별 계산 결과 checksum도 함께 검증한다. 따라서 이후 성능 변경으로 예상
+매출·공헌이익·순효과 계산이 달라지면 벤치마크가 실패한다.
+
+운영 컨테이너의 CPU 제한과 후보 계산 외 ML·Gemini 지연을 고려해 후보 병렬화는
+이번 변경에 포함하지 않았다. 먼저 반복 정렬과 정책 탐색을 제거하는 단일 스레드
+최적화만 적용해 CPU 경합과 결과 순서 변경 없이 충분한 개선을 확보했다.
+
 ## 후속 결정: 미래 전략 대상 재고 예약 시점
 
 ### 현재 구현

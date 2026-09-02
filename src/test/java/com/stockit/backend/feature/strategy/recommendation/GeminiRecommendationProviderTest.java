@@ -57,6 +57,7 @@ class GeminiRecommendationProviderTest {
 
         assertThat(properties.getModel()).isEqualTo("gemini-3.5-flash");
         assertThat(properties.getMaxOutputTokens()).isEqualTo(4096);
+        assertThat(properties.getThinkingLevel()).isEqualTo("minimal");
     }
 
     @Test
@@ -75,6 +76,8 @@ class GeminiRecommendationProviderTest {
         assertThat(body.path("model").asText()).isEqualTo("gemini-3.5-flash");
         assertThat(body.path("generation_config").path("max_output_tokens").asInt())
                 .isEqualTo(4096);
+        assertThat(body.path("generation_config").path("thinking_level").asText())
+                .isEqualTo("minimal");
         assertThat(body.path("store").asBoolean()).isFalse();
         assertThat(body.path("input").asText())
                 .contains("\"schemaVersion\":\"ai-strategy-recommendation-v4\"")

@@ -29,6 +29,7 @@ import com.stockit.backend.feature.auth.security.AuthPrincipal;
 import com.stockit.backend.feature.auth.vo.AuthUserVO;
 import com.stockit.backend.feature.strategy.dto.response.StrategyExecutionResponse;
 import com.stockit.backend.feature.strategy.dto.response.StrategyExecutionPageResponse;
+import com.stockit.backend.feature.strategy.dto.response.StrategyExecutionSummaryResponse;
 import com.stockit.backend.feature.strategy.dto.response.StrategyPerformanceSyncResponse;
 import com.stockit.backend.feature.strategy.service.StrategyExecutionService;
 import com.stockit.backend.feature.strategy.service.StrategyPerformanceSyncService;
@@ -53,7 +54,8 @@ class StrategyExecutionControllerTest {
         StrategyExecutionResponse response = response();
         StrategyExecutionQuery defaultQuery = new StrategyExecutionQuery(0, 10, null, null, null, "DESC");
         when(service.findAll(defaultQuery)).thenReturn(new StrategyExecutionPageResponse(
-                List.of(response), 0, 10, 1, 1, true, true
+                List.of(response), 0, 10, 1, 1, true, true,
+                new StrategyExecutionSummaryResponse(0, 0, 0, 1)
         ));
         when(service.findByStrategyCaseId(101L)).thenReturn(response);
 
@@ -68,7 +70,11 @@ class StrategyExecutionControllerTest {
                 .andExpect(jsonPath("$.data.totalElements").value(1))
                 .andExpect(jsonPath("$.data.totalPages").value(1))
                 .andExpect(jsonPath("$.data.first").value(true))
-                .andExpect(jsonPath("$.data.last").value(true));
+                .andExpect(jsonPath("$.data.last").value(true))
+                .andExpect(jsonPath("$.data.summary.executionStrategyCount").value(0))
+                .andExpect(jsonPath("$.data.summary.inProgressStrategyCount").value(0))
+                .andExpect(jsonPath("$.data.summary.attentionStrategyCount").value(0))
+                .andExpect(jsonPath("$.data.summary.totalStrategyCount").value(1));
 
         mockMvc.perform(get("/api/v1/strategy-executions/101")
                         .with(user(adminPrincipal())))
@@ -140,7 +146,8 @@ class StrategyExecutionControllerTest {
                 1, 20, "두부", "EXECUTING", "PRICE_DISCOUNT", "ASC"
         );
         when(service.findAll(query)).thenReturn(new StrategyExecutionPageResponse(
-                List.of(), 1, 20, 21, 2, false, true
+                List.of(), 1, 20, 21, 2, false, true,
+                new StrategyExecutionSummaryResponse(12, 4, 2, 21)
         ));
 
         mockMvc.perform(get("/api/v1/strategy-executions")

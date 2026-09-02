@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.stockit.backend.feature.strategy.mapper.AiStrategyFailureAlertMapper">
+
+    <select id="selectFailureAlert" resultType="AiStrategyFailureAlertVO">
+        SELECT strategy_case.strategy_case_id,
+               strategy_case.retry_parent_case_id,
+               strategy_case.case_code,
+               strategy_case.case_name,
+               strategy_case.request_payload_json,
+               strategy_case.generation_stage,
+               strategy_case.failure_code,
+               strategy_case.failure_message,
+               strategy_case.completed_at,
+               strategy_case.created_by AS requester_id,
+               requester.user_name AS requester_name,
+               sku.sku_id,
+               sku.sku_code,
+               sku.sku_name,
+               source_point.sales_point_id AS source_sales_point_id,
+               source_point.sales_point_name AS source_sales_point_name
+        FROM strategy_case strategy_case
+        JOIN sku
+          ON sku.sku_id = strategy_case.sku_id
+        LEFT JOIN app_user requester
+          ON requester.user_id = strategy_case.created_by
+        LEFT JOIN sales_point source_point
+          ON source_point.sales_point_id = strategy_case.requested_sales_point_id
+        WHERE strategy_case.strategy_case_id = #{strategyCaseId}
+          AND strategy_case.case_status = 'GENERATION_FAILED'
+          AND strategy_case.is_deleted = 0
+    </select>
+
+</mapper>

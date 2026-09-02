@@ -318,7 +318,10 @@ class StrategyAdjustmentSimulationServiceImplTest {
     }
 
     @Test
-    void doesNotMisclassifyQuantityMismatchAsSellableEndExceeded() {
+    void clampsAdjustedSimulationQuantityToPeriodMaximum() {
+        StrategyCandidateSimulation simulation = mock(
+                StrategyCandidateSimulation.class
+        );
         stubSelection(new CandidateGenerationResult(
                 List.of(baseCandidate()),
                 List.of(new CandidateExclusion(
@@ -328,13 +331,41 @@ class StrategyAdjustmentSimulationServiceImplTest {
                         "다른 수량 변형의 LOT 판매 가능 기간을 초과했습니다."
                 ))
         ));
+        when(simulationEngine.simulate(
+                any(), any(), any(), eq(SimulationDetailLevel.WITH_DAILY_SERIES)
+        )).thenReturn(simulation);
 
-        assertThatThrownBy(() -> service.simulate(
+        var response = service.simulate(
                 1L,
                 "CAND-1",
                 new AdjustStrategySimulationCommand(
                         decimal("11"), decimal("0.15"), START, END
                 )
+        );
+
+        assertThat(response.adjustedConditions().actionQuantity())
+                .isEqualByComparingTo("10");
+        assertThat(response.adjustedConditions().maximumExecutableQuantity())
+                .isEqualByComparingTo("10");
+        assertThat(response.actions()).singleElement().satisfies(action ->
+                assertThat(action.actionQuantity()).isEqualByComparingTo("10")
+        );
+    }
+
+    @Test
+    void keepsSelectionValidationStrictWhenQuantityExceedsPeriodMaximum() {
+        stubSelection(new CandidateGenerationResult(
+                List.of(baseCandidate()),
+                List.of()
+        ));
+
+        assertThatThrownBy(() -> service.resolveForSelection(
+                1L,
+                "CAND-1",
+                new AdjustStrategySimulationCommand(
+                        decimal("11"), decimal("0.15"), START, END
+                ),
+                null
         )).isInstanceOfSatisfying(
                 AppException.class,
                 exception -> assertThat(exception.getErrorCode())

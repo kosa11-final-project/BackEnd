@@ -144,6 +144,15 @@ app:
         environment: ${APP_ENVIRONMENT:local}
         dashboard-url: ${DEMAND_FORECAST_DASHBOARD_URL:}
   ai-strategy:
+    alert:
+      teams:
+        enabled: ${AI_STRATEGY_FAILURE_TEAMS_ALERT_ENABLED:false}
+        webhook-url: ${AI_STRATEGY_FAILURE_TEAMS_WEBHOOK_URL:}
+        connect-timeout: ${AI_STRATEGY_FAILURE_TEAMS_CONNECT_TIMEOUT:3s}
+        read-timeout: ${AI_STRATEGY_FAILURE_TEAMS_READ_TIMEOUT:10s}
+        environment: ${APP_ENVIRONMENT:local}
+        case-url-template: ${AI_STRATEGY_FAILURE_CASE_URL_TEMPLATE:}
+        log-url-template: ${AI_STRATEGY_FAILURE_LOG_URL_TEMPLATE:}
     sse:
       timeout: ${AI_STRATEGY_SSE_TIMEOUT:30m}
       heartbeat-interval: ${AI_STRATEGY_SSE_HEARTBEAT_INTERVAL:25s}
@@ -200,6 +209,7 @@ ai:
     read-timeout: ${AI_RECOMMENDATION_READ_TIMEOUT:120s}
     max-output-tokens: ${AI_RECOMMENDATION_MAX_OUTPUT_TOKENS:4096}
     seed: ${AI_RECOMMENDATION_SEED:72}
+    thinking-level: ${AI_RECOMMENDATION_THINKING_LEVEL:minimal}
 
 mybatis:
   mapper-locations: classpath:mappers/**/*.xml

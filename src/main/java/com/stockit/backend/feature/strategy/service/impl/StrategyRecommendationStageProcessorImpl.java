@@ -18,6 +18,8 @@ import com.stockit.backend.feature.strategy.mapper.StrategyCaseMapper;
 import com.stockit.backend.feature.strategy.messaging.PermanentStrategyGenerationException;
 import com.stockit.backend.feature.strategy.messaging.RetryableStrategyGenerationException;
 import com.stockit.backend.feature.strategy.messaging.StrategyGenerationBusyException;
+import com.stockit.backend.feature.strategy.observability.AiStrategyGenerationMetrics;
+import com.stockit.backend.feature.strategy.observability.AiStrategyGenerationMetrics.Stage;
 import com.stockit.backend.feature.strategy.recommendation.StrategyRecommendationResult;
 import com.stockit.backend.feature.strategy.recommendation.StrategyRecommendationService;
 import com.stockit.backend.feature.strategy.recommendation.RecommendationExecutionPolicy;
@@ -55,6 +57,7 @@ public class StrategyRecommendationStageProcessorImpl
     private final StrategyGenerationStageService stageService;
     private final StrategyResultProperties resultProperties;
     private final StrategySimulationContextStore simulationContextStore;
+    private final AiStrategyGenerationMetrics metrics;
 
     public StrategyRecommendationStageProcessorImpl(
             StrategyCaseMapper caseMapper,
@@ -65,7 +68,8 @@ public class StrategyRecommendationStageProcessorImpl
             StrategyResultLockManager lockManager,
             StrategyGenerationStageService stageService,
             StrategyResultProperties resultProperties,
-            StrategySimulationContextStore simulationContextStore
+            StrategySimulationContextStore simulationContextStore,
+            AiStrategyGenerationMetrics metrics
     ) {
         this.caseMapper = caseMapper;
         this.evaluationService = evaluationService;
@@ -76,6 +80,7 @@ public class StrategyRecommendationStageProcessorImpl
         this.stageService = stageService;
         this.resultProperties = resultProperties;
         this.simulationContextStore = simulationContextStore;
+        this.metrics = metrics;
     }
 
     @Override
@@ -179,22 +184,10 @@ public class StrategyRecommendationStageProcessorImpl
                             ? null : recommendation.providerMetadata().model(),
                     elapsedMillis(recommendationStartedNanos)
             );
-            StrategyGenerationResult result = resultFactory.create(
-                    strategyCaseId, recommendation
+            metrics.measure(
+                    Stage.FINALIZATION,
+                    () -> finalizeRecommendation(strategyCaseId, recommendation)
             );
-            saveSimulationContext(recommendation.calculationContext());
-            log.debug(
-                    "Strategy simulation context saved. strategyCaseId={}",
-                    strategyCaseId
-            );
-            StrategyResultCacheEntry entry = save(result);
-            log.debug(
-                    "Strategy result cached. strategyCaseId={}, cacheKey={}, "
-                            + "expiresAt={}, optionCount={}",
-                    strategyCaseId, entry.cacheKey(), entry.expiresAt(),
-                    result.options().size()
-            );
-            complete(strategyCaseId, entry, result);
         } catch (PermanentStrategyGenerationException
                  | RetryableStrategyGenerationException exception) {
             throw exception;
@@ -213,6 +206,28 @@ public class StrategyRecommendationStageProcessorImpl
                     "Unexpected error occurred while generating AI strategy", exception
             );
         }
+    }
+
+    private void finalizeRecommendation(
+            Long strategyCaseId,
+            StrategyRecommendationResult recommendation
+    ) {
+        StrategyGenerationResult result = resultFactory.create(
+                strategyCaseId, recommendation
+        );
+        saveSimulationContext(recommendation.calculationContext());
+        log.debug(
+                "Strategy simulation context saved. strategyCaseId={}",
+                strategyCaseId
+        );
+        StrategyResultCacheEntry entry = save(result);
+        log.debug(
+                "Strategy result cached. strategyCaseId={}, cacheKey={}, "
+                        + "expiresAt={}, optionCount={}",
+                strategyCaseId, entry.cacheKey(), entry.expiresAt(),
+                result.options().size()
+        );
+        complete(strategyCaseId, entry, result);
     }
 
     private void completeFromCache(Long strategyCaseId, StrategyGenerationResult result) {

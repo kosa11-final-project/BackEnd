@@ -104,6 +104,10 @@ HTTPS URL을 `DEMAND_FORECAST_TEAMS_WEBHOOK_URL`로 주입합니다. Workflow에
 - 일일 Trigger 등록 실패
 - Azure 상태 Poller 조회 실패
 
+카드 본문은 제목과 실행 메타데이터를 먼저 표시하고, 오류 상세는 작은 글씨로 가장 안쪽
+원인만 요약합니다. Teams Incoming Webhook은 임의 CSS나 `font-size`를 허용하지 않으므로
+Adaptive Card의 `size: Small` 범위 안에서 표시 크기를 제어합니다.
+
 Run 실패는 상태 전이가 한 번만 성공하므로 한 번 전송됩니다. Run이 만들어지기 전의
 스케줄러 실패는 동일 장애가 반복될 수 있어 인스턴스별 cooldown 동안 중복 전송을
 억제합니다. Teams 전송 실패는 원래 수요예측 상태 트랜잭션을 롤백하지 않고 서버 로그에

@@ -28,7 +28,10 @@ import com.stockit.backend.feature.strategy.calculation.domain.StrategyCandidate
 import com.stockit.backend.feature.strategy.calculation.domain.StrategyCandidateSimulation;
 import com.stockit.backend.feature.strategy.messaging.PermanentStrategyGenerationException;
 import com.stockit.backend.feature.strategy.messaging.RetryableStrategyGenerationException;
+import com.stockit.backend.feature.strategy.observability.AiStrategyGenerationMetrics;
 import com.stockit.backend.feature.strategy.domain.StrategyType;
+
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 @ExtendWith({MockitoExtension.class, OutputCaptureExtension.class})
 class StrategyRecommendationServiceTest {
@@ -39,6 +42,7 @@ class StrategyRecommendationServiceTest {
     @Mock private AiRecommendationProvider provider;
     @Mock private StrategyRecommendationResponseValidator validator;
     @Mock private DeterministicRecommendationFallback fallback;
+    @Mock private AiRecommendationQualityEvaluator qualityEvaluator;
 
     private StrategyRecommendationService service;
 
@@ -51,7 +55,14 @@ class StrategyRecommendationServiceTest {
                 provider,
                 validator,
                 fallback,
-                new StrategyCandidateEvaluationClassifier()
+                new StrategyCandidateEvaluationClassifier(),
+                qualityEvaluator,
+                new AiStrategyGenerationMetrics(new SimpleMeterRegistry())
+        );
+        org.mockito.Mockito.lenient().when(
+                qualityEvaluator.evaluate(any(), any(), any())
+        ).thenReturn(
+                mock(AiRecommendationQualityEvaluation.class)
         );
     }
 
