@@ -26,12 +26,13 @@ class StrategyPeriodCandidatePolicyTest {
             );
 
     @Test
-    void startOnlyUsesRemainingRequestDateForecastHorizonInsteadOfNewNinetyDays() {
-        LocalDate start = LocalDate.of(2026, 9, 15);
-        LocalDate requestDateMaxEnd = LocalDate.of(2026, 10, 29);
-        when(dateTimeProvider.now()).thenReturn(start.atStartOfDay());
+    void startOnlyUsesRemainingDaysWithinInclusiveThirtyDayRequestWindow() {
+        LocalDate requestDate = LocalDate.of(2026, 9, 1);
+        LocalDate start = requestDate.plusDays(15);
+        LocalDate requestDateMaxEnd = requestDate.plusDays(29);
+        when(dateTimeProvider.now()).thenReturn(requestDate.atStartOfDay());
         StrategyCalculationContext context = mock(StrategyCalculationContext.class);
-        when(context.forecastStartDate()).thenReturn(start);
+        when(context.forecastStartDate()).thenReturn(requestDate);
         when(context.forecastEndDate()).thenReturn(requestDateMaxEnd);
         when(context.evaluationInventory()).thenReturn(List.of(
                 new StrategyCalculationContext.InventoryLot(
@@ -54,7 +55,6 @@ class StrategyPeriodCandidatePolicyTest {
         assertThat(result).containsExactly(
                 new StrategyPeriodCandidate(start, start.plusDays(6)),
                 new StrategyPeriodCandidate(start, start.plusDays(13)),
-                new StrategyPeriodCandidate(start, start.plusDays(29)),
                 new StrategyPeriodCandidate(start, requestDateMaxEnd)
         );
         assertThat(result).allSatisfy(period ->

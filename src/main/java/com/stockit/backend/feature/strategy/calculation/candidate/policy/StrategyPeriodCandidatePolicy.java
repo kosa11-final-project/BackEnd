@@ -19,7 +19,7 @@ import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculati
 import com.stockit.backend.feature.strategy.service.StrategyDateTimeProvider;
 
 /**
- * 사용자 고정일과 90일 이내 수요·소비기한 경계를 반영해 기간 후보를 제한하는 정책
+ * 사용자 고정일과 30일 이내 수요·소비기한 경계를 반영해 기간 후보를 제한하는 정책
  */
 @Component
 public class StrategyPeriodCandidatePolicy {

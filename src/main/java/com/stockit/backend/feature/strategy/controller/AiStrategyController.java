@@ -215,7 +215,7 @@ public class AiStrategyController {
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "조정 조건 또는 기간 오류", content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "다른 조직의 Case", content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "Case 또는 후보 없음", content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "현재 재고·가격·원가·판매처·경로와 선택 조건 충돌", content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "현재 실행 조건 변경. details.changes에 변경 전·현재·요청·권장값을 반환", content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "410", description = "Redis 계산 결과 만료", content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
     })
     public ApiResponse<AiStrategySelectionValidationResponse> validateSelection(

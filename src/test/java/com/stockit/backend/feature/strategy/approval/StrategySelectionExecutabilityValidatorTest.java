@@ -8,6 +8,7 @@ import static org.mockito.Mockito.when;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 
@@ -20,6 +21,7 @@ import com.stockit.backend.feature.strategy.calculation.vo.StrategyCalculationIn
 import com.stockit.backend.feature.strategy.calculation.vo.StrategyCalculationPolicyVO;
 import com.stockit.backend.feature.strategy.domain.StrategyType;
 import com.stockit.backend.feature.strategy.result.StrategyGenerationResult;
+import com.stockit.backend.feature.strategy.service.StrategyDateTimeProvider;
 
 class StrategySelectionExecutabilityValidatorTest {
 
@@ -38,8 +40,11 @@ class StrategySelectionExecutabilityValidatorTest {
         StrategyCalculationInventoryVO current = inventory("5");
         when(resolved.option()).thenReturn(option);
         when(resolved.calculationContext()).thenReturn(context);
+        when(resolved.strategyCaseId()).thenReturn(123L);
+        when(resolved.evaluationEndDate()).thenReturn(LocalDate.of(2026, 8, 31));
         when(option.candidate()).thenReturn(candidate);
         when(context.sku()).thenReturn(sku);
+        when(context.salesPoints()).thenReturn(Map.of());
         when(sku.skuId()).thenReturn(100L);
         when(mapper.selectInventory(100L)).thenReturn(List.of(current));
 
@@ -50,8 +55,42 @@ class StrategySelectionExecutabilityValidatorTest {
                 resolved, LocalDate.of(2026, 8, 25)
         )).isInstanceOfSatisfying(
                 AppException.class,
-                exception -> assertThat(exception.getErrorCode())
-                        .isEqualTo(ErrorCode.AI_STRATEGY_SELECTION_CONFLICT)
+                exception -> {
+                    assertThat(exception.getErrorCode()).isEqualTo(
+                            ErrorCode.AI_STRATEGY_EXECUTION_CONDITION_CHANGED
+                    );
+                    var details = (StrategyExecutionConditionChangedDetails)
+                            exception.getDetails();
+                    assertThat(details.changes())
+                            .extracting(StrategyExecutionConditionChange::type)
+                            .contains(
+                                    StrategyExecutionConditionChangeType
+                                            .AVAILABLE_QUANTITY_DECREASED
+                            );
+                    StrategyExecutionConditionChange quantityChange = details
+                            .changes().stream()
+                            .filter(change -> "actionQuantity".equals(
+                                    change.field()
+                            ))
+                            .findFirst()
+                            .orElseThrow();
+                    assertThat(quantityChange.currentValue())
+                            .isEqualTo(new BigDecimal("5"));
+                    assertThat(quantityChange.requestedValue())
+                            .isEqualTo(new BigDecimal("10"));
+                    assertThat(quantityChange.suggestedValue())
+                            .isEqualTo(new BigDecimal("5"));
+                    StrategyExecutionConditionChange lotChange = details
+                            .changes().stream()
+                            .filter(change -> "availableQuantity".equals(
+                                    change.field()
+                            ))
+                            .findFirst()
+                            .orElseThrow();
+                    assertThat(lotChange.subject().inventoryBalanceId())
+                            .isEqualTo(1L);
+                    assertThat(lotChange.subject().lotId()).isEqualTo(1001L);
+                }
         );
     }
 
@@ -127,9 +166,21 @@ class StrategySelectionExecutabilityValidatorTest {
                 resolved, LocalDate.of(2026, 8, 25)
         )).isInstanceOfSatisfying(
                 AppException.class,
-                exception -> assertThat(exception.getMessage()).isEqualTo(
-                        "최종 선택에 포함된 LOT가 현재 판매 가능한 상태가 아닙니다."
-                )
+                exception -> {
+                    assertThat(exception.getErrorCode()).isEqualTo(
+                            ErrorCode.AI_STRATEGY_EXECUTION_CONDITION_CHANGED
+                    );
+                    var details = (StrategyExecutionConditionChangedDetails)
+                            exception.getDetails();
+                    assertThat(details.changes())
+                            .extracting(StrategyExecutionConditionChange::type)
+                            .contains(
+                                    StrategyExecutionConditionChangeType
+                                            .LOT_NOT_SELLABLE,
+                                    StrategyExecutionConditionChangeType
+                                            .SELLABLE_END_DATE_CHANGED
+                            );
+                }
         );
     }
 
@@ -137,8 +188,9 @@ class StrategySelectionExecutabilityValidatorTest {
             StrategyCalculationInputMapper mapper
     ) {
         return new StrategySelectionExecutabilityValidator(
-                mapper,
-                mock(StrategyTransferInputFreshnessValidator.class)
+                new StrategySelectionConditionChangeDetector(mapper),
+                mock(StrategyTransferInputFreshnessValidator.class),
+                new StrategyDateTimeProvider()
         );
     }
 
@@ -151,10 +203,13 @@ class StrategySelectionExecutabilityValidatorTest {
         );
         when(resolved.option()).thenReturn(option);
         when(resolved.calculationContext()).thenReturn(context);
+        when(resolved.strategyCaseId()).thenReturn(123L);
+        when(resolved.evaluationEndDate()).thenReturn(LocalDate.of(2026, 8, 31));
         when(option.candidate()).thenReturn(candidateWithoutSalesPoint(quantity));
         when(context.sku()).thenReturn(sku);
         when(context.sourceSalesPointId()).thenReturn(null);
         when(context.unitCost()).thenReturn(new BigDecimal("5000"));
+        when(context.salesPoints()).thenReturn(Map.of());
         when(sku.skuId()).thenReturn(100L);
         return resolved;
     }
