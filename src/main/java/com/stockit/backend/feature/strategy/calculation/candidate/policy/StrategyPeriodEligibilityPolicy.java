@@ -20,7 +20,7 @@ import com.stockit.backend.feature.strategy.calculation.domain.StrategyCalculati
 @Component
 public class StrategyPeriodEligibilityPolicy {
 
-    public static final int MAXIMUM_PERIOD_DAYS = 90;
+    public static final int MAXIMUM_PERIOD_DAYS = 30;
 
     /** 오늘과 수요예측 시작일 중 늦은 날짜를 현재 선택 가능한 시작일로 반환한다. */
     public LocalDate minimumStartDate(
@@ -61,18 +61,24 @@ public class StrategyPeriodEligibilityPolicy {
             );
         }
 
+        LocalDate maximumWindowEnd = context.forecastStartDate()
+                .plusDays(MAXIMUM_PERIOD_DAYS - 1L);
+        if (maximumWindowEnd.isAfter(context.forecastEndDate())) {
+            maximumWindowEnd = context.forecastEndDate();
+        }
+
         LocalDate latest = null;
         for (InventoryLot lot : lots) {
             LocalDate sellableEnd = sellableEndDate(lot);
             if (sellableEnd == null) {
-                return context.forecastEndDate();
+                return maximumWindowEnd;
             }
             if (latest == null || sellableEnd.isAfter(latest)) {
                 latest = sellableEnd;
             }
         }
-        return latest.isAfter(context.forecastEndDate())
-                ? context.forecastEndDate()
+        return latest.isAfter(maximumWindowEnd)
+                ? maximumWindowEnd
                 : latest;
     }
 

@@ -1,6 +1,8 @@
 package com.stockit.backend.feature.strategy.approval;
 
 import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.List;
 
 import org.springframework.stereotype.Component;
@@ -78,6 +80,15 @@ public class StrategySelectionResolver {
         StrategyGenerationResult.Option option = requireOption(result, candidateId);
         LocalDate evaluationEnd = evaluationEnd(option, context);
         List<Long> allocatedIds = allocatedInventoryBalanceIds(option.candidate());
+        requireCurrentPeriod(
+                strategyCaseId,
+                candidateId,
+                context,
+                option.candidate().startDate(),
+                evaluationEnd,
+                allocatedIds,
+                businessDate
+        );
         periodPolicy.validateRequestedPeriod(
                 context, option.candidate().startDate(), evaluationEnd, businessDate
         );
@@ -100,12 +111,85 @@ public class StrategySelectionResolver {
         );
     }
 
+    private void requireCurrentPeriod(
+            Long strategyCaseId,
+            String candidateId,
+            StrategyCalculationContext context,
+            LocalDate startDate,
+            LocalDate endDate,
+            List<Long> allocatedIds,
+            LocalDate businessDate
+    ) {
+        List<StrategyExecutionConditionChange> changes = new ArrayList<>();
+        LocalDate minimumStart = periodPolicy.minimumStartDate(
+                context, businessDate
+        );
+        if (startDate.isBefore(minimumStart)) {
+            changes.add(new StrategyExecutionConditionChange(
+                    StrategyExecutionConditionChangeType.START_DATE_PASSED,
+                    "startDate",
+                    "판매 시작일",
+                    null,
+                    startDate,
+                    minimumStart,
+                    startDate,
+                    minimumStart,
+                    null,
+                    "기존 판매 시작일이 지나 현재 실행할 수 없습니다."
+            ));
+        }
+
+        LocalDate latestEnd = periodPolicy.latestSelectableEndDate(
+                context, allocatedIds
+        );
+        if (endDate.isAfter(latestEnd)) {
+            changes.add(new StrategyExecutionConditionChange(
+                    StrategyExecutionConditionChangeType
+                            .SELLABLE_END_DATE_CHANGED,
+                    "endDate",
+                    "판매 가능 종료일",
+                    null,
+                    endDate,
+                    latestEnd,
+                    endDate,
+                    latestEnd,
+                    null,
+                    "기존 종료일이 현재 판매 가능한 기간을 초과합니다."
+            ));
+        }
+
+        if (!changes.isEmpty()) {
+            throw new StrategyExecutionConditionChangedException(
+                    new StrategyExecutionConditionChangedDetails(
+                            strategyCaseId,
+                            candidateId,
+                            dateTimeProvider.now(),
+                            changes
+                    )
+            );
+        }
+    }
+
     private ResolvedStrategySelection adjusted(
             Long strategyCaseId,
             String candidateId,
             AdjustStrategySimulationCommand command,
             LocalDate businessDate
     ) {
+        StrategyGenerationResult currentResult = loadResult(strategyCaseId);
+        StrategyCalculationContext currentContext = loadContext(strategyCaseId);
+        requireOption(currentResult, candidateId);
+        if (withinGeneratedRange(currentContext, command)) {
+            requireCurrentPeriod(
+                    strategyCaseId,
+                    candidateId,
+                    currentContext,
+                    command.startDate(),
+                    command.endDate(),
+                    List.of(),
+                    businessDate
+            );
+        }
         ResolvedStrategyAdjustment adjustment = adjustmentService.resolveForSelection(
                 strategyCaseId, candidateId, command, businessDate
         );
@@ -132,6 +216,21 @@ public class StrategySelectionResolver {
                 command.endDate(),
                 adjustment.periodConstraints()
         );
+    }
+
+    private static boolean withinGeneratedRange(
+            StrategyCalculationContext context,
+            AdjustStrategySimulationCommand command
+    ) {
+        return command != null
+                && command.startDate() != null
+                && command.endDate() != null
+                && !command.startDate().isAfter(command.endDate())
+                && !command.startDate().isBefore(context.forecastStartDate())
+                && !command.endDate().isAfter(context.forecastEndDate())
+                && ChronoUnit.DAYS.between(
+                        command.startDate(), command.endDate()
+                ) + 1 <= StrategyPeriodEligibilityPolicy.MAXIMUM_PERIOD_DAYS;
     }
 
     private ResolvedStrategySelection resolved(

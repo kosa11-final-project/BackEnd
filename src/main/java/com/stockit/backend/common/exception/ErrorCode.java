@@ -108,6 +108,7 @@ public enum ErrorCode {
     AI_STRATEGY_RETRY_CONDITIONS_STALE(HttpStatus.CONFLICT, "기존 전략의 판매 조건이 현재 실행 가능 범위를 벗어났습니다.", "AI_STRATEGY-025"),
     AI_STRATEGY_RETRY_REFERENCE_CHANGED(HttpStatus.CONFLICT, "기존 요청의 재고 또는 판매처 상태가 변경되었습니다.", "AI_STRATEGY-026"),
     AI_STRATEGY_RETRY_PAYLOAD_INVALID(HttpStatus.CONFLICT, "기존 AI 전략 요청 정보를 복원할 수 없습니다.", "AI_STRATEGY-027"),
+    AI_STRATEGY_EXECUTION_CONDITION_CHANGED(HttpStatus.CONFLICT, "전략 생성 이후 실행 조건이 변경되었습니다.", "AI_STRATEGY-028"),
 
     // TMP - 구조 확인 후 실제 기능과 함께 제거
     TMP_CONFLICT(HttpStatus.CONFLICT, "테스트 요청이 충돌했습니다.", "TMP-001"),

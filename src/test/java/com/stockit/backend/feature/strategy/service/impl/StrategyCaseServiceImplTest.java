@@ -214,7 +214,7 @@ class StrategyCaseServiceImplTest {
         assertThat(payload.get("forecastStartDate").asText())
                 .isEqualTo(REQUESTED_AT.toLocalDate().toString());
         assertThat(payload.get("forecastEndDate").asText())
-                .isEqualTo(REQUESTED_AT.toLocalDate().plusDays(89).toString());
+                .isEqualTo(REQUESTED_AT.toLocalDate().plusDays(29).toString());
     }
 
     @Test

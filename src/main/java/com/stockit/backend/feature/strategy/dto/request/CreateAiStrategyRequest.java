@@ -37,7 +37,7 @@ public record CreateAiStrategyRequest(
         @Schema(description = "희망 판매 시작일")
         LocalDate preferredStartDate,
 
-        @Schema(description = "희망 판매 종료일. 시작일부터 포함 90일 이내")
+        @Schema(description = "희망 판매 종료일. 오늘을 포함한 30일 범위 이내")
         LocalDate preferredEndDate
 ) {
     public CreateStrategyCaseCommand toCommand() {
