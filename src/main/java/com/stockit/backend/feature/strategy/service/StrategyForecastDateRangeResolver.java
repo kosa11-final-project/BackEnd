@@ -14,10 +14,10 @@ import com.stockit.backend.feature.strategy.domain.ForecastDateRange;
 @Component
 public class StrategyForecastDateRangeResolver {
 
-    private static final long MAX_FORECAST_DAYS = 90;
+    private static final long MAX_FORECAST_DAYS = 30;
 
     /**
-     * 희망 시작일·종료일 조합에 기본값과 최대 90일 정책을 적용한다
+     * 희망 시작일·종료일 조합에 기본값과 오늘을 포함한 최대 30일 정책을 적용한다
      *
      * <p>미래 전략은 시작일까지 정상 판매된 재고를 먼저 계산해야 하므로,
      * 실제 예측 범위는 희망 전략 기간보다 앞선 오늘부터 시작할 수 있다</p>

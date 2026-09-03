@@ -19,9 +19,9 @@ class StrategyForecastDateRangeResolverTest {
             new StrategyForecastDateRangeResolver();
 
     @Test
-    void resolvesDefaultRangeAsInclusive90Days() {
+    void resolvesDefaultRangeAsInclusive30Days() {
         assertThat(resolver.resolve(null, null, TODAY))
-                .isEqualTo(new ForecastDateRange(TODAY, TODAY.plusDays(89)));
+                .isEqualTo(new ForecastDateRange(TODAY, TODAY.plusDays(29)));
     }
 
     @Test
@@ -29,13 +29,13 @@ class StrategyForecastDateRangeResolverTest {
         LocalDate startDate = TODAY.plusDays(10);
 
         assertThat(resolver.resolve(startDate, null, TODAY))
-                .isEqualTo(new ForecastDateRange(TODAY, TODAY.plusDays(89)));
+                .isEqualTo(new ForecastDateRange(TODAY, TODAY.plusDays(29)));
     }
 
     @Test
     void resolvesEndOnlyWithoutProducingPastStartDate() {
         LocalDate nearEndDate = TODAY.plusDays(10);
-        LocalDate maxEndDate = TODAY.plusDays(89);
+        LocalDate maxEndDate = TODAY.plusDays(29);
 
         assertThat(resolver.resolve(null, nearEndDate, TODAY))
                 .isEqualTo(new ForecastDateRange(TODAY, nearEndDate));
@@ -45,8 +45,8 @@ class StrategyForecastDateRangeResolverTest {
 
     @Test
     void includesPreStrategyDemandForExplicitFutureRange() {
-        assertThat(resolver.resolve(TODAY.plusDays(1), TODAY.plusDays(89), TODAY))
-                .isEqualTo(new ForecastDateRange(TODAY, TODAY.plusDays(89)));
+        assertThat(resolver.resolve(TODAY.plusDays(1), TODAY.plusDays(29), TODAY))
+                .isEqualTo(new ForecastDateRange(TODAY, TODAY.plusDays(29)));
     }
 
     @Test
@@ -64,15 +64,15 @@ class StrategyForecastDateRangeResolverTest {
                 ErrorCode.AI_STRATEGY_DATE_OUT_OF_RANGE
         );
         assertError(
-                () -> resolver.resolve(TODAY.plusDays(90), null, TODAY),
+                () -> resolver.resolve(TODAY.plusDays(30), null, TODAY),
                 ErrorCode.AI_STRATEGY_DATE_OUT_OF_RANGE
         );
     }
 
     @Test
-    void rejectsRangeLongerThanInclusive90Days() {
+    void rejectsRangeLongerThanInclusive30Days() {
         assertError(
-                () -> resolver.resolve(TODAY, TODAY.plusDays(90), TODAY),
+                () -> resolver.resolve(TODAY, TODAY.plusDays(30), TODAY),
                 ErrorCode.AI_STRATEGY_DATE_OUT_OF_RANGE
         );
     }
@@ -80,7 +80,7 @@ class StrategyForecastDateRangeResolverTest {
     @Test
     void rejectsExplicitEndOutsideForecastHorizonEvenWhenRangeIsShort() {
         assertError(
-                () -> resolver.resolve(TODAY.plusDays(80), TODAY.plusDays(90), TODAY),
+                () -> resolver.resolve(TODAY.plusDays(20), TODAY.plusDays(30), TODAY),
                 ErrorCode.AI_STRATEGY_DATE_OUT_OF_RANGE
         );
     }
@@ -92,7 +92,7 @@ class StrategyForecastDateRangeResolverTest {
                 ErrorCode.AI_STRATEGY_DATE_OUT_OF_RANGE
         );
         assertError(
-                () -> resolver.resolve(null, TODAY.plusDays(90), TODAY),
+                () -> resolver.resolve(null, TODAY.plusDays(30), TODAY),
                 ErrorCode.AI_STRATEGY_DATE_OUT_OF_RANGE
         );
     }

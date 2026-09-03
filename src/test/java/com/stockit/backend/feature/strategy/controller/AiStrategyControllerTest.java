@@ -328,7 +328,7 @@ class AiStrategyControllerTest {
                                 )
                         )),
                         new AiStrategyPeriodConstraintsResponse(
-                                start, end, 90, false
+                                start, end, 30, false
                         ),
                         new AiStrategyChartRangeResponse(start, end),
                         simulation
