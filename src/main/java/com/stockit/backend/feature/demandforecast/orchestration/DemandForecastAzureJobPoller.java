@@ -91,6 +91,7 @@ public class DemandForecastAzureJobPoller {
             Long systemUserId = runControl.requiredSystemUserId();
             switch (status) {
                 case "COMPLETED", "SUCCEEDED" -> {
+                    fastApiClient.requestDailyImport(run.getAzureJobId());
                     fastApiClient.requestImport(run.getAzureJobId());
                     if (mapper.markImportRequested(run.getForecastRunId(), systemUserId) != 1) {
                         throw new IllegalStateException("forecast run could not enter import requesting");
